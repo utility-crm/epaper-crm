@@ -5,7 +5,7 @@ type ApiResult<T> = { ok: boolean; data?: T; error?: { code: string; message: st
 async function apiFetch<T>(path: string, options: RequestInit = {}, token?: string): Promise<ApiResult<T>> {
   const headers = new Headers(options.headers || {});
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  if (!headers.has('Content-Type') && options.body && !(options.body instanceof File)) headers.set('Content-Type', 'application/json');
+  if (!headers.has('Content-Type') && options.body && !(options.body instanceof File) && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   try {
     const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
     return res.json();
