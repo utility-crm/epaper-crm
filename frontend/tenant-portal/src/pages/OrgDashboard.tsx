@@ -45,7 +45,8 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
   }, [slug, token]);
 
   const plan = billing?.plan || 'starter';
-  const diskLimitGB = plan === 'enterprise' ? 2000 : plan === 'growth' ? 500 : 100;
+  const isEnterprise = plan === 'enterprise';
+  const diskLimitGB = isEnterprise ? 2000 : plan === 'growth' ? 500 : 100;
   const diskLimitBytes = diskLimitGB * 1024 * 1024 * 1024;
   const diskUsed = stats.disk_usage_bytes || 0;
   const diskFree = Math.max(0, diskLimitBytes - diskUsed);
@@ -139,7 +140,7 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
         </Card>
 
         <Card className="lg:col-span-2">
-          <CardHeader><CardTitle>Storage</CardTitle><CardDescription>{formatBytes(diskUsed)} of {diskLimitGB} GB ({plan})</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Storage</CardTitle><CardDescription>{formatBytes(diskUsed)} of {isEnterprise ? 'Custom' : `${diskLimitGB} GB`} ({plan})</CardDescription></CardHeader>
           <CardContent>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">

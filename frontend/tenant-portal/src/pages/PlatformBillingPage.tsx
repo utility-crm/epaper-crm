@@ -136,12 +136,12 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
 
           {plans.length === 0 ? (
             <div style={{ background: 'rgba(99,102,241,0.05)', border: '1px dashed var(--color-border)',
-              borderRadius: 12, padding: '32px 24px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+              borderRadius: 12, padding: '32px 24px', textAlign: 'center', color: 'var(--color-text-secondary)', marginBottom: 20 }}>
               <p style={{ marginBottom: 8 }}>No plans have been configured yet.</p>
               <p style={{ fontSize: '0.85rem' }}>A superadmin needs to create subscription plans in the Razorpay Dashboard first.</p>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20, marginBottom: 20 }}>
               {plans.map((plan) => {
                 const isCurrentPlan = status?.has_subscription && status?.razorpay_status === 'active';
                 const isLoading = paying === plan.id;
@@ -181,41 +181,41 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                       {isLoading && <span className="spinner" style={{ width: 14, height: 14 }} />}
                       {isCurrentPlan ? 'Current Plan' : isLoading ? 'Opening…' : 'Subscribe'}
                     </button>
-                  </div>
-                );
-              })}
-              
-              {/* Custom Enterprise Card */}
-              <div
-                className="card"
-                style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px' }}
-              >
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 8 }}>
-                  Enterprise
-                </h3>
-
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 4 }}>
-                  Custom Quote
-                </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 16, textTransform: 'capitalize' }}>
-                  Billed annually · Manual invoicing
-                </div>
-
-                <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 20, flex: 1 }}>
-                  Need custom storage limits, white-glove onboarding, or a dedicated account manager? Contact us for a bespoke enterprise plan.
-                </p>
-
-                <a href="mailto:sales@epaper-cms.com?subject=Enterprise Custom Quote Request" style={{ textDecoration: 'none' }}>
-                  <button
-                    className="btn-secondary"
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-                  >
-                    Contact Us
-                  </button>
-                </a>
               </div>
             </div>
           )}
+
+          {/* Custom Enterprise Card (Always visible) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20 }}>
+            <div
+              className="card"
+              style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px' }}
+            >
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 8 }}>
+                Enterprise (Contact Us)
+              </h3>
+
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 4 }}>
+                Price: Custom
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 16, textTransform: 'capitalize' }}>
+                Storage: Custom
+              </div>
+
+              <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 20, flex: 1 }}>
+                Need custom storage limits, white-glove onboarding, or a dedicated account manager? Contact us for a bespoke enterprise plan.
+              </p>
+
+              <a href="mailto:sales@epaper-cms.com?subject=Enterprise Custom Quote Request" style={{ textDecoration: 'none' }}>
+                <button
+                  className="btn-secondary"
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                >
+                  Contact Us
+                </button>
+              </a>
+            </div>
+          </div>
 
           {/* Info note */}
           <div style={{ marginTop: 24, padding: '14px 18px', background: 'rgba(99,102,241,0.06)',
