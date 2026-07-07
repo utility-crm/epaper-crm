@@ -26,11 +26,11 @@ export function PlatformBillingPage({ slug, token }: PlatformBillingPageProps) {
     });
   }, [slug, token]);
 
-  const handleSubscribe = async (planId: string) => {
+  const handleSubscribe = async (tierId: string) => {
     if (!confirm('Are you sure you want to subscribe to this plan? (Placeholder for actual flow)')) return;
     
     setError('');
-    const res = await portalApi.subscribeToPlatform(slug, planId, token);
+    const res = await portalApi.subscribeToPlatform(slug, tierId, token);
     if (res.ok) {
       alert('Subscription created successfully!');
       window.location.reload();
@@ -81,7 +81,9 @@ export function PlatformBillingPage({ slug, token }: PlatformBillingPageProps) {
                     {tier.name}
                   </h3>
                   <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 16 }}>
-                    {tier.max_storage_mb < 2000 ? 'Free' : '$Paid'}<span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>/mo</span>
+                    {tier.price_inr > 0 ? `₹${tier.price_inr}` : 'Free'}
+                    <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>/{tier.billing_cycle === 'yearly' ? 'yr' : 'mo'}</span>
+                    {tier.tax_percentage > 0 && <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 400 }}>+{tier.tax_percentage}% tax</div>}
                   </div>
                   <ul style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 24, paddingLeft: 18, flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <li>Up to {tier.max_storage_mb >= 1024 ? `${(tier.max_storage_mb / 1024).toFixed(1)} GB` : `${tier.max_storage_mb} MB`} Storage</li>
@@ -92,7 +94,7 @@ export function PlatformBillingPage({ slug, token }: PlatformBillingPageProps) {
                   {isCurrent ? (
                     <button className="btn-secondary" disabled>Current Plan</button>
                   ) : (
-                    <button className="btn-primary" onClick={() => handleSubscribe(tier.razorpay_plan_id || `plan_${tier.name}`)}>Subscribe</button>
+                    <button className="btn-primary" onClick={() => handleSubscribe(tier.id)}>Subscribe</button>
                   )}
                 </div>
               );

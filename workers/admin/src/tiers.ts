@@ -40,34 +40,98 @@ tiersRouter.post('/', async (c) => {
   const body = await c.req.json();
   const id = `tier_${crypto.randomUUID()}`;
   
+  let razorpayPlanId = body.razorpay_plan_id || null;
+  const priceInr = body.price_inr || 0;
+  const taxPct = body.tax_percentage || 0;
+  const cycle = body.billing_cycle || 'monthly';
+
+  if (priceInr > 0) {
+    const internalReq = new Request('http://internal/internal/billing/platform/plans', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: body.name,
+        price_inr: priceInr,
+        tax_percentage: taxPct,
+        billing_cycle: cycle
+      })
+    });
+    
+    const res = await c.env.BILLING_PLATFORM_WORKER.fetch(internalReq);
+    if (res.ok) {
+      const data = await res.json() as any;
+      if (data.data?.razorpay_plan_id) {
+        razorpayPlanId = data.data.razorpay_plan_id;
+      }
+    } else {
+      return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to generate Razorpay plan automatically'), 500);
+    }
+  }
+  
   try {
     await c.env.CONTROL_DB.prepare(
-      `INSERT INTO platform_tiers (id, name, max_storage_mb, max_views_per_day, max_simultaneous_editions, max_papers_per_day, razorpay_plan_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO platform_tiers (id, name, max_storage_mb, max_views_per_day, max_simultaneous_editions, max_papers_per_day, razorpay_plan_id, price_inr, tax_percentage, billing_cycle)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       id, body.name, body.max_storage_mb, body.max_views_per_day,
-      body.max_simultaneous_editions, body.max_papers_per_day, body.razorpay_plan_id || null
+      body.max_simultaneous_editions, body.max_papers_per_day, razorpayPlanId,
+      priceInr, taxPct, cycle
     ).run();
   } catch (e: any) {
     if (e.message.includes('UNIQUE')) return c.json(err(ErrorCode.CONFLICT, 'Tier name already exists'), 409);
     throw e;
   }
   
-  return c.json(ok({ id, ...body }));
+  return c.json(ok({ id, ...body, razorpay_plan_id: razorpayPlanId, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle }));
 });
 
 tiersRouter.put('/:id', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
   
+  let razorpayPlanId = body.razorpay_plan_id || null;
+  const priceInr = body.price_inr || 0;
+  const taxPct = body.tax_percentage || 0;
+  const cycle = body.billing_cycle || 'monthly';
+
+  // Find existing to see if price changed
+  const existing = await c.env.CONTROL_DB.prepare('SELECT price_inr, tax_percentage, billing_cycle, razorpay_plan_id FROM platform_tiers WHERE id = ?').bind(id).first() as any;
+  if (!existing) return c.json(err(ErrorCode.NOT_FOUND, 'Tier not found'), 404);
+
+  // If price or cycle changed, we must create a NEW Razorpay plan
+  if (priceInr > 0 && (existing.price_inr !== priceInr || existing.tax_percentage !== taxPct || existing.billing_cycle !== cycle || !existing.razorpay_plan_id)) {
+    const internalReq = new Request('http://internal/internal/billing/platform/plans', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: body.name,
+        price_inr: priceInr,
+        tax_percentage: taxPct,
+        billing_cycle: cycle
+      })
+    });
+    const res = await c.env.BILLING_PLATFORM_WORKER.fetch(internalReq);
+    if (res.ok) {
+      const data = await res.json() as any;
+      if (data.data?.razorpay_plan_id) {
+        razorpayPlanId = data.data.razorpay_plan_id;
+      }
+    } else {
+      return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to update Razorpay plan automatically'), 500);
+    }
+  } else if (priceInr === 0) {
+    razorpayPlanId = null;
+  }
+  
   await c.env.CONTROL_DB.prepare(
-    `UPDATE platform_tiers SET name = ?, max_storage_mb = ?, max_views_per_day = ?, max_simultaneous_editions = ?, max_papers_per_day = ?, razorpay_plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    `UPDATE platform_tiers SET name = ?, max_storage_mb = ?, max_views_per_day = ?, max_simultaneous_editions = ?, max_papers_per_day = ?, razorpay_plan_id = ?, price_inr = ?, tax_percentage = ?, billing_cycle = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
   ).bind(
     body.name, body.max_storage_mb, body.max_views_per_day,
-    body.max_simultaneous_editions, body.max_papers_per_day, body.razorpay_plan_id || null, id
+    body.max_simultaneous_editions, body.max_papers_per_day, razorpayPlanId,
+    priceInr, taxPct, cycle, id
   ).run();
   
-  return c.json(ok({ id, ...body }));
+  return c.json(ok({ id, ...body, razorpay_plan_id: razorpayPlanId, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle }));
 });
 
 tiersRouter.delete('/:id', async (c) => {

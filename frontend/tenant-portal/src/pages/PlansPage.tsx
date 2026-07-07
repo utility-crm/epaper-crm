@@ -108,16 +108,20 @@ export function PlansPage({ slug, token }: Props) {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {plans.map(p => {
                 const net = Math.round(p.price_paise * (1 - (p.offer_pct || 0) / 100));
+                const finalPaise = Math.round(net * (1 + (p.tax_percentage || 0) / 100));
                 return (
                   <div key={p.id} className="relative rounded-xl border border-border p-5">
                     {!p.active && <Badge variant="muted" className="absolute right-3 top-3">Inactive</Badge>}
                     <div className="text-xs uppercase tracking-wide text-primary">{p.tier_name}</div>
                     <div className="mt-1 font-semibold">{p.name}</div>
                     <div className="mt-3 flex items-baseline gap-2">
-                      <span className="text-2xl font-700">{formatINR(net)}</span>
-                      {p.offer_pct > 0 && <span className="text-sm text-muted-foreground line-through">{formatINR(p.price_paise)}</span>}
+                      <span className="text-2xl font-700">{formatINR(finalPaise)}</span>
+                      {(p.offer_pct > 0 || (p.tax_percentage || 0) > 0) && <span className="text-sm text-muted-foreground line-through">{formatINR(p.price_paise)}</span>}
                     </div>
-                    <div className="text-xs text-muted-foreground">{INTERVAL_LABEL[p.interval] ?? p.interval}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {INTERVAL_LABEL[p.interval] ?? p.interval} 
+                      {p.tax_percentage > 0 && ` (+${p.tax_percentage}% tax)`}
+                    </div>
                     {p.offer_pct > 0 && <Badge variant="success" className="mt-3">{p.offer_label || `${p.offer_pct}% off`}</Badge>}
                     <div className="mt-4 flex gap-2">
                       <button onClick={() => setModal({ type: 'plan', data: p })} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"><Pencil className="h-3.5 w-3.5" /> Edit</button>
@@ -197,6 +201,8 @@ function PlanModal({ slug, token, tiers, initialData, onClose }: { slug: string;
   const [rupees, setRupees] = useState(initialData ? String(initialData.price_paise / 100) : '99');
   const [offerPct, setOfferPct] = useState(initialData ? String(initialData.offer_pct) : '0');
   const [offerLabel, setOfferLabel] = useState(initialData?.offer_label ?? '');
+  const [taxPct, setTaxPct] = useState(initialData ? String(initialData.tax_percentage || '0') : '0');
+  const [includeTax, setIncludeTax] = useState(initialData ? (initialData.tax_percentage > 0) : false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -207,6 +213,7 @@ function PlanModal({ slug, token, tiers, initialData, onClose }: { slug: string;
     const payload = {
       tier_id: tierId, name, interval,
       price_paise: Math.round(parseFloat(rupees || '0') * 100),
+      tax_percentage: includeTax ? (parseInt(taxPct) || 0) : 0,
       offer_pct: parseInt(offerPct) || 0,
       offer_label: offerLabel || undefined,
     };
@@ -249,6 +256,18 @@ function PlanModal({ slug, token, tiers, initialData, onClose }: { slug: string;
             <div className="space-y-1.5"><Label>Offer (% off)</Label><Input type="number" min={0} max={100} value={offerPct} onChange={e => setOfferPct(e.target.value)} /></div>
           </div>
           {parseInt(offerPct) > 0 && <div className="space-y-1.5"><Label>Offer label</Label><Input value={offerLabel} onChange={e => setOfferLabel(e.target.value)} placeholder="e.g. Launch offer" /></div>}
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={includeTax} onChange={e => setIncludeTax(e.target.checked)} className="rounded border-input" />
+              Include Taxes
+            </Label>
+            {includeTax && (
+              <div className="mt-2">
+                <Label>Tax Percentage (%)</Label>
+                <Input type="number" min={0} max={100} value={taxPct} onChange={e => setTaxPct(e.target.value)} />
+              </div>
+            )}
+          </div>
           {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
           <DialogFooter><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Saving…' : (initialData ? 'Save Changes' : 'Create Plan')}</Button></DialogFooter>
         </form>

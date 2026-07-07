@@ -31,10 +31,12 @@ async function tenantRazorpayKeys(db: D1Database, encKey: string): Promise<{ key
   return { key_id: cfg.key_id, key_secret: await decrypt(cfg.key_secret_enc, encKey) };
 }
 
-// Apply a plan's promotional discount.
-function discountedPaise(price: number, offerPct: number): number {
-  const pct = Math.max(0, Math.min(100, offerPct || 0));
-  return Math.round(price * (1 - pct / 100));
+// Apply a plan's promotional discount and tax.
+function finalPaise(price: number, offerPct: number, taxPct: number): number {
+  const discountPct = Math.max(0, Math.min(100, offerPct || 0));
+  const discounted = price * (1 - discountPct / 100);
+  const tax = Math.max(0, taxPct || 0);
+  return Math.round(discounted * (1 + tax / 100));
 }
 
 app.post('/api/billing/tenant/:slug/config', async (c) => {
@@ -132,14 +134,14 @@ app.post('/api/billing/tenant/:slug/reader/subscribe', async (c) => {
   try {
     const db = getTenantDb(c.env, slug);
     const plan = await db.prepare(
-      'SELECT id, tier_id, name, interval, price_paise, offer_pct FROM plans WHERE id = ? AND active = 1'
-    ).bind(plan_id).first<{ id: string; tier_id: string; name: string; interval: SubscriptionInterval; price_paise: number; offer_pct: number }>();
+      'SELECT id, tier_id, name, interval, price_paise, tax_percentage, offer_pct FROM plans WHERE id = ? AND active = 1'
+    ).bind(plan_id).first<{ id: string; tier_id: string; name: string; interval: SubscriptionInterval; price_paise: number; tax_percentage: number; offer_pct: number }>();
     if (!plan) return c.json(err(ErrorCode.NOT_FOUND, 'Plan not found'), 404);
 
     const keys = await tenantRazorpayKeys(db, c.env.TENANT_ENCRYPTION_KEY);
     if (!keys) return c.json(err(ErrorCode.BAD_REQUEST, 'Publication has not configured payments yet'), 400);
 
-    const amount = discountedPaise(plan.price_paise, plan.offer_pct);
+    const amount = finalPaise(plan.price_paise, plan.offer_pct, plan.tax_percentage);
     const order = await createOrder(keys.key_id, keys.key_secret, amount, {
       plan_id: plan.id, tier_id: plan.tier_id, reader_id: reader.sub,
     });

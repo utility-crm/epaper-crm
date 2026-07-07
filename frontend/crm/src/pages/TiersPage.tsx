@@ -10,7 +10,10 @@ export function TiersPage() {
   const [maxViewsPerDay, setMaxViewsPerDay] = useState(1000);
   const [maxSimultaneousEditions, setMaxSimultaneousEditions] = useState(1);
   const [maxPapersPerDay, setMaxPapersPerDay] = useState(1);
-  const [razorpayPlanId, setRazorpayPlanId] = useState('');
+  const [priceInr, setPriceInr] = useState(0);
+  const [taxPercentage, setTaxPercentage] = useState(0);
+  const [includeTax, setIncludeTax] = useState(false);
+  const [billingCycle, setBillingCycle] = useState('monthly');
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -35,7 +38,10 @@ export function TiersPage() {
     setMaxViewsPerDay(tier.max_views_per_day);
     setMaxSimultaneousEditions(tier.max_simultaneous_editions);
     setMaxPapersPerDay(tier.max_papers_per_day);
-    setRazorpayPlanId(tier.razorpay_plan_id || '');
+    setPriceInr(tier.price_inr || 0);
+    setTaxPercentage(tier.tax_percentage || 0);
+    setIncludeTax((tier.tax_percentage || 0) > 0);
+    setBillingCycle(tier.billing_cycle || 'monthly');
     setError('');
   };
 
@@ -46,7 +52,10 @@ export function TiersPage() {
     setMaxViewsPerDay(1000);
     setMaxSimultaneousEditions(1);
     setMaxPapersPerDay(1);
-    setRazorpayPlanId('');
+    setPriceInr(0);
+    setTaxPercentage(0);
+    setIncludeTax(false);
+    setBillingCycle('monthly');
     setError('');
   };
 
@@ -61,7 +70,9 @@ export function TiersPage() {
       max_views_per_day: maxViewsPerDay,
       max_simultaneous_editions: maxSimultaneousEditions,
       max_papers_per_day: maxPapersPerDay,
-      razorpay_plan_id: razorpayPlanId || null,
+      price_inr: priceInr,
+      tax_percentage: includeTax ? taxPercentage : 0,
+      billing_cycle: billingCycle,
     };
     
     let res;
@@ -107,7 +118,7 @@ export function TiersPage() {
                     <div>
                       <h3 style={{ fontSize: '1.1rem', fontWeight: 600, textTransform: 'capitalize' }}>{t.name}</h3>
                       <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                        RPay: {t.razorpay_plan_id || 'Not set'}
+                        RPay: {t.razorpay_plan_id || 'Not set'} | Price: ₹{t.price_inr || 0} / {t.billing_cycle || 'monthly'} {t.tax_percentage ? `(+${t.tax_percentage}% tax)` : ''}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 12 }}>
@@ -140,9 +151,30 @@ export function TiersPage() {
               <label className="label">Name</label>
               <input type="text" required className="input" placeholder="e.g. basic" value={name} onChange={e => setName(e.target.value)} />
             </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label className="label">Price (INR)</label>
+                <input type="number" required className="input" value={priceInr} onChange={e => setPriceInr(parseInt(e.target.value))} />
+              </div>
+              <div>
+                <label className="label">Billing Cycle</label>
+                <select className="input" value={billingCycle} onChange={e => setBillingCycle(e.target.value)}>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+            </div>
             <div>
-              <label className="label">Razorpay Plan ID (Optional)</label>
-              <input type="text" className="input" placeholder="plan_xyz123" value={razorpayPlanId} onChange={e => setRazorpayPlanId(e.target.value)} />
+              <label className="label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" checked={includeTax} onChange={e => setIncludeTax(e.target.checked)} />
+                Include Taxes
+              </label>
+              {includeTax && (
+                <div style={{ marginTop: 8 }}>
+                  <label className="label">Tax Percentage (%)</label>
+                  <input type="number" required className="input" value={taxPercentage} onChange={e => setTaxPercentage(parseInt(e.target.value))} />
+                </div>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>

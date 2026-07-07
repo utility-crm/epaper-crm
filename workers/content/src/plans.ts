@@ -103,10 +103,10 @@ plansRouter.post('/:slug/plans', async (c) => {
     const db = getTenantDb(c.env, slug);
     const id = crypto.randomUUID();
     await db.prepare(
-      `INSERT INTO plans (id, tier_id, name, interval, price_paise, offer_pct, offer_label, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO plans (id, tier_id, name, interval, price_paise, tax_percentage, offer_pct, offer_label, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(id, body.tier_id, body.name, body.interval, body.price_paise,
-           body.offer_pct ?? 0, body.offer_label ?? null, body.active === false ? 0 : 1).run();
+           body.tax_percentage ?? 0, body.offer_pct ?? 0, body.offer_label ?? null, body.active === false ? 0 : 1).run();
     return c.json(ok({ id }), 201);
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
@@ -126,6 +126,7 @@ plansRouter.patch('/:slug/plans/:id', async (c) => {
       name: body.name ?? existing.name,
       interval: body.interval ?? existing.interval,
       price_paise: body.price_paise ?? existing.price_paise,
+      tax_percentage: body.tax_percentage ?? existing.tax_percentage,
       offer_pct: body.offer_pct ?? existing.offer_pct,
       offer_label: body.offer_label !== undefined ? body.offer_label : existing.offer_label,
       active: body.active !== undefined ? (body.active ? 1 : 0) : existing.active,
@@ -133,8 +134,8 @@ plansRouter.patch('/:slug/plans/:id', async (c) => {
     if (!VALID_INTERVALS.includes(merged.interval)) return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid interval'), 400);
 
     await db.prepare(
-      `UPDATE plans SET name=?, interval=?, price_paise=?, offer_pct=?, offer_label=?, active=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`
-    ).bind(merged.name, merged.interval, merged.price_paise, merged.offer_pct, merged.offer_label, merged.active, id).run();
+      `UPDATE plans SET name=?, interval=?, price_paise=?, tax_percentage=?, offer_pct=?, offer_label=?, active=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`
+    ).bind(merged.name, merged.interval, merged.price_paise, merged.tax_percentage, merged.offer_pct, merged.offer_label, merged.active, id).run();
     return c.json(ok({ updated: true }));
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
