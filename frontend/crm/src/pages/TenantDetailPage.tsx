@@ -186,6 +186,55 @@ export function TenantDetailPage() {
         </p>
       </div>
 
+      {/* Stuck in PROVISIONING Banner (for admins) */}
+      {tenant.status === 'provisioning' && (
+        <div style={{ marginBottom: 20, padding: '16px 20px', background: 'rgba(245,158,11,0.08)',
+          border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, display: 'flex',
+          alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontWeight: 600, color: '#fcd34d', marginBottom: 4 }}>⏱ Provisioning In Progress</div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+              If this has been running for more than 5 minutes, the GitHub Actions job may have stalled.
+              Use <strong>Force Activate</strong> only if you know the D1 DB and R2 bucket were created successfully.
+              Use <strong>Re-Provision</strong> to trigger a fresh run.
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button
+              className="btn-secondary"
+              disabled={actionLoading}
+              onClick={handleReprovision}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}
+            >
+              {actionLoading && <span className="spinner" style={{ width: 12, height: 12 }} />}
+              ↻ Re-Provision
+            </button>
+            <button
+              className="btn-primary"
+              disabled={actionLoading}
+              onClick={async () => {
+                setActionLoading(true);
+                // Manually activate — use when job succeeded but webhook didn't fire
+                await fetch(`/api/tenants/internal/${slug}/activate`, {
+                  method: 'PATCH',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('epaper:adminToken')}`
+                  },
+                  body: JSON.stringify({ d1_id: `epaper-${slug}`, r2_bucket: `epaper-${slug}` })
+                });
+                const res = await crmApi.getTenant(slug!);
+                if (res.ok) setTenant(res.data);
+                setActionLoading(false);
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}
+            >
+              ✓ Force Activate
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Provision Failed Banner */}
       {tenant.status === 'provision_failed' && (
         <div style={{ marginBottom: 20, padding: '16px 20px', background: 'rgba(220,38,38,0.08)',

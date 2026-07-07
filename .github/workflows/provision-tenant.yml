@@ -68,15 +68,17 @@ jobs:
           git commit -m "chore: inject bindings for ${{ github.event.inputs.tenant_slug }}"
           git push
 
-      - name: Report Completion to Provision Worker
+      # Always runs last — reports success or failure. Uses -f so curl itself fails on HTTP errors.
+      - name: Report Success to Provision Worker
+        if: success()
         run: |
-          curl -X POST https://epaper-gateway.satishkumar-link.workers.dev/api/provision/webhook \
+          curl -f -s -X POST https://epaper-gateway.satishkumar-link.workers.dev/api/provision/webhook \
             -H "Content-Type: application/json" \
             -d '{"secret": "${{ secrets.PROVISION_WEBHOOK_SECRET }}", "slug": "${{ github.event.inputs.tenant_slug }}", "isDeprovision": false}'
 
       - name: Report Failure to Provision Worker
         if: failure()
         run: |
-          curl -X POST https://epaper-gateway.satishkumar-link.workers.dev/api/provision/webhook \
+          curl -f -s -X POST https://epaper-gateway.satishkumar-link.workers.dev/api/provision/webhook \
             -H "Content-Type: application/json" \
             -d '{"secret": "${{ secrets.PROVISION_WEBHOOK_SECRET }}", "slug": "${{ github.event.inputs.tenant_slug }}", "isDeprovision": false, "isFailure": true}'

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { portalApi } from '../lib/api';
 
 interface ProvisioningScreenProps {
@@ -15,11 +15,13 @@ const STEPS = [
   { id: 'verify', label: 'Verifying health', desc: 'Running final system health checks' },
 ];
 
+// After this many seconds, show the "stuck" UI even if still in provisioning state
+const TIMEOUT_SECONDS = 8 * 60; // 8 minutes
+
 function randomStep(status: string) {
   if (status === 'pending') return 0;
   if (status === 'active') return STEPS.length;
   if (status === 'provision_failed') return 0;
-  // Simulate progress during provisioning
   return Math.floor(Math.random() * 3) + 2;
 }
 
@@ -29,38 +31,40 @@ export function ProvisioningScreen({ token, onActive }: ProvisioningScreenProps)
   const [status, setStatus] = useState('pending');
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const cancelledRef = useRef(false);
 
+  // Elapsed timer
   useEffect(() => {
     const timer = setInterval(() => setElapsedSeconds(s => s + 1), 1000);
     return () => clearInterval(timer);
   }, []);
 
+  // Poll provision status
   useEffect(() => {
-    let cancelled = false;
+    cancelledRef.current = false;
 
     const poll = async () => {
-      while (!cancelled) {
+      while (!cancelledRef.current) {
         try {
           const res = await portalApi.provisionStatus(token);
           if (res.ok && res.data) {
             setStatus(res.data.status);
             setCurrentStep(randomStep(res.data.status));
             if (res.data.status === 'active') {
-              if (!cancelled) onActive();
-              break;
+              if (!cancelledRef.current) onActive();
+              return;
             }
-            // Stop polling on terminal failure state
             if (res.data.status === 'provision_failed') {
-              break;
+              return; // stop polling — let UI show error
             }
           }
-        } catch { /* ignore */ }
+        } catch { /* ignore transient errors */ }
         await new Promise(r => setTimeout(r, 10000));
       }
     };
 
     poll();
-    return () => { cancelled = true; };
+    return () => { cancelledRef.current = true; };
   }, [token, onActive]);
 
   const handleRetry = useCallback(async () => {
@@ -69,10 +73,11 @@ export function ProvisioningScreen({ token, onActive }: ProvisioningScreenProps)
     try {
       const res = await portalApi.retriggerProvisioning(token);
       if (res.ok) {
-        // Reset to provisioning state and restart polling
         setStatus('provisioning');
         setCurrentStep(1);
         setElapsedSeconds(0);
+        // Restart polling after retry
+        cancelledRef.current = false;
       } else {
         setRetryError(res.error?.message ?? 'Retry failed. Please try again later.');
       }
@@ -85,65 +90,18 @@ export function ProvisioningScreen({ token, onActive }: ProvisioningScreenProps)
 
   // --- FAILURE STATE ---
   if (status === 'provision_failed') {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32,
-        background: 'radial-gradient(ellipse at 50% 40%, rgba(239,68,68,0.08) 0%, transparent 70%)' }}>
-        <div style={{ maxWidth: 520, width: '100%', textAlign: 'center' }}>
-          {/* Error icon */}
-          <div style={{ marginBottom: 32, display: 'inline-block' }}>
-            <div style={{ width: 80, height: 80,
-              background: 'linear-gradient(135deg, #dc2626, #991b1b)',
-              borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto',
-              boxShadow: '0 0 60px rgba(220,38,38,0.3)' }}>
-              <span style={{ fontSize: '2.5rem' }}>⚠</span>
-            </div>
-          </div>
-
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: 12, color: 'var(--color-text-primary)' }}>
-            Setup Failed
-          </h1>
-          <p style={{ color: 'var(--color-text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-            We encountered an error while setting up your organisation. This is usually a temporary infrastructure issue.
-          </p>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginBottom: 32, lineHeight: 1.6 }}>
-            Your account is safe. No charges were made. You can retry the setup below — your data and credentials are preserved. If the issue persists, contact{' '}
-            <a href="mailto:support@epaper-cms.com" style={{ color: 'var(--color-brand-primary)' }}>support@epaper-cms.com</a>.
-          </p>
-
-          {retryError && (
-            <div style={{ marginBottom: 20, padding: '12px 16px', background: 'rgba(220,38,38,0.1)',
-              border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, color: '#fca5a5', fontSize: '0.875rem' }}>
-              {retryError}
-            </div>
-          )}
-
-          <button
-            className="btn-primary"
-            disabled={retrying}
-            onClick={handleRetry}
-            style={{ width: '100%', maxWidth: 280, display: 'inline-flex', alignItems: 'center',
-              justifyContent: 'center', gap: 8, fontSize: '1rem', padding: '12px 24px' }}
-          >
-            {retrying && <span className="spinner" style={{ width: 16, height: 16 }} />}
-            {retrying ? 'Retrying Setup…' : '↻ Retry Setup'}
-          </button>
-
-          <p style={{ marginTop: 16, color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
-            You can also close this tab and try signing in again later — your account is saved.
-          </p>
-        </div>
-
-        <style>{`
-          @keyframes pulse-glow { 0%,100% { box-shadow: 0 0 40px rgba(220,38,38,0.3); } 50% { box-shadow: 0 0 80px rgba(220,38,38,0.5); } }
-        `}</style>
-      </div>
-    );
+    return <ErrorState retrying={retrying} retryError={retryError} onRetry={handleRetry} />;
   }
 
-  // --- PROVISIONING / PENDING STATE ---
+  // --- STUCK / TIMEOUT STATE: still provisioning after 8 minutes ---
+  if (status !== 'active' && elapsedSeconds >= TIMEOUT_SECONDS) {
+    return <StuckState retrying={retrying} retryError={retryError} onRetry={handleRetry} />;
+  }
+
+  // --- NORMAL PROVISIONING STATE ---
   const minutes = Math.floor(elapsedSeconds / 60);
   const seconds = elapsedSeconds % 60;
-  const pct = Math.min(100, (currentStep / STEPS.length) * 100);
+  const pct = Math.min(95, Math.max(5, (currentStep / STEPS.length) * 100));
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32,
@@ -207,6 +165,96 @@ export function ProvisioningScreen({ token, onActive }: ProvisioningScreenProps)
         @keyframes pulse-glow { 0%,100% { box-shadow: 0 0 40px var(--color-brand-glow); } 50% { box-shadow: 0 0 80px var(--color-brand-glow); } }
         @keyframes pulse-dot { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.6; } }
       `}</style>
+    </div>
+  );
+}
+
+function ErrorState({ retrying, retryError, onRetry }: { retrying: boolean; retryError: string | null; onRetry: () => void }) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32,
+      background: 'radial-gradient(ellipse at 50% 40%, rgba(239,68,68,0.08) 0%, transparent 70%)' }}>
+      <div style={{ maxWidth: 520, width: '100%', textAlign: 'center' }}>
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ width: 80, height: 80, background: 'linear-gradient(135deg, #dc2626, #991b1b)',
+            borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto',
+            boxShadow: '0 0 60px rgba(220,38,38,0.3)' }}>
+            <span style={{ fontSize: '2.5rem' }}>⚠</span>
+          </div>
+        </div>
+
+        <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: 12 }}>Setup Failed</h1>
+        <p style={{ color: 'var(--color-text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+          We encountered an error while setting up your organisation. This is usually a temporary infrastructure issue.
+        </p>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginBottom: 32, lineHeight: 1.6 }}>
+          Your account is safe and no charges were made. Retry the setup below — your credentials are preserved.
+          If the issue persists, contact{' '}
+          <a href="mailto:support@epaper-cms.com" style={{ color: 'var(--color-brand-primary)' }}>support@epaper-cms.com</a>.
+        </p>
+
+        {retryError && (
+          <div style={{ marginBottom: 20, padding: '12px 16px', background: 'rgba(220,38,38,0.1)',
+            border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, color: '#fca5a5', fontSize: '0.875rem' }}>
+            {retryError}
+          </div>
+        )}
+
+        <button className="btn-primary" disabled={retrying} onClick={onRetry}
+          style={{ width: '100%', maxWidth: 280, display: 'inline-flex', alignItems: 'center',
+            justifyContent: 'center', gap: 8, fontSize: '1rem', padding: '12px 24px' }}>
+          {retrying && <span className="spinner" style={{ width: 16, height: 16 }} />}
+          {retrying ? 'Retrying Setup…' : '↻ Retry Setup'}
+        </button>
+
+        <p style={{ marginTop: 16, color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+          You can also close this tab and try signing in again later — your account is saved.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function StuckState({ retrying, retryError, onRetry }: { retrying: boolean; retryError: string | null; onRetry: () => void }) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32,
+      background: 'radial-gradient(ellipse at 50% 40%, rgba(245,158,11,0.08) 0%, transparent 70%)' }}>
+      <div style={{ maxWidth: 520, width: '100%', textAlign: 'center' }}>
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ width: 80, height: 80, background: 'linear-gradient(135deg, #d97706, #92400e)',
+            borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto',
+            boxShadow: '0 0 60px rgba(245,158,11,0.25)' }}>
+            <span style={{ fontSize: '2.5rem' }}>⏱</span>
+          </div>
+        </div>
+
+        <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: 12 }}>Taking Longer Than Expected</h1>
+        <p style={{ color: 'var(--color-text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+          Setup has been running for over 8 minutes. The infrastructure job may have stalled.
+        </p>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginBottom: 32, lineHeight: 1.6 }}>
+          You can retry — this will cancel the current job and start fresh. Your account and credentials are safe.
+          If this keeps happening, contact{' '}
+          <a href="mailto:support@epaper-cms.com" style={{ color: 'var(--color-brand-primary)' }}>support@epaper-cms.com</a>.
+        </p>
+
+        {retryError && (
+          <div style={{ marginBottom: 20, padding: '12px 16px', background: 'rgba(220,38,38,0.1)',
+            border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, color: '#fca5a5', fontSize: '0.875rem' }}>
+            {retryError}
+          </div>
+        )}
+
+        <button className="btn-primary" disabled={retrying} onClick={onRetry}
+          style={{ width: '100%', maxWidth: 280, display: 'inline-flex', alignItems: 'center',
+            justifyContent: 'center', gap: 8, fontSize: '1rem', padding: '12px 24px' }}>
+          {retrying && <span className="spinner" style={{ width: 16, height: 16 }} />}
+          {retrying ? 'Restarting Setup…' : '↻ Restart Setup'}
+        </button>
+
+        <p style={{ marginTop: 16, color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+          You can also close this tab and try signing in again later — your account is saved.
+        </p>
+      </div>
     </div>
   );
 }
