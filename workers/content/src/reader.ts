@@ -1,0 +1,198 @@
+import { Hono } from 'hono';
+import { getTenantDb, getTenantBucket } from './db';
+import { ok, err, ErrorCode, ReaderJwtPayload } from '@epaper/types';
+import { signJwt, verifyJwt } from './jwt';
+import { hashPassword, verifyPassword } from './password';
+
+type ReaderEnv = { ORG_JWT_SECRET: string } & Record<string, unknown>;
+
+// Public reader-facing API. Mounted OUTSIDE the orgUserAuth guard: free content and
+// signup/login must work without a staff token. Premium pages are gated per-request.
+export const readerRouter = new Hono<{ Bindings: ReaderEnv }>();
+
+async function getReader(c: any, slug: string): Promise<ReaderJwtPayload | null> {
+  const auth = c.req.header('Authorization');
+  if (!auth?.startsWith('Bearer ')) return null;
+  const payload = await verifyJwt(auth.substring(7), c.env.ORG_JWT_SECRET);
+  if (!payload || payload.aud !== 'reader' || payload.tenantSlug !== slug || typeof payload.sub !== 'string') return null;
+  return payload as unknown as ReaderJwtPayload;
+}
+
+// Does this reader hold an active subscription to the given tier right now?
+async function hasActiveSub(db: D1Database, readerId: string, tierId: string | null): Promise<boolean> {
+  if (!tierId) return false;
+  const row = await db.prepare(
+    `SELECT id FROM reader_subscriptions
+     WHERE reader_id = ? AND tier_id = ? AND status = 'active' AND current_end > CURRENT_TIMESTAMP
+     LIMIT 1`
+  ).bind(readerId, tierId).first();
+  return !!row;
+}
+
+// --- Reader accounts ---
+
+readerRouter.post('/:slug/signup', async (c) => {
+  const slug = c.req.param('slug');
+  const { email, password, name } = await c.req.json();
+  if (!email || !password || !name || password.length < 8) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid input (password min 8 chars)'), 400);
+  }
+  try {
+    const db = getTenantDb(c.env, slug);
+    const existing = await db.prepare('SELECT id FROM readers WHERE email = ?').bind(email).first();
+    if (existing) return c.json(err(ErrorCode.CONFLICT, 'Email already registered'), 409);
+
+    const id = crypto.randomUUID();
+    await db.prepare('INSERT INTO readers (id, email, password_hash, name) VALUES (?, ?, ?, ?)')
+      .bind(id, email, await hashPassword(password), name).run();
+
+    const token = await signReaderToken(c, id, slug, email);
+    return c.json(ok({ token, reader: { id, email, name } }), 201);
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+readerRouter.post('/:slug/login', async (c) => {
+  const slug = c.req.param('slug');
+  const { email, password } = await c.req.json();
+  if (!email || !password) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing credentials'), 400);
+  try {
+    const db = getTenantDb(c.env, slug);
+    const reader = await db.prepare('SELECT id, email, password_hash, name FROM readers WHERE email = ?')
+      .bind(email).first<{ id: string; email: string; password_hash: string; name: string }>();
+    if (!reader || !(await verifyPassword(password, reader.password_hash))) {
+      return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid credentials'), 401);
+    }
+    const token = await signReaderToken(c, reader.id, slug, reader.email);
+    return c.json(ok({ token, reader: { id: reader.id, email: reader.email, name: reader.name } }));
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+async function signReaderToken(c: any, id: string, slug: string, email: string): Promise<string> {
+  const payload: ReaderJwtPayload = { aud: 'reader', sub: id, tenantSlug: slug, email, exp: Math.floor(Date.now() / 1000) + 604800 };
+  return signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);
+}
+
+readerRouter.get('/:slug/me', async (c) => {
+  const slug = c.req.param('slug');
+  const reader = await getReader(c, slug);
+  if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Not signed in'), 401);
+  try {
+    const db = getTenantDb(c.env, slug);
+    const subs = await db.prepare(
+      `SELECT id, tier_id, plan_id, status, current_end FROM reader_subscriptions
+       WHERE reader_id = ? AND status = 'active' AND current_end > CURRENT_TIMESTAMP`
+    ).bind(reader.sub).all();
+    return c.json(ok({ reader: { id: reader.sub, email: reader.email }, subscriptions: subs.results }));
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+// --- Public catalog ---
+
+// Tiers + active plans, for the paywall / pricing display.
+readerRouter.get('/:slug/plans', async (c) => {
+  const slug = c.req.param('slug');
+  try {
+    const db = getTenantDb(c.env, slug);
+    const rows = await db.prepare(
+      `SELECT p.id, p.tier_id, p.name, p.interval, p.price_paise, p.offer_pct, p.offer_label,
+              t.name AS tier_name, t.description AS tier_description
+       FROM plans p JOIN tiers t ON t.id = p.tier_id
+       WHERE p.active = 1 ORDER BY t.name, p.price_paise`
+    ).all();
+    return c.json(ok({ items: rows.results }));
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+// Published papers with their edition + tier, newest first.
+readerRouter.get('/:slug/papers', async (c) => {
+  const slug = c.req.param('slug');
+  try {
+    const db = getTenantDb(c.env, slug);
+    const rows = await db.prepare(
+      `SELECT e.id, e.title, e.publish_date, e.is_free, e.page_count, e.free_page_count,
+              ed.id AS edition_id, ed.title AS edition_title, ed.tier_id
+       FROM epapers e JOIN editions ed ON ed.id = e.edition_id
+       WHERE e.status = 'published' AND ed.status != 'archived'
+       ORDER BY e.publish_date DESC`
+    ).all();
+    return c.json(ok({ items: rows.results }));
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+// Single paper metadata + whether the current viewer can access premium pages.
+readerRouter.get('/:slug/papers/:id', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  try {
+    const db = getTenantDb(c.env, slug);
+    const paper = await db.prepare(
+      `SELECT e.id, e.title, e.publish_date, e.is_free, e.page_count, e.free_page_count, ed.tier_id, ed.title AS edition_title
+       FROM epapers e JOIN editions ed ON ed.id = e.edition_id
+       WHERE e.id = ? AND e.status = 'published'`
+    ).bind(id).first<any>();
+    if (!paper) return c.json(err(ErrorCode.NOT_FOUND, 'Paper not found'), 404);
+
+    const reader = await getReader(c, slug);
+    const unlocked = !!paper.is_free || (reader ? await hasActiveSub(db, reader.sub, paper.tier_id) : false);
+    return c.json(ok({ ...paper, unlocked, signed_in: !!reader }));
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+// Serve one page PDF. Free pages are public; locked pages require an active subscription.
+readerRouter.get('/:slug/papers/:id/pages/:n', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  const n = parseInt(c.req.param('n'), 10);
+  if (!Number.isInteger(n) || n < 1) return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid page'), 400);
+
+  try {
+    const db = getTenantDb(c.env, slug);
+    const paper = await db.prepare(
+      `SELECT e.is_free, e.free_page_count, e.page_count, ed.tier_id
+       FROM epapers e JOIN editions ed ON ed.id = e.edition_id
+       WHERE e.id = ? AND e.status = 'published'`
+    ).bind(id).first<{ is_free: number; free_page_count: number; page_count: number; tier_id: string | null }>();
+    if (!paper) return c.json(err(ErrorCode.NOT_FOUND, 'Paper not found'), 404);
+    if (n > paper.page_count) return c.json(err(ErrorCode.NOT_FOUND, 'Page not found'), 404);
+
+    const isFreePage = !!paper.is_free || n <= paper.free_page_count;
+    if (!isFreePage) {
+      const reader = await getReader(c, slug);
+      if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Sign in to read this page'), 401);
+      if (!(await hasActiveSub(db, reader.sub, paper.tier_id))) {
+        return c.json(err(ErrorCode.FORBIDDEN, 'Active subscription required'), 402);
+      }
+    }
+
+    const page = await db.prepare('SELECT r2_key FROM epaper_pages WHERE epaper_id = ? AND page_no = ?')
+      .bind(id, n).first<{ r2_key: string }>();
+    if (!page) return c.json(err(ErrorCode.NOT_FOUND, 'Page not available'), 404);
+
+    const bucket = getTenantBucket(c.env, slug);
+    const obj = await bucket.get(page.r2_key);
+    if (!obj) return c.json(err(ErrorCode.NOT_FOUND, 'Page file missing'), 404);
+
+    // Count a pageview (best-effort).
+    c.executionCtx?.waitUntil(
+      db.prepare('UPDATE tenant_stats SET pageviews = pageviews + 1 WHERE id = 1').run().catch(() => {})
+    );
+
+    return new Response(obj.body, {
+      headers: { 'Content-Type': 'application/pdf', 'Cache-Control': isFreePage ? 'public, max-age=3600' : 'private, no-store' },
+    });
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});

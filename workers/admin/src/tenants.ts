@@ -49,7 +49,7 @@ tenantsRouter.get('/', async (c) => {
   const pageSize = 20;
   const offset = (page - 1) * pageSize;
   
-  let query = 'SELECT id, slug, name, email, plan, status, d1_id, r2_bucket, provision_run_id, razorpay_plan_id, razorpay_sub_id, created_at, updated_at FROM tenants';
+  let query = 'SELECT id, slug, name, email, plan, status, d1_id, r2_bucket, provision_run_id, razorpay_plan_id, razorpay_sub_id, custom_domain, domain_verified, created_at, updated_at FROM tenants';
   let countQuery = 'SELECT count(*) as total FROM tenants';
   const params: string[] = [];
   
@@ -79,7 +79,7 @@ tenantsRouter.get('/', async (c) => {
 tenantsRouter.get('/:slug', async (c) => {
   const slug = c.req.param('slug');
   const tenant = await c.env.CONTROL_DB.prepare(
-    'SELECT id, slug, name, email, plan, status, d1_id, r2_bucket, provision_run_id, razorpay_plan_id, razorpay_sub_id, created_at, updated_at FROM tenants WHERE slug = ?'
+    'SELECT id, slug, name, email, plan, status, d1_id, r2_bucket, provision_run_id, razorpay_plan_id, razorpay_sub_id, custom_domain, domain_verified, created_at, updated_at FROM tenants WHERE slug = ?'
   ).bind(slug).first();
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
   return c.json(ok(tenant));

@@ -1,18 +1,7 @@
 import { Hono } from 'hono';
 import { ok, err, ErrorCode, OrgUserRow } from '@epaper/types';
 import { getTenantDb } from './db';
-
-const encoder = new TextEncoder();
-
-async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [saltHex, hashHex] = stored.split(':');
-  if (!saltHex || !hashHex) return false;
-  const salt = new Uint8Array(saltHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
-  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
-  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, 256);
-  const derivedHex = Array.from(new Uint8Array(derivedBits)).map(b => b.toString(16).padStart(2, '0')).join('');
-  return derivedHex === hashHex;
-}
+import { verifyPassword } from './password';
 
 export const internalRouter = new Hono<{ Bindings: Record<string, unknown> }>();
 

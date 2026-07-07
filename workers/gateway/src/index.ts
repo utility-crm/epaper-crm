@@ -29,11 +29,11 @@ app.all('/api/*', async (c) => {
   const path = new URL(c.req.url).pathname;
   let targetWorker: Fetcher | null = null;
   
-  if (path.startsWith('/api/auth') || path.startsWith('/api/tenants') || path.startsWith('/api/audit')) {
+  if (path.startsWith('/api/auth') || path.startsWith('/api/tenants') || path.startsWith('/api/audit') || path.startsWith('/api/domain')) {
     targetWorker = c.env.ADMIN_WORKER;
   } else if (path.startsWith('/api/provision')) {
     targetWorker = c.env.PROVISION_WORKER;
-  } else if (path.startsWith('/api/content')) {
+  } else if (path.startsWith('/api/content') || path.startsWith('/api/read')) {
     targetWorker = c.env.CONTENT_WORKER;
   } else if (path.startsWith('/api/billing/platform')) {
     targetWorker = c.env.BILLING_PLATFORM_WORKER;
