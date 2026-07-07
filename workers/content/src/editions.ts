@@ -13,7 +13,7 @@ editionsRouter.get('/:slug/editions', async (c) => {
   try {
     const db = getTenantDb(c.env, slug);
     const [itemsRes, countRes] = await db.batch([
-      db.prepare('SELECT * FROM editions WHERE status != ? ORDER BY publish_date DESC LIMIT ? OFFSET ?').bind('archived', pageSize, offset),
+      db.prepare('SELECT * FROM editions WHERE status != ? ORDER BY created_at DESC LIMIT ? OFFSET ?').bind('archived', pageSize, offset),
       db.prepare('SELECT count(*) as total FROM editions WHERE status != ?').bind('archived')
     ]);
     
