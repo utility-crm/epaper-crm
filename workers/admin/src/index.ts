@@ -17,7 +17,7 @@ app.route('/api/tenants', tenantsRouter);
 app.route('/api/audit', auditRouter);
 app.route('/api/domain', domainRouter);
 app.route('/api/tiers', tiersRouter);
-app.route('/api/billing', billingRouter);
+app.route('/api/admin/billing', billingRouter);
 
 app.get('/health', (c) => c.json(ok({ status: 'ok', worker: 'admin' })));
 

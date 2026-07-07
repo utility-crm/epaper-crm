@@ -46,7 +46,7 @@ export const crmApi = {
   deleteTier: (id: string) => apiFetch<any>(`/api/tiers/${id}`, { method: 'DELETE' }),
   
   // Billing
-  getPlatformBillingStatus: (slug: string) => apiFetch<any>(`/api/billing/platform/${slug}/status`),
-  getPlatformBillingEvents: (slug: string) => apiFetch<any>(`/api/billing/platform/${slug}/events`),
-  getPlatformPlans: () => apiFetch<any>('/api/billing/platform/plans'),
+  getPlatformBillingStatus: (slug: string) => apiFetch<any>(`/api/admin/billing/platform/${slug}/status`),
+  getPlatformBillingEvents: (slug: string) => apiFetch<any>(`/api/admin/billing/platform/${slug}/events`),
+  getPlatformPlans: () => apiFetch<any>('/api/admin/billing/platform/plans'),
 };
