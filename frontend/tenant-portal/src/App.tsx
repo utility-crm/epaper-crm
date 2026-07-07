@@ -137,6 +137,52 @@ export default function App() {
     };
   }, []);
 
+  // ── Heartbeat: actively checks tenant status every 30s so deleted/suspended
+  //    orgs auto-logout even on idle tabs, without waiting for an API call.
+  useEffect(() => {
+    if (!token) return;
+
+    const checkStatus = async () => {
+      try {
+        const res = await portalApi.provisionStatus(token);
+        // If the tenant no longer exists at all (404 / any api error that isn't a network issue),
+        // treat it as deleted and force logout
+        if (!res.ok) {
+          const code = res.error?.code;
+          if (code && code !== 'NETWORK_ERROR') {
+            // Server responded but doesn't recognize this tenant — force logout
+            window.dispatchEvent(new CustomEvent('epaper:tenant-deleted'));
+          }
+          return;
+        }
+        const s = res.data?.status;
+        if (s === 'deleted' || s === 'deleting') {
+          window.dispatchEvent(new CustomEvent('epaper:tenant-deleted'));
+        } else if (s === 'suspended') {
+          window.dispatchEvent(new CustomEvent('epaper:tenant-suspended'));
+        } else if (s === 'active') {
+          // Keep local storage in sync
+          localStorage.setItem('epaper:tenantStatus', 'active');
+        }
+      } catch { /* ignore transient network errors */ }
+    };
+
+    // Check immediately on mount, then every 30 seconds
+    checkStatus();
+    const interval = setInterval(checkStatus, 30_000);
+
+    // Also re-check instantly when the user switches back to this tab
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') checkStatus();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [token]);
+
   function handleLogout() {
     localStorage.removeItem('epaper:orgToken');
     localStorage.removeItem('epaper:tenantStatus');

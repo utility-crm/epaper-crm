@@ -53,8 +53,27 @@ jobs:
           git commit -m "chore: remove bindings for ${{ github.event.inputs.tenant_slug }}"
           git push
 
-      - name: Report Completion to Provision Worker
+      # Purge Cloudflare cache for all URLs belonging to this tenant slug.
+      # This ensures any cached API responses for deleted tenant data are cleared immediately.
+      - name: Purge Cloudflare Cache for Tenant
+        if: ${{ secrets.CLOUDFLARE_ZONE_ID != '' }}
         run: |
-          curl -X POST https://epaper-gateway.satishkumar-link.workers.dev/api/provision/webhook \
+          SLUG="${{ github.event.inputs.tenant_slug }}"
+          # Purge all possible tenant API URL prefixes
+          curl -f -s -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_ZONE_ID }}/purge_cache" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            --data "{\"prefixes\": [\"/api/content/${SLUG}/\", \"/api/read/${SLUG}/\", \"/api/billing/tenant/${SLUG}/\"]}" \
+            || echo "Cache purge skipped or failed (non-fatal)"
+
+      - name: Report Completion to Provision Worker
+        if: success()
+        run: |
+          curl -f -s -X POST https://epaper-gateway.satishkumar-link.workers.dev/api/provision/webhook \
             -H "Content-Type: application/json" \
             -d '{"secret": "${{ secrets.PROVISION_WEBHOOK_SECRET }}", "slug": "${{ github.event.inputs.tenant_slug }}", "isDeprovision": true}'
+
+      - name: Report Failure to Provision Worker
+        if: failure()
+        run: |
+          echo "Deprovision failed for ${{ github.event.inputs.tenant_slug }} — manual cleanup may be needed"
