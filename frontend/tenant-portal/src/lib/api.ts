@@ -8,7 +8,16 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
   if (!headers.has('Content-Type') && options.body && !(options.body instanceof File) && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   try {
     const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-    return res.json();
+    const data = await res.json();
+    
+    if (!data.ok && data.error?.message === 'TENANT_SUSPENDED') {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('epaper:tenantStatus', 'suspended');
+        window.location.reload();
+      }
+    }
+    
+    return data;
   } catch {
     return { ok: false, error: { code: 'NETWORK_ERROR', message: 'Network error' } };
   }

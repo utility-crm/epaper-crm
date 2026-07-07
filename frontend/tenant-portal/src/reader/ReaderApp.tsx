@@ -7,7 +7,7 @@ import { PaperViewer } from './PaperViewer';
 import { ReaderAuthDialog } from './ReaderAuthDialog';
 import { TodayRedirect } from './TodayRedirect';
 import { Button } from '../components/ui/button';
-import { Newspaper } from 'lucide-react';
+import { Newspaper, ShieldAlert } from 'lucide-react';
 
 // Resolves which publication (slug) this reader session is for
 function ReaderShell() {
@@ -45,12 +45,33 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [orgSettings, setOrgSettings] = useState<{ org_name: string | null; logo_url: string | null; theme_id?: string } | null>(null);
   const [logoError, setLogoError] = useState(false);
+  const [isSuspended, setIsSuspended] = useState(false);
 
   useEffect(() => {
     readerApi.getSettings(slug).then(res => {
+      if (!res.ok && res.error?.message === 'TENANT_SUSPENDED') {
+        setIsSuspended(true);
+        return;
+      }
       if (res.ok && res.data) setOrgSettings(res.data);
     });
   }, [slug]);
+
+  if (isSuspended) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 text-center bg-muted/20 px-4">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
+          <ShieldAlert className="h-8 w-8 text-destructive" />
+        </div>
+        <div className="space-y-2">
+          <h1 className="font-serif text-2xl font-700">Account Suspended</h1>
+          <p className="text-sm text-muted-foreground">
+            This account has been suspended. Please contact support for help.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const logoUrl = orgSettings?.logo_url ? `/api/content/${slug}/settings/logo` : null;
   const displayName = orgSettings?.org_name || slug;

@@ -3,6 +3,7 @@ import { err, ErrorCode, OrgUserRole } from '@epaper/types';
 import { verifyJwt } from './jwt';
 
 export interface Env {
+  CONTROL_DB: D1Database;
   ORG_JWT_SECRET: string;
 }
 

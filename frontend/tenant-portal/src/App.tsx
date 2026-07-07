@@ -4,6 +4,7 @@ import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, Log
 import { SignupPage } from './pages/SignupPage';
 import { OrgLoginPage } from './pages/OrgLoginPage';
 import { ProvisioningScreen } from './pages/ProvisioningScreen';
+import { SuspendedScreen } from './pages/SuspendedScreen';
 import { OrgDashboard } from './pages/OrgDashboard';
 import { PapersPage } from './pages/PapersPage';
 import { PlansPage } from './pages/PlansPage';
@@ -152,6 +153,10 @@ export default function App() {
   }
 
   const slug: string = payload.tenantSlug;
+
+  if (tenantStatus === 'suspended') {
+    return <SuspendedScreen onLogout={handleLogout} />;
+  }
 
   if (tenantStatus !== 'active') {
     return <ProvisioningScreen token={token} onActive={handleProvisioned} />;

@@ -43,11 +43,12 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
     let coverFile: File | null = null;
     
     for (const [key, v] of form.entries()) {
-      if (v instanceof File && ACCEPTED_TYPES.has(v.type)) {
+      const file = v as any;
+      if (file.name && file.type && ACCEPTED_TYPES.has(file.type)) {
         if (key === 'cover') {
-          coverFile = v;
+          coverFile = file;
         } else {
-          pageFiles.push(v);
+          pageFiles.push(file);
         }
       }
     }

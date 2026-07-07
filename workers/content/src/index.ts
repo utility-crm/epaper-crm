@@ -7,10 +7,27 @@ import { plansRouter } from './plans';
 import { readerRouter } from './reader';
 import { settingsRouter } from './settings';
 import { err, ErrorCode, ok } from '@epaper/types';
-import { orgUserAuth } from './middleware';
+import { Env, orgUserAuth } from './middleware';
 import { getTenantDb, getTenantBucket } from './db';
 
-const app = new Hono();
+const app = new Hono<{ Bindings: Env }>();
+
+app.use('*', async (c, next) => {
+  const match = c.req.path.match(/^\/api\/(?:content|read)\/([^\/]+)/);
+  if (match) {
+    const slug = match[1];
+    try {
+      const tenant = await c.env.CONTROL_DB.prepare('SELECT status FROM tenants WHERE slug = ?').bind(slug).first<{ status: string }>();
+      if (tenant?.status === 'suspended') {
+        return c.json(err(ErrorCode.FORBIDDEN, 'TENANT_SUSPENDED'), 403);
+      }
+    } catch (e) {
+      // If DB error, fail open or log? We'll log and continue.
+      console.error('Failed to check tenant status', e);
+    }
+  }
+  await next();
+});
 
 // ── Internal provisioning callbacks (no auth) ─────────────────────────────
 app.route('/', internalRouter);
