@@ -4,7 +4,7 @@ import { ok, err, ErrorCode } from '@epaper/types';
 
 export const uploadRouter = new Hono();
 
-uploadRouter.put('/:slug/editions/:id/upload', async (c) => {
+uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
   const slug = c.req.param('slug');
   const id = c.req.param('id');
   
@@ -12,17 +12,18 @@ uploadRouter.put('/:slug/editions/:id/upload', async (c) => {
     const db = getTenantDb(c.env, slug);
     const bucket = getTenantBucket(c.env, slug);
     
-    const edition = await db.prepare('SELECT id FROM editions WHERE id = ?').bind(id).first();
-    if (!edition) return c.json(err(ErrorCode.NOT_FOUND, 'Edition not found'), 404);
+    const epaper = await db.prepare('SELECT id FROM epapers WHERE id = ?').bind(id).first();
+    if (!epaper) return c.json(err(ErrorCode.NOT_FOUND, 'Epaper not found'), 404);
     
     const contentType = c.req.header('content-type') || 'application/pdf';
-    const key = `editions/${id}/${crypto.randomUUID()}.pdf`;
+    const key = `epapers/${id}/${crypto.randomUUID()}.pdf`;
     
-    await bucket.put(key, c.req.raw.body, {
+    const obj = await bucket.put(key, c.req.raw.body, {
       httpMetadata: { contentType }
     });
     
-    await db.prepare('UPDATE editions SET r2_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(key, id).run();
+    await db.prepare('UPDATE epapers SET r2_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(key, id).run();
+    await db.prepare('UPDATE tenant_stats SET disk_usage_bytes = disk_usage_bytes + ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1').bind(obj.size).run();
     
     return c.json(ok({ uploaded: true, key }));
   } catch (e) {

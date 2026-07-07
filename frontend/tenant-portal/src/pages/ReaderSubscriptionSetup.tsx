@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { portalApi } from '../lib/api';
 
-interface BillingConfigPageProps {
+interface ReaderSubscriptionSetupProps {
   slug: string;
   token: string;
 }
 
-export function BillingConfigPage({ slug, token }: BillingConfigPageProps) {
+export function ReaderSubscriptionSetup({ slug, token }: ReaderSubscriptionSetupProps) {
   const [keyId, setKeyId] = useState('');
   const [keySecret, setKeySecret] = useState('');
   const [webhookSecret, setWebhookSecret] = useState('');

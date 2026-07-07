@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/lib/api.ts","./src/pages/EditionsPage.tsx","./src/pages/EpapersPage.tsx","./src/pages/OrgDashboard.tsx","./src/pages/OrgLoginPage.tsx","./src/pages/PlatformBillingPage.tsx","./src/pages/ProvisioningScreen.tsx","./src/pages/ReaderSubscriptionSetup.tsx","./src/pages/SignupPage.tsx"],"version":"6.0.3"}

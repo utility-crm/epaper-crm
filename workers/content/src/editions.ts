@@ -34,7 +34,7 @@ editionsRouter.post('/:slug/editions', async (c) => {
   const slug = c.req.param('slug');
   const body = await c.req.json();
   
-  if (!body.title || !body.publish_date) {
+  if (!body.title) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Missing required fields'), 400);
   }
   
@@ -45,12 +45,51 @@ editionsRouter.post('/:slug/editions', async (c) => {
     const id = crypto.randomUUID();
     
     await db.prepare(
-      'INSERT INTO editions (id, title, publish_date, status, created_by) VALUES (?, ?, ?, ?, ?)'
-    ).bind(id, body.title, body.publish_date, 'draft', created_by).run();
+      'INSERT INTO editions (id, title, status, created_by) VALUES (?, ?, ?, ?)'
+    ).bind(id, body.title, 'draft', created_by).run();
     
     return c.json(ok({ id }), 201);
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+editionsRouter.get('/:slug/editions/:id/epapers', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  
+  try {
+    const db = getTenantDb(c.env, slug);
+    const epapers = await db.prepare('SELECT * FROM epapers WHERE edition_id = ? ORDER BY publish_date DESC').bind(id).all();
+    return c.json(ok({ items: epapers.results }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
+  }
+});
+
+editionsRouter.post('/:slug/editions/:id/epapers', async (c) => {
+  const slug = c.req.param('slug');
+  const edition_id = c.req.param('id');
+  const body = await c.req.json();
+  
+  if (!body.publish_date) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Missing publish_date'), 400);
+  }
+  
+  try {
+    const db = getTenantDb(c.env, slug);
+    const id = crypto.randomUUID();
+    
+    await db.prepare(
+      'INSERT INTO epapers (id, edition_id, publish_date, is_free, publish_type, scheduled_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(
+      id, edition_id, body.publish_date, body.is_free ? 1 : 0, 
+      body.publish_type || 'instant', body.scheduled_at || null, 'draft'
+    ).run();
+    
+    return c.json(ok({ id }), 201);
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
   }
 });
 

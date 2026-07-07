@@ -11,11 +11,21 @@ CREATE TABLE IF NOT EXISTS org_users (
 CREATE TABLE IF NOT EXISTS editions (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  publish_date DATETIME NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft',
-  r2_key TEXT,
-  page_count INTEGER,
   created_by TEXT NOT NULL REFERENCES org_users(id),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS epapers (
+  id TEXT PRIMARY KEY,
+  edition_id TEXT NOT NULL REFERENCES editions(id) ON DELETE CASCADE,
+  publish_date DATETIME NOT NULL,
+  r2_key TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  is_free BOOLEAN NOT NULL DEFAULT 0,
+  publish_type TEXT NOT NULL DEFAULT 'instant',
+  scheduled_at DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -60,5 +70,7 @@ CREATE TABLE IF NOT EXISTS reader_billing_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_editions_status ON editions(status);
-CREATE INDEX IF NOT EXISTS idx_editions_publish_date ON editions(publish_date);
+CREATE INDEX IF NOT EXISTS idx_epapers_status ON epapers(status);
+CREATE INDEX IF NOT EXISTS idx_epapers_edition_id ON epapers(edition_id);
+CREATE INDEX IF NOT EXISTS idx_epapers_publish_date ON epapers(publish_date);
 CREATE INDEX IF NOT EXISTS idx_reader_subscriptions_status ON reader_subscriptions(status);

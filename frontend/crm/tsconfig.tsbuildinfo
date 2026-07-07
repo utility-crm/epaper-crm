@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/ConfirmModal.tsx","./src/components/StatusBadge.tsx","./src/components/TenantTable.tsx","./src/lib/api.ts","./src/pages/AdminLoginPage.tsx","./src/pages/AuditLogPage.tsx","./src/pages/DashboardPage.tsx","./src/pages/TenantDetailPage.tsx","./src/pages/TenantsPage.tsx"],"version":"6.0.3"}

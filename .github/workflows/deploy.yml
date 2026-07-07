@@ -19,9 +19,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
         
-      - name: Build Shared Types
-        run: npm run build --workspace=packages/types
-        
       - name: Deploy Admin Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -56,6 +53,8 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VITE_CRM_REMOTE_URL: 'https://epaper-crm.pages.dev'
+          VITE_PORTAL_REMOTE_URL: 'https://epaper-portal.pages.dev'
         run: |
           npm run build --workspace=frontend/shell
           npm run deploy --workspace=workers/gateway

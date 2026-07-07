@@ -21,11 +21,16 @@ export const portalApi = {
   provisionStatus: (token: string) => apiFetch<{ status: string; provision_run_id: string | null }>('/api/auth/provision-status', {}, token),
   getEditions: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/editions`, {}, token),
   createEdition: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/editions`, { method: 'POST', body: JSON.stringify(body) }, token),
-  uploadPdf: (slug: string, editionId: string, file: File, token: string) => apiFetch<any>(
-    `/api/content/${slug}/editions/${editionId}/upload`,
+  getEpapers: (slug: string, editionId: string, token: string) => apiFetch<any>(`/api/content/${slug}/editions/${editionId}/epapers`, {}, token),
+  createEpaper: (slug: string, editionId: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/editions/${editionId}/epapers`, { method: 'POST', body: JSON.stringify(body) }, token),
+  uploadPdf: (slug: string, epaperId: string, file: File, token: string) => apiFetch<any>(
+    `/api/content/${slug}/epapers/${epaperId}/upload`,
     { method: 'PUT', body: file, headers: { 'Content-Type': 'application/pdf' } },
     token
   ),
   getRazorpayConfig: (slug: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/config`, {}, token),
   saveRazorpayConfig: (slug: string, body: any, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/config`, { method: 'POST', body: JSON.stringify(body) }, token),
+  getPlatformBillingStatus: (slug: string, token: string) => apiFetch<any>(`/api/billing/platform/${slug}/status`, {}, token),
+  subscribeToPlatform: (slug: string, plan_id: string, token: string) => apiFetch<any>(`/api/billing/platform/subscribe`, { method: 'POST', body: JSON.stringify({ slug, plan_id }) }, token),
+  getTenantStats: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/stats`, {}, token),
 };

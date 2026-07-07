@@ -5,7 +5,9 @@ import { OrgLoginPage } from './pages/OrgLoginPage';
 import { ProvisioningScreen } from './pages/ProvisioningScreen';
 import { OrgDashboard } from './pages/OrgDashboard';
 import { EditionsPage } from './pages/EditionsPage';
-import { BillingConfigPage } from './pages/BillingConfigPage';
+import { EpapersPage } from './pages/EpapersPage';
+import { ReaderSubscriptionSetup } from './pages/ReaderSubscriptionSetup';
+import { PlatformBillingPage } from './pages/PlatformBillingPage';
 import './index.css';
 
 function decodeJwt(token: string) {
@@ -37,7 +39,8 @@ function PortalSidebar({ slug, onLogout }: { slug: string; onLogout: () => void 
         <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--color-text-muted)', padding: '0 14px', marginBottom: 4, letterSpacing: '0.08em' }}>Portal</div>
         <NavLink to="/portal" end style={({ isActive }) => link(isActive)}>Dashboard</NavLink>
         <NavLink to="/portal/editions" style={({ isActive }) => link(isActive)}>Editions</NavLink>
-        <NavLink to="/portal/billing" style={({ isActive }) => link(isActive)}>Billing</NavLink>
+        <NavLink to="/portal/reader-setup" style={({ isActive }) => link(isActive)}>Reader Setup</NavLink>
+        <NavLink to="/portal/platform-billing" style={({ isActive }) => link(isActive)}>Platform Billing</NavLink>
       </nav>
 
       <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
@@ -102,7 +105,9 @@ export default function App() {
           <Routes>
             <Route path="/portal" element={<OrgDashboard slug={slug} token={token} />} />
             <Route path="/portal/editions" element={<EditionsPage slug={slug} token={token} />} />
-            <Route path="/portal/billing" element={<BillingConfigPage slug={slug} token={token} />} />
+            <Route path="/portal/editions/:editionId/epapers" element={<EpapersPage slug={slug} token={token} />} />
+            <Route path="/portal/reader-setup" element={<ReaderSubscriptionSetup slug={slug} token={token} />} />
+            <Route path="/portal/platform-billing" element={<PlatformBillingPage slug={slug} token={token} />} />
             <Route path="*" element={<Navigate to="/portal" />} />
           </Routes>
         </div>
