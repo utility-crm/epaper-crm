@@ -184,6 +184,36 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                   </div>
                 );
               })}
+              
+              {/* Custom Enterprise Card */}
+              <div
+                className="card"
+                style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px' }}
+              >
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 8 }}>
+                  Enterprise
+                </h3>
+
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 4 }}>
+                  Custom Quote
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 16, textTransform: 'capitalize' }}>
+                  Billed annually · Manual invoicing
+                </div>
+
+                <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 20, flex: 1 }}>
+                  Need custom storage limits, white-glove onboarding, or a dedicated account manager? Contact us for a bespoke enterprise plan.
+                </p>
+
+                <a href="mailto:sales@epaper-cms.com?subject=Enterprise Custom Quote Request" style={{ textDecoration: 'none' }}>
+                  <button
+                    className="btn-secondary"
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                  >
+                    Contact Us
+                  </button>
+                </a>
+              </div>
             </div>
           )}
 

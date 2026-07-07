@@ -37,7 +37,7 @@ function slugify(text: string): string {
 
 orgAuthRouter.post('/signup', async (c) => {
   const body = await c.req.json();
-  const { orgName, name, email, password } = body;
+  const { orgName, name, email, password, plan = 'Free' } = body;
   
   if (!orgName || !name || !email || !password || password.length < 8) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid input'), 400);
@@ -60,8 +60,8 @@ orgAuthRouter.post('/signup', async (c) => {
   
   await c.env.CONTROL_DB.batch([
     c.env.CONTROL_DB.prepare(
-      'INSERT INTO tenants (id, slug, name, email, status) VALUES (?, ?, ?, ?, ?)'
-    ).bind(tenantId, slug, orgName, email, 'pending'),
+      'INSERT INTO tenants (id, slug, name, email, status, plan) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(tenantId, slug, orgName, email, 'pending', plan),
     c.env.CONTROL_DB.prepare(
       'INSERT INTO pending_owners (id, tenant_id, name, password_hash) VALUES (?, ?, ?, ?)'
     ).bind(ownerId, tenantId, name, hash),

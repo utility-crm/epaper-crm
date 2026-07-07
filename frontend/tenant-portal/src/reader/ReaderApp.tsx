@@ -46,16 +46,31 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
   const [orgSettings, setOrgSettings] = useState<{ org_name: string | null; logo_url: string | null; theme_id?: string } | null>(null);
   const [logoError, setLogoError] = useState(false);
   const [isSuspended, setIsSuspended] = useState(false);
+  const [isNotFound, setIsNotFound] = useState(false);
 
   useEffect(() => {
     readerApi.getSettings(slug).then(res => {
-      if (!res.ok && res.error?.message === 'TENANT_SUSPENDED') {
-        setIsSuspended(true);
+      if (!res.ok) {
+        if (res.error?.message === 'TENANT_SUSPENDED') {
+          setIsSuspended(true);
+        } else if (res.status === 404 || res.error?.message === 'TENANT_DELETED' || res.error?.message === 'Tenant deleted' || res.error?.message === 'Tenant not found') {
+          setIsNotFound(true);
+        }
         return;
       }
       if (res.ok && res.data) setOrgSettings(res.data);
     });
   }, [slug]);
+
+  if (isNotFound) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-2 text-center bg-background text-foreground">
+        <Newspaper className="h-10 w-10 text-muted-foreground" />
+        <h1 className="font-serif text-2xl font-700">Publication not found</h1>
+        <p className="text-sm text-muted-foreground">This publication may have been removed or does not exist.</p>
+      </div>
+    );
+  }
 
   if (isSuspended) {
     return (

@@ -71,7 +71,7 @@ tenantsRouter.get('/', async (c) => {
   const pageSize = 20;
   const offset = (page - 1) * pageSize;
   
-  let query = 'SELECT id, slug, name, email, plan, status, d1_id, r2_bucket, provision_run_id, razorpay_plan_id, razorpay_sub_id, custom_domain, domain_verified, created_at, updated_at FROM tenants';
+  let query = 'SELECT id, slug, name, email, plan, status, d1_id, r2_bucket, provision_run_id, razorpay_plan_id, razorpay_sub_id, custom_domain, domain_verified, custom_storage_mb, custom_views_per_day, custom_simultaneous_editions, custom_papers_per_day, created_at, updated_at FROM tenants';
   let countQuery = 'SELECT count(*) as total FROM tenants';
   const params: string[] = [];
   
@@ -101,7 +101,7 @@ tenantsRouter.get('/', async (c) => {
 tenantsRouter.get('/:slug', async (c) => {
   const slug = c.req.param('slug');
   const tenant = await c.env.CONTROL_DB.prepare(
-    'SELECT id, slug, name, email, plan, status, d1_id, r2_bucket, provision_run_id, razorpay_plan_id, razorpay_sub_id, custom_domain, domain_verified, created_at, updated_at FROM tenants WHERE slug = ?'
+    'SELECT id, slug, name, email, plan, status, d1_id, r2_bucket, provision_run_id, razorpay_plan_id, razorpay_sub_id, custom_domain, domain_verified, custom_storage_mb, custom_views_per_day, custom_simultaneous_editions, custom_papers_per_day, created_at, updated_at FROM tenants WHERE slug = ?'
   ).bind(slug).first();
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
   return c.json(ok(tenant));
@@ -138,6 +138,20 @@ tenantsRouter.patch('/:slug', async (c) => {
     await c.env.CONTROL_DB.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?').bind('active', slug).run();
     await c.env.CONTROL_DB.prepare('INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)')
       .bind(crypto.randomUUID(), tenant.id, 'tenant.unsuspended', c.var.adminId, '{}').run();
+  }
+  
+  if (body.custom_storage_mb !== undefined || body.custom_views_per_day !== undefined || body.custom_simultaneous_editions !== undefined || body.custom_papers_per_day !== undefined) {
+    const existing = await c.env.CONTROL_DB.prepare('SELECT custom_storage_mb, custom_views_per_day, custom_simultaneous_editions, custom_papers_per_day FROM tenants WHERE slug = ?').bind(slug).first<any>();
+    const storage = body.custom_storage_mb !== undefined ? body.custom_storage_mb : existing.custom_storage_mb;
+    const views = body.custom_views_per_day !== undefined ? body.custom_views_per_day : existing.custom_views_per_day;
+    const editions = body.custom_simultaneous_editions !== undefined ? body.custom_simultaneous_editions : existing.custom_simultaneous_editions;
+    const papers = body.custom_papers_per_day !== undefined ? body.custom_papers_per_day : existing.custom_papers_per_day;
+    
+    await c.env.CONTROL_DB.prepare('UPDATE tenants SET custom_storage_mb = ?, custom_views_per_day = ?, custom_simultaneous_editions = ?, custom_papers_per_day = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?')
+      .bind(storage, views, editions, papers, slug).run();
+      
+    await c.env.CONTROL_DB.prepare('INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), tenant.id, 'tenant.custom_limits_updated', c.var.adminId, JSON.stringify({ storage, views, editions, papers })).run();
   }
   
   return c.json(ok({ updated: true }));

@@ -25,6 +25,14 @@ export function TenantDetailPage() {
   const [modal, setModal] = useState<'suspend' | 'release' | 'delete' | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   
+  const [customLimits, setCustomLimits] = useState({
+    storage_mb: 0,
+    views_per_day: 0,
+    simultaneous_editions: 0,
+    papers_per_day: 0
+  });
+  const [limitsLoading, setLimitsLoading] = useState(false);
+  
   const [billingStatus, setBillingStatus] = useState<any>(null);
   const [billingEvents, setBillingEvents] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -37,6 +45,12 @@ export function TenantDetailPage() {
       if (res.ok) { 
         setTenant(res.data); 
         setSelectedPlan(res.data.plan); 
+        setCustomLimits({
+          storage_mb: res.data.custom_storage_mb || 0,
+          views_per_day: res.data.custom_views_per_day || 0,
+          simultaneous_editions: res.data.custom_simultaneous_editions || 0,
+          papers_per_day: res.data.custom_papers_per_day || 0
+        });
         crmApi.getAuditLog(1, res.data.id).then(aRes => { if (aRes.ok) setAuditLogs(aRes.data.data || []); });
       }
       setLoading(false);
@@ -74,6 +88,17 @@ export function TenantDetailPage() {
     const res = await crmApi.getTenant(slug);
     if (res.ok) setTenant(res.data);
     setPlanLoading(false);
+  };
+
+  const handleSaveLimits = async () => {
+    setLimitsLoading(true);
+    await crmApi.patchTenant(slug!, {
+      custom_storage_mb: customLimits.storage_mb,
+      custom_views_per_day: customLimits.views_per_day,
+      custom_simultaneous_editions: customLimits.simultaneous_editions,
+      custom_papers_per_day: customLimits.papers_per_day,
+    });
+    setLimitsLoading(false);
   };
 
   const handleSuspend = async () => {
@@ -209,6 +234,34 @@ export function TenantDetailPage() {
             </div>
             <button className="btn-primary" disabled={planLoading || selectedPlan === tenant.plan} onClick={handlePlanChange}>
               {planLoading ? 'Updating…' : 'Update Plan'}
+            </button>
+          </div>
+        )}
+
+        {/* Custom Limits Card (Enterprise Only) */}
+        {isSuperAdmin && tenant.plan.toLowerCase() === 'enterprise' && (
+          <div className="card">
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 20 }}>Enterprise Custom Limits</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+              <div>
+                <label className="label">Storage (MB)</label>
+                <input className="input" type="number" value={customLimits.storage_mb} onChange={e => setCustomLimits(c => ({...c, storage_mb: parseInt(e.target.value) || 0}))} />
+              </div>
+              <div>
+                <label className="label">Views per Day</label>
+                <input className="input" type="number" value={customLimits.views_per_day} onChange={e => setCustomLimits(c => ({...c, views_per_day: parseInt(e.target.value) || 0}))} />
+              </div>
+              <div>
+                <label className="label">Simultaneous Editions</label>
+                <input className="input" type="number" value={customLimits.simultaneous_editions} onChange={e => setCustomLimits(c => ({...c, simultaneous_editions: parseInt(e.target.value) || 0}))} />
+              </div>
+              <div>
+                <label className="label">Papers per Day</label>
+                <input className="input" type="number" value={customLimits.papers_per_day} onChange={e => setCustomLimits(c => ({...c, papers_per_day: parseInt(e.target.value) || 0}))} />
+              </div>
+            </div>
+            <button className="btn-primary" disabled={limitsLoading} onClick={handleSaveLimits}>
+              {limitsLoading ? 'Saving...' : 'Save Limits'}
             </button>
           </div>
         )}

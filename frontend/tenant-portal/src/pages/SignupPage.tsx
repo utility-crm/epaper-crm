@@ -17,7 +17,6 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [plan, setPlan] = useState('starter');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -32,7 +31,7 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
     }
     setLoading(true);
     try {
-      const res = await portalApi.signup({ orgName, name, email, password, plan });
+      const res = await portalApi.signup({ orgName, name, email, password, plan: 'Free' });
       if (res.ok && res.data?.token) {
         onSignup(res.data.token, res.data.slug);
       } else {
@@ -84,24 +83,7 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
             <input className="input" id="owner-password" type="password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="8+ chars, 1 uppercase, 1 number" />
           </div>
 
-          {/* Plan Selector */}
-          <div>
-            <label className="label" style={{ marginBottom: 12 }}>Select Plan</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-              {PLANS.map(p => (
-                <div key={p.id} onClick={() => setPlan(p.id)} style={{
-                  border: `1px solid ${plan === p.id ? 'var(--color-brand-primary)' : 'var(--color-border)'}`,
-                  borderRadius: 10, padding: '14px 12px', cursor: 'pointer', textAlign: 'center',
-                  background: plan === p.id ? 'rgba(99,102,241,0.08)' : 'rgba(0,0,0,0.1)',
-                  transition: 'all 0.15s', boxShadow: plan === p.id ? '0 0 12px var(--color-brand-glow)' : 'none',
-                }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{p.label}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 6 }}>{p.desc}</div>
-                  <div style={{ fontSize: '0.85rem', color: plan === p.id ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)', fontWeight: 600 }}>{p.price}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+
 
           {error && (
             <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
