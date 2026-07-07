@@ -1,28 +1,45 @@
-import React, { useEffect, useState } from 'react';
-import { portalApi } from '../lib/api';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { portalApi } from '../lib/api';
+import { formatBytes } from '../lib/utils';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import {
+  PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid,
+} from 'recharts';
+import { Newspaper, Eye, HardDrive, CheckCircle2, Copy, Upload, CreditCard, ArrowUpRight } from 'lucide-react';
 
-interface OrgDashboardProps {
-  slug: string;
-  token: string;
-}
+interface OrgDashboardProps { slug: string; token: string; }
+
+const tooltipStyle = { background: '#1a2035', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8, fontSize: 12 } as const;
 
 export function OrgDashboard({ slug, token }: OrgDashboardProps) {
   const [editions, setEditions] = useState<any[]>([]);
+  const [papers, setPapers] = useState<any[]>([]);
   const [stats, setStats] = useState({ disk_usage_bytes: 0, pageviews: 0 });
   const [billing, setBilling] = useState<any>(null);
+  const [domain, setDomain] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       portalApi.getEditions(slug, token),
       portalApi.getTenantStats(slug, token),
-      portalApi.getPlatformBillingStatus(slug, token)
-    ]).then(([edRes, statsRes, billRes]) => {
-      if (edRes.ok && edRes.data) setEditions(edRes.data.items ?? []);
+      portalApi.getPlatformBillingStatus(slug, token),
+      portalApi.getDomain(token),
+    ]).then(async ([edRes, statsRes, billRes, domRes]) => {
+      const eds = edRes.ok && edRes.data ? edRes.data.items ?? [] : [];
+      setEditions(eds);
       if (statsRes.ok && statsRes.data) setStats(statsRes.data);
       if (billRes.ok && billRes.data) setBilling(billRes.data);
+      if (domRes.ok && domRes.data) setDomain(domRes.data);
+      // pull papers for the most recent few editions for the table + count
+      const paperLists = await Promise.all(
+        eds.slice(0, 8).map((e: any) => portalApi.getEpapers(slug, e.id, token).then(r => (r.ok && r.data ? (r.data.items ?? []).map((p: any) => ({ ...p, edition_title: e.title })) : [])))
+      );
+      setPapers(paperLists.flat());
       setLoading(false);
     });
   }, [slug, token]);
@@ -30,160 +47,151 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
   const plan = billing?.plan || 'starter';
   const diskLimitGB = plan === 'enterprise' ? 2000 : plan === 'growth' ? 500 : 100;
   const diskLimitBytes = diskLimitGB * 1024 * 1024 * 1024;
-  const diskUsedBytes = stats.disk_usage_bytes || 0;
-  const diskAvailableBytes = Math.max(0, diskLimitBytes - diskUsedBytes);
-  
-  const formatMB = (bytes: number) => (bytes / (1024 * 1024)).toFixed(2) + ' MB';
-  const formatGB = (bytes: number) => (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-  
+  const diskUsed = stats.disk_usage_bytes || 0;
+  const diskFree = Math.max(0, diskLimitBytes - diskUsed);
+
   const diskData = [
-    { name: 'Used', value: diskUsedBytes },
-    { name: 'Available', value: diskAvailableBytes }
+    { name: 'Used', value: diskUsed || 1 },
+    { name: 'Free', value: diskFree },
   ];
-  const diskColors = ['#ef4444', '#22c55e'];
+  const publishedPapers = papers.filter(p => p.status === 'published').length;
 
-  // Mock bar chart data for Traffic Usage (Last 6 Months) since we only have total pageviews right now
+  // 6-month traffic trend — synthesized shape anchored to the real total until historical data lands.
   const months = ['Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'];
-  const trafficData = months.map((m, i) => ({
-    name: m,
-    pageviews: i === 5 ? stats.pageviews : Math.floor(Math.random() * (stats.pageviews * 0.2)) // Give latest month the actual total for demo
-  }));
+  const base = stats.pageviews || 0;
+  const trafficData = months.map((m, i) => ({ name: m, views: Math.round(base * [0.05, 0.09, 0.14, 0.22, 0.3, 0.2][i]) }));
 
-  const draftCount = editions.filter(e => e.status === 'draft').length;
-  const publishedCount = editions.filter(e => e.status === 'published').length;
-  
-  const publicLink = `https://${slug}.epaperspace.com`; // Assuming wildcard setup or custom domain later
+  const publicLink = domain?.custom_domain ? `https://${domain.custom_domain}` : `${window.location.origin}/read/${slug}`;
+
+  if (loading) {
+    return <div className="flex justify-center py-24"><div className="spinner" /></div>;
+  }
+
+  const kpis = [
+    { label: 'Editions', value: editions.length, icon: Newspaper, tint: 'text-primary' },
+    { label: 'Published Papers', value: publishedPapers, icon: CheckCircle2, tint: 'text-green-400' },
+    { label: 'Total Views', value: stats.pageviews.toLocaleString(), icon: Eye, tint: 'text-sky-400' },
+    { label: 'Storage Used', value: formatBytes(diskUsed), icon: HardDrive, tint: 'text-amber-400' },
+  ];
 
   return (
-    <div>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: 6 }}>Welcome to Admin Dashboard</h1>
+    <div className="space-y-6">
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="font-serif text-3xl font-700 tracking-tight">Newsroom Overview</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Publishing performance for <span className="text-foreground">{slug}</span></p>
+        </div>
+        <Button asChild><Link to="/portal/papers"><Upload className="h-4 w-4" /> Publish Paper</Link></Button>
       </div>
 
-      <div style={{ border: '1px solid var(--color-danger)', borderRadius: 8, padding: 16, marginBottom: 16, background: 'rgba(239, 68, 68, 0.05)' }}>
-        <div style={{ color: 'var(--color-danger)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          🔗 Your Public Reader Link
-        </div>
-        <div style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 12 }}>
-          Share this link with your readers so they can view your published papers.
-        </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <code style={{ background: 'rgba(239,68,68,0.1)', color: '#fca5a5', padding: '6px 12px', borderRadius: 6, fontSize: '0.85rem' }}>
-            {publicLink}
-          </code>
-          <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem', borderColor: 'var(--color-danger)', color: '#fca5a5' }} onClick={() => navigator.clipboard.writeText(publicLink)}>Copy Link</button>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
-        <Link to="/portal/editions" style={{ flex: 1, textDecoration: 'none' }}>
-          <button className="btn-primary" style={{ width: '100%', background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', borderRadius: 8 }}>Upload Epaper</button>
-        </Link>
-        <button className="btn-primary" style={{ flex: 1, background: '#0ea5e9', borderRadius: 8 }}>Change Domain</button>
-        <button className="btn-primary" style={{ flex: 1, background: '#f59e0b', borderRadius: 8 }}>Help/Support</button>
-        <div style={{ flex: 1, background: '#ef4444', borderRadius: 8, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '0.875rem' }}>
-          Expiry: Active
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
-        {/* Disk Usage */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ background: '#7c3aed', color: 'white', padding: '12px 16px', fontWeight: 600, fontSize: '0.9rem' }}>Disk Usage</div>
-          <div style={{ height: 250, padding: 16 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={diskData} innerRadius={60} outerRadius={80} paddingAngle={2} dataKey="value" stroke="none">
-                  {diskData.map((_, index) => <Cell key={`cell-${index}`} fill={diskColors[index % diskColors.length]} />)}
-                </Pie>
-                <RechartsTooltip formatter={(value: any) => formatMB(Number(value))} contentStyle={{ background: 'var(--color-bg-elevated)', border: 'none', borderRadius: 8 }} />
-              </PieChart>
-            </ResponsiveContainer>
+      {/* Public reader link */}
+      <Card className="border-primary/25">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold"><ArrowUpRight className="h-4 w-4 text-primary" /> Public Reader Link</div>
+            <p className="mt-1 text-sm text-muted-foreground">Share with readers to browse your published papers.</p>
           </div>
-          <div style={{ display: 'flex', gap: 8, padding: '0 16px 16px', fontSize: '0.8rem', justifyContent: 'center' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 12, height: 12, background: '#ef4444' }}/> Used</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 12, height: 12, background: '#22c55e' }}/> Available</span>
+          <div className="flex items-center gap-2">
+            <code className="rounded-md bg-black/30 px-3 py-1.5 font-mono text-xs text-primary">{publicLink}</code>
+            <Button variant="secondary" size="sm" onClick={() => navigator.clipboard.writeText(publicLink)}><Copy className="h-3.5 w-3.5" /> Copy</Button>
           </div>
-          <div style={{ display: 'flex', gap: 1 }}>
-            <div style={{ flex: 1, background: '#3b82f6', color: 'white', padding: 12, textAlign: 'center', fontSize: '0.8rem' }}>Total<br/><b>{formatGB(diskLimitBytes)}</b></div>
-            <div style={{ flex: 1, background: '#ef4444', color: 'white', padding: 12, textAlign: 'center', fontSize: '0.8rem' }}>Used<br/><b>{formatMB(diskUsedBytes)}</b></div>
-            <div style={{ flex: 1, background: '#22c55e', color: 'white', padding: 12, textAlign: 'center', fontSize: '0.8rem' }}>Available<br/><b>{formatMB(diskAvailableBytes)}</b></div>
-          </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* Traffic Usage */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ background: '#6366f1', color: 'white', padding: '12px 16px', fontWeight: 600, fontSize: '0.9rem' }}>Traffic Usage In Pageviews (Last 6 Months)</div>
-          <div style={{ height: 250, padding: 16 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={trafficData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <XAxis dataKey="name" tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
-                <RechartsTooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: 'var(--color-bg-elevated)', border: 'none', borderRadius: 8 }} />
-                <Bar dataKey="pageviews" fill="#818cf8" radius={[4, 4, 0, 0]} barSize={30} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div style={{ display: 'flex', gap: 1 }}>
-            <div style={{ flex: 1, background: '#3b82f6', color: 'white', padding: 12, textAlign: 'center', fontSize: '0.8rem' }}>Total<br/><b>{stats.pageviews}</b></div>
-            <div style={{ flex: 1, background: '#ef4444', color: 'white', padding: 12, textAlign: 'center', fontSize: '0.8rem' }}>Used<br/><b>{stats.pageviews}</b></div>
-            <div style={{ flex: 1, background: '#22c55e', color: 'white', padding: 12, textAlign: 'center', fontSize: '0.8rem' }}>Available<br/><b>∞</b></div>
-          </div>
-        </div>
+      {/* KPI row */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {kpis.map(k => (
+          <Card key={k.label}>
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/5"><k.icon className={`h-5 w-5 ${k.tint}`} /></div>
+              <div>
+                <div className="text-2xl font-700 leading-none">{k.value}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{k.label}</div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
-        <div className="card" style={{ background: '#7c3aed', padding: '20px', border: 'none', display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ fontSize: '2.5rem' }}>📰</div>
-          <div style={{ color: 'white' }}><div style={{ fontSize: '1.75rem', fontWeight: 700, lineHeight: 1 }}>{editions.length}</div><div style={{ fontSize: '0.8rem', opacity: 0.8 }}>Total Editions</div></div>
-        </div>
-        <div className="card" style={{ background: '#22c55e', padding: '20px', border: 'none', display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ fontSize: '2.5rem' }}>✅</div>
-          <div style={{ color: 'white' }}><div style={{ fontSize: '1.75rem', fontWeight: 700, lineHeight: 1 }}>{publishedCount}</div><div style={{ fontSize: '0.8rem', opacity: 0.8 }}>Published</div></div>
-        </div>
-        <div className="card" style={{ background: '#f59e0b', padding: '20px', border: 'none', display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ fontSize: '2.5rem' }}>📄</div>
-          <div style={{ color: 'white' }}><div style={{ fontSize: '1.75rem', fontWeight: 700, lineHeight: 1 }}>{editions.length * 12}</div><div style={{ fontSize: '0.8rem', opacity: 0.8 }}>Total Pages (Est)</div></div>
-        </div>
-        <div className="card" style={{ background: '#0ea5e9', padding: '20px', border: 'none', display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ fontSize: '2.5rem' }}>👁️</div>
-          <div style={{ color: 'white' }}><div style={{ fontSize: '1.75rem', fontWeight: 700, lineHeight: 1 }}>{stats.pageviews}</div><div style={{ fontSize: '0.8rem', opacity: 0.8 }}>Total Views</div></div>
-        </div>
+      {/* Charts */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3">
+          <CardHeader><CardTitle>Traffic (Last 6 Months)</CardTitle><CardDescription>Reader pageviews across all papers</CardDescription></CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trafficData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="viewsFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6366f1" stopOpacity={0.5} />
+                      <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <RTooltip contentStyle={tooltipStyle} cursor={{ stroke: 'rgba(99,102,241,0.3)' }} />
+                  <Area type="monotone" dataKey="views" stroke="#818cf8" strokeWidth={2} fill="url(#viewsFill)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle>Storage</CardTitle><CardDescription>{formatBytes(diskUsed)} of {diskLimitGB} GB ({plan})</CardDescription></CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={diskData} innerRadius={62} outerRadius={86} paddingAngle={2} dataKey="value" stroke="none">
+                    <Cell fill="#6366f1" />
+                    <Cell fill="rgba(255,255,255,0.08)" />
+                  </Pie>
+                  <RTooltip formatter={(v: any) => formatBytes(Number(v))} contentStyle={tooltipStyle} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 20px', fontWeight: 600, borderBottom: '1px solid var(--color-border)' }}>Recent Editions</div>
-        {editions.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-secondary)' }}>No editions created yet.</div>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Publication Date</th>
-                <th>Status</th>
-                <th>Views</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {editions.slice(0, 5).map(e => (
-                <tr key={e.id}>
-                  <td style={{ fontWeight: 500 }}>{e.title}</td>
-                  <td style={{ color: 'var(--color-text-secondary)' }}>{e.publish_date}</td>
-                  <td><span className={`status-badge status-${e.status}`}>{e.status}</span></td>
-                  <td>0</td>
-                  <td>
-                    <Link to="/portal/editions" className="btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: 6, textDecoration: 'none' }}>
-                      Manage
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {/* Recent papers */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle>Recent Papers</CardTitle>
+          <Link to="/portal/papers" className="text-sm text-primary hover:underline">View all</Link>
+        </CardHeader>
+        <CardContent className="p-0">
+          {papers.length === 0 ? (
+            <div className="px-6 py-14 text-center text-sm text-muted-foreground">No papers published yet. <Link to="/portal/papers" className="text-primary hover:underline">Create your first paper</Link>.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Paper</TableHead><TableHead>Edition</TableHead><TableHead>Date</TableHead>
+                  <TableHead>Access</TableHead><TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {papers.slice(0, 6).map(p => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium">{p.title || 'Untitled'}</TableCell>
+                    <TableCell className="text-muted-foreground">{p.edition_title}</TableCell>
+                    <TableCell className="text-muted-foreground">{new Date(p.publish_date).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      {p.is_free ? <Badge variant="success">Free</Badge> : <Badge variant="warning">{p.free_page_count > 0 ? `${p.free_page_count} free pages` : 'Premium'}</Badge>}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={p.status === 'published' ? 'success' : p.status === 'draft' ? 'default' : 'muted'}>{p.status}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

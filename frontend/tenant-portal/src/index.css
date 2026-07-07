@@ -1,7 +1,34 @@
-/* Design system — same tokens as CRM for consistency */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap');
+@import 'tailwindcss';
 
+@custom-variant dark (&:is(.dark *));
+
+/* shadcn design tokens — dark editorial theme (indigo brand, slate surfaces). */
 :root {
+  --background: #0a0d14;
+  --foreground: #f1f5f9;
+  --card: #111520;
+  --card-foreground: #f1f5f9;
+  --popover: #1a2035;
+  --popover-foreground: #f1f5f9;
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --secondary: #1a2035;
+  --secondary-foreground: #f1f5f9;
+  --muted: #1a2035;
+  --muted-foreground: #94a3b8;
+  --accent: #1a2035;
+  --accent-foreground: #f1f5f9;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --border: rgba(99, 102, 241, 0.15);
+  --input: rgba(99, 102, 241, 0.2);
+  --ring: #6366f1;
+  --radius: 0.75rem;
+
+  /* legacy variables kept so existing inline-style pages still render */
   --color-bg-base: #0a0d14;
   --color-bg-surface: #111520;
   --color-bg-elevated: #1a2035;
@@ -20,10 +47,57 @@
   --color-border-strong: rgba(99, 102, 241, 0.35);
   --font-sans: 'Inter', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+  --font-serif: 'Fraunces', Georgia, serif;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--color-bg-base); color: var(--color-text-primary); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
 
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-serif: var(--font-serif);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  * { box-sizing: border-box; margin: 0; padding: 0; border-color: var(--border); }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  .font-500 { font-weight: 500; }
+  .font-600 { font-weight: 600; }
+  .font-700 { font-weight: 700; }
+  .font-800 { font-weight: 800; }
+}
+
+/* ---- legacy component classes (used by not-yet-migrated inline pages) ---- */
 .card { background: var(--color-bg-glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--color-border); border-radius: 16px; padding: 24px; }
 .btn-primary { background: linear-gradient(135deg, var(--color-brand-primary), #7c3aed); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-family: var(--font-sans); cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px var(--color-brand-glow); }
 .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px var(--color-brand-glow); }

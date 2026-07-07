@@ -1,13 +1,41 @@
 import { Hono } from 'hono';
-import { ok, err, ErrorCode } from '@epaper/types';
+import { ok, err, ErrorCode, ReaderJwtPayload, SubscriptionInterval } from '@epaper/types';
 import { getTenantDb } from './db';
 import { encrypt, decrypt } from './crypto';
+import { verifyJwt } from './jwt';
+import { createOrder, verifyPaymentSignature } from './razorpay';
 
 export interface Env {
   TENANT_ENCRYPTION_KEY: string;
+  ORG_JWT_SECRET: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+const INTERVAL_MONTHS: Record<SubscriptionInterval, number> = { monthly: 1, '6month': 6, '12month': 12 };
+
+// Resolve the reader from an Authorization: Bearer <reader JWT> header.
+async function getReader(c: any, slug: string): Promise<ReaderJwtPayload | null> {
+  const auth = c.req.header('Authorization');
+  if (!auth?.startsWith('Bearer ')) return null;
+  const payload = await verifyJwt(auth.substring(7), c.env.ORG_JWT_SECRET);
+  if (!payload || payload.aud !== 'reader' || payload.tenantSlug !== slug || typeof payload.sub !== 'string') return null;
+  return payload as unknown as ReaderJwtPayload;
+}
+
+// Load + decrypt the tenant's Razorpay credentials.
+async function tenantRazorpayKeys(db: D1Database, encKey: string): Promise<{ key_id: string; key_secret: string } | null> {
+  const cfg = await db.prepare('SELECT key_id, key_secret_enc FROM razorpay_config WHERE id = 1')
+    .first<{ key_id: string; key_secret_enc: string }>();
+  if (!cfg) return null;
+  return { key_id: cfg.key_id, key_secret: await decrypt(cfg.key_secret_enc, encKey) };
+}
+
+// Apply a plan's promotional discount.
+function discountedPaise(price: number, offerPct: number): number {
+  const pct = Math.max(0, Math.min(100, offerPct || 0));
+  return Math.round(price * (1 - pct / 100));
+}
 
 app.post('/api/billing/tenant/:slug/config', async (c) => {
   const slug = c.req.param('slug');
@@ -89,6 +117,80 @@ app.post('/api/billing/tenant/:slug/webhook', async (c) => {
     return c.json(ok({ processed: true }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+// Reader-facing: create a Razorpay order for a plan, billed to the tenant's own account.
+app.post('/api/billing/tenant/:slug/reader/subscribe', async (c) => {
+  const slug = c.req.param('slug');
+  const reader = await getReader(c, slug);
+  if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Sign in to subscribe'), 401);
+
+  const { plan_id } = await c.req.json<{ plan_id: string }>();
+  if (!plan_id) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing plan_id'), 400);
+
+  try {
+    const db = getTenantDb(c.env, slug);
+    const plan = await db.prepare(
+      'SELECT id, tier_id, name, interval, price_paise, offer_pct FROM plans WHERE id = ? AND active = 1'
+    ).bind(plan_id).first<{ id: string; tier_id: string; name: string; interval: SubscriptionInterval; price_paise: number; offer_pct: number }>();
+    if (!plan) return c.json(err(ErrorCode.NOT_FOUND, 'Plan not found'), 404);
+
+    const keys = await tenantRazorpayKeys(db, c.env.TENANT_ENCRYPTION_KEY);
+    if (!keys) return c.json(err(ErrorCode.BAD_REQUEST, 'Publication has not configured payments yet'), 400);
+
+    const amount = discountedPaise(plan.price_paise, plan.offer_pct);
+    const order = await createOrder(keys.key_id, keys.key_secret, amount, {
+      plan_id: plan.id, tier_id: plan.tier_id, reader_id: reader.sub,
+    });
+
+    return c.json(ok({
+      order_id: order.id, amount: order.amount, currency: order.currency,
+      key_id: keys.key_id, plan: { id: plan.id, name: plan.name, interval: plan.interval },
+    }));
+  } catch (e) {
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Subscribe failed'), 500);
+  }
+});
+
+// Reader-facing: verify a completed Razorpay payment and activate the subscription.
+app.post('/api/billing/tenant/:slug/reader/verify', async (c) => {
+  const slug = c.req.param('slug');
+  const reader = await getReader(c, slug);
+  if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Sign in to subscribe'), 401);
+
+  const body = await c.req.json<{ plan_id: string; razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }>();
+  if (!body.plan_id || !body.razorpay_order_id || !body.razorpay_payment_id || !body.razorpay_signature) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Missing payment fields'), 400);
+  }
+
+  try {
+    const db = getTenantDb(c.env, slug);
+    const plan = await db.prepare('SELECT id, tier_id, interval FROM plans WHERE id = ?')
+      .bind(body.plan_id).first<{ id: string; tier_id: string; interval: SubscriptionInterval }>();
+    if (!plan) return c.json(err(ErrorCode.NOT_FOUND, 'Plan not found'), 404);
+
+    const keys = await tenantRazorpayKeys(db, c.env.TENANT_ENCRYPTION_KEY);
+    if (!keys) return c.json(err(ErrorCode.BAD_REQUEST, 'Payments not configured'), 400);
+
+    const valid = await verifyPaymentSignature(body.razorpay_order_id, body.razorpay_payment_id, body.razorpay_signature, keys.key_secret);
+    if (!valid) return c.json(err(ErrorCode.UNAUTHORIZED, 'Payment verification failed'), 401);
+
+    const months = INTERVAL_MONTHS[plan.interval] ?? 1;
+    const now = new Date();
+    const end = new Date(now); end.setMonth(end.getMonth() + months);
+
+    const id = crypto.randomUUID();
+    await db.prepare(
+      `INSERT INTO reader_subscriptions
+         (id, reader_id, razorpay_sub_id, plan_type, tier_id, plan_id, status, current_start, current_end)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`
+    ).bind(id, reader.sub, body.razorpay_payment_id, plan.interval, plan.tier_id, plan.id,
+           now.toISOString(), end.toISOString()).run();
+
+    return c.json(ok({ subscription_id: id, tier_id: plan.tier_id, current_end: end.toISOString() }));
+  } catch (e) {
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Verify failed'), 500);
   }
 });
 

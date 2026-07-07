@@ -55,6 +55,8 @@ export interface TenantRow {
   provision_run_id: string | null;
   razorpay_plan_id: string | null;
   razorpay_sub_id: string | null;
+  custom_domain: string | null;
+  domain_verified: number;
   created_at: string;
   updated_at: string;
 }
@@ -103,11 +105,69 @@ export type EditionStatus = 'draft' | 'published' | 'archived';
 export interface EditionRow {
   id: string;
   title: string;
-  publish_date: string;
   status: EditionStatus;
-  r2_key: string | null;
-  page_count: number | null;
+  tier_id: string | null;
   created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PublishType = 'instant' | 'scheduled';
+export type EpaperStatus = 'draft' | 'published' | 'archived';
+
+export interface EpaperRow {
+  id: string;
+  edition_id: string;
+  title: string | null;
+  publish_date: string;
+  r2_key: string | null;
+  status: EpaperStatus;
+  is_free: number;
+  publish_type: PublishType;
+  scheduled_at: string | null;
+  page_count: number;
+  free_page_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EpaperPageRow {
+  id: string;
+  epaper_id: string;
+  page_no: number;
+  r2_key: string;
+  created_at: string;
+}
+
+export type SubscriptionInterval = 'monthly' | '6month' | '12month';
+
+export interface TierRow {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlanRow {
+  id: string;
+  tier_id: string;
+  name: string;
+  interval: SubscriptionInterval;
+  price_paise: number;
+  offer_pct: number;
+  offer_label: string | null;
+  active: number;
+  razorpay_plan_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReaderRow {
+  id: string;
+  email: string;
+  password_hash: string;
+  name: string;
   created_at: string;
   updated_at: string;
 }
@@ -136,6 +196,8 @@ export interface ReaderSubscriptionRow {
   reader_id: string;
   razorpay_sub_id: string;
   plan_type: string;
+  tier_id: string | null;
+  plan_id: string | null;
   status: SubscriptionStatus;
   current_start: string;
   current_end: string;
@@ -166,5 +228,13 @@ export interface OrgUserJwtPayload {
   tenantSlug: string;
   role: OrgUserRole;
   userId: string;
+  exp: number;
+}
+
+export interface ReaderJwtPayload {
+  aud: 'reader';
+  sub: string;          // reader id
+  tenantSlug: string;
+  email: string;
   exp: number;
 }

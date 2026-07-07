@@ -1,13 +1,17 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
+import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut } from 'lucide-react';
 import { SignupPage } from './pages/SignupPage';
 import { OrgLoginPage } from './pages/OrgLoginPage';
 import { ProvisioningScreen } from './pages/ProvisioningScreen';
 import { OrgDashboard } from './pages/OrgDashboard';
-import { EditionsPage } from './pages/EditionsPage';
-import { EpapersPage } from './pages/EpapersPage';
+import { PapersPage } from './pages/PapersPage';
+import { PlansPage } from './pages/PlansPage';
+import { DomainPage } from './pages/DomainPage';
 import { ReaderSubscriptionSetup } from './pages/ReaderSubscriptionSetup';
 import { PlatformBillingPage } from './pages/PlatformBillingPage';
+import { ReaderApp } from './reader/ReaderApp';
+import { cn } from './lib/utils';
 import './index.css';
 
 function decodeJwt(token: string) {
@@ -16,37 +20,56 @@ function decodeJwt(token: string) {
   } catch { return null; }
 }
 
-function PortalSidebar({ slug, onLogout }: { slug: string; onLogout: () => void }) {
-  const link = (isActive: boolean): React.CSSProperties => ({
-    display: 'block', padding: '10px 14px', borderRadius: 8, textDecoration: 'none', fontWeight: 500, fontSize: '0.9rem',
-    background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
-    color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-    transition: 'all 0.15s',
-  });
+const NAV = [
+  { to: '/portal', end: true, label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/portal/papers', label: 'Editions & Papers', icon: Newspaper },
+  { to: '/portal/plans', label: 'Subscriptions', icon: CreditCard },
+  { to: '/portal/reader-setup', label: 'Payment Setup', icon: KeyRound },
+  { to: '/portal/domain', label: 'Custom Domain', icon: Globe },
+  { to: '/portal/platform-billing', label: 'Platform Billing', icon: Building2 },
+];
 
+function PortalSidebar({ slug, onLogout }: { slug: string; onLogout: () => void }) {
   return (
-    <div style={{ width: 220, minHeight: '100vh', background: 'var(--color-bg-surface)',
-      borderRight: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', padding: '24px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 40 }}>
-        <div style={{ width: 36, height: 36, background: 'linear-gradient(135deg, var(--color-brand-primary), #7c3aed)',
-          borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 16px var(--color-brand-glow)' }}>
-          <span style={{ fontSize: '1.1rem' }}>◈</span>
+    <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-card/40 px-3 py-6">
+      <div className="mb-9 flex items-center gap-2.5 px-2">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-violet-600 shadow-lg shadow-primary/30">
+          <Newspaper className="h-4 w-4 text-white" />
         </div>
-        <span style={{ fontWeight: 700, fontSize: '0.9rem', fontFamily: 'var(--font-mono)', color: 'var(--color-brand-primary)' }}>{slug}</span>
+        <div className="leading-tight">
+          <div className="font-serif text-sm font-700 text-foreground">Publisher</div>
+          <div className="font-mono text-[0.7rem] text-primary">{slug}</div>
+        </div>
       </div>
 
-      <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--color-text-muted)', padding: '0 14px', marginBottom: 4, letterSpacing: '0.08em' }}>Portal</div>
-        <NavLink to="/portal" end style={({ isActive }) => link(isActive)}>Dashboard</NavLink>
-        <NavLink to="/portal/editions" style={({ isActive }) => link(isActive)}>Editions</NavLink>
-        <NavLink to="/portal/reader-setup" style={({ isActive }) => link(isActive)}>Reader Setup</NavLink>
-        <NavLink to="/portal/platform-billing" style={({ isActive }) => link(isActive)}>Platform Billing</NavLink>
+      <nav className="flex flex-1 flex-col gap-1">
+        <div className="mb-1 px-3 text-[0.7rem] uppercase tracking-wider text-muted-foreground/70">Workspace</div>
+        {NAV.map(({ to, end, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+              )
+            }
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </NavLink>
+        ))}
       </nav>
 
-      <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
-        <button className="btn-secondary" onClick={onLogout} style={{ width: '100%', fontSize: '0.875rem', padding: '8px 12px' }}>Sign Out</button>
-      </div>
-    </div>
+      <button
+        onClick={onLogout}
+        className="mt-4 flex items-center gap-3 rounded-lg border-t border-border px-3 pt-4 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <LogOut className="h-4 w-4" />
+        Sign Out
+      </button>
+    </aside>
   );
 }
 
@@ -73,7 +96,14 @@ export default function App() {
     setTenantStatus('active');
   }
 
-  // Public routes
+  // Public reader experience — served at the tenant's custom domain (or /read/:slug).
+  // Rendered before any staff-auth gating.
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  if (path.startsWith('/read')) {
+    return <ReaderApp />;
+  }
+
+  // Public staff routes
   if (!token) {
     return (
       <Routes>
@@ -92,22 +122,25 @@ export default function App() {
 
   const slug: string = payload.tenantSlug;
 
-  // Provisioning guard
   if (tenantStatus !== 'active') {
     return <ProvisioningScreen token={token} onActive={handleProvisioned} />;
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg-base)', fontFamily: 'var(--font-sans)' }}>
+    <div className="flex h-screen bg-background font-sans text-foreground">
       <PortalSidebar slug={slug} onLogout={handleLogout} />
-      <main style={{ flex: 1, overflowY: 'auto', padding: 32 }}>
-        <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+      <main className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-6xl px-8 py-8">
           <Routes>
             <Route path="/portal" element={<OrgDashboard slug={slug} token={token} />} />
-            <Route path="/portal/editions" element={<EditionsPage slug={slug} token={token} />} />
-            <Route path="/portal/editions/:editionId/epapers" element={<EpapersPage slug={slug} token={token} />} />
+            <Route path="/portal/papers" element={<PapersPage slug={slug} token={token} />} />
+            <Route path="/portal/plans" element={<PlansPage slug={slug} token={token} />} />
+            <Route path="/portal/domain" element={<DomainPage slug={slug} token={token} />} />
             <Route path="/portal/reader-setup" element={<ReaderSubscriptionSetup slug={slug} token={token} />} />
             <Route path="/portal/platform-billing" element={<PlatformBillingPage slug={slug} token={token} />} />
+            {/* legacy paths */}
+            <Route path="/portal/editions" element={<Navigate to="/portal/papers" replace />} />
+            <Route path="/portal/epapers" element={<Navigate to="/portal/papers" replace />} />
             <Route path="*" element={<Navigate to="/portal" />} />
           </Routes>
         </div>

@@ -37,7 +37,16 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler d1 execute epaper-${{ github.event.inputs.tenant_slug }} --remote --file=migrations/tenant/0001_init.sql
+        run: |
+          # 0003 is a legacy transform for DBs created before 0001 was rewritten to the
+          # restructured shape; it errors on a fresh DB, so skip it for new tenants.
+          for f in $(ls migrations/tenant/*.sql | sort); do
+            case "$f" in
+              *0003_*) echo "Skipping legacy migration $f"; continue ;;
+            esac
+            echo "Applying $f"
+            npx wrangler d1 execute epaper-${{ github.event.inputs.tenant_slug }} --remote --file="$f"
+          done
         
       - name: Deploy Content Worker
         env:
