@@ -16,8 +16,10 @@ plansRouter.get('/:slug/tiers', async (c) => {
     const db = getTenantDb(c.env, slug);
     const rows = await db.prepare('SELECT * FROM tiers ORDER BY created_at DESC').all();
     return c.json(ok({ items: rows.results }));
-  } catch {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
+  } catch (e: any) {
+    const msg = e?.message ?? 'Unknown error';
+    const isMissing = msg.includes('binding') || msg.includes('not found');
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, isMissing ? 'Tenant DB not found' : `DB error: ${msg}`), 403);
   }
 });
 
@@ -31,8 +33,10 @@ plansRouter.post('/:slug/tiers', async (c) => {
     await db.prepare('INSERT INTO tiers (id, name, description) VALUES (?, ?, ?)')
       .bind(id, body.name, body.description ?? null).run();
     return c.json(ok({ id }), 201);
-  } catch {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
+  } catch (e: any) {
+    const msg = e?.message ?? 'Unknown error';
+    const isMissing = msg.includes('binding') || msg.includes('not found');
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, isMissing ? 'Tenant DB not found' : `DB error: ${msg}`), 403);
   }
 });
 
@@ -43,8 +47,10 @@ plansRouter.delete('/:slug/tiers/:id', async (c) => {
     const db = getTenantDb(c.env, slug);
     await db.prepare('DELETE FROM tiers WHERE id = ?').bind(id).run();
     return c.json(ok({ deleted: true }));
-  } catch {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
+  } catch (e: any) {
+    const msg = e?.message ?? 'Unknown error';
+    const isMissing = msg.includes('binding') || msg.includes('not found');
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, isMissing ? 'Tenant DB not found' : `DB error: ${msg}`), 403);
   }
 });
 
@@ -65,8 +71,10 @@ plansRouter.patch('/:slug/tiers/:id', async (c) => {
     await db.prepare('UPDATE tiers SET name=?, description=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
       .bind(merged.name, merged.description, id).run();
     return c.json(ok({ updated: true }));
-  } catch {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
+  } catch (e: any) {
+    const msg = e?.message ?? 'Unknown error';
+    const isMissing = msg.includes('binding') || msg.includes('not found');
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, isMissing ? 'Tenant DB not found' : `DB error: ${msg}`), 403);
   }
 });
 
@@ -80,8 +88,10 @@ plansRouter.get('/:slug/plans', async (c) => {
       `SELECT p.*, t.name AS tier_name FROM plans p JOIN tiers t ON t.id = p.tier_id ORDER BY p.created_at DESC`
     ).all();
     return c.json(ok({ items: rows.results }));
-  } catch {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
+  } catch (e: any) {
+    const msg = e?.message ?? 'Unknown error';
+    const isMissing = msg.includes('binding') || msg.includes('not found');
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, isMissing ? 'Tenant DB not found' : `DB error: ${msg}`), 403);
   }
 });
 
@@ -108,8 +118,10 @@ plansRouter.post('/:slug/plans', async (c) => {
     ).bind(id, body.tier_id, body.name, body.interval, body.price_paise,
            body.tax_percentage ?? 0, body.offer_pct ?? 0, body.offer_label ?? null, body.active === false ? 0 : 1).run();
     return c.json(ok({ id }), 201);
-  } catch {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
+  } catch (e: any) {
+    const msg = e?.message ?? 'Unknown error';
+    const isMissing = msg.includes('binding') || msg.includes('not found');
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, isMissing ? 'Tenant DB not found' : `DB error: ${msg}`), 403);
   }
 });
 
@@ -137,8 +149,10 @@ plansRouter.patch('/:slug/plans/:id', async (c) => {
       `UPDATE plans SET name=?, interval=?, price_paise=?, tax_percentage=?, offer_pct=?, offer_label=?, active=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`
     ).bind(merged.name, merged.interval, merged.price_paise, merged.tax_percentage, merged.offer_pct, merged.offer_label, merged.active, id).run();
     return c.json(ok({ updated: true }));
-  } catch {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
+  } catch (e: any) {
+    const msg = e?.message ?? 'Unknown error';
+    const isMissing = msg.includes('binding') || msg.includes('not found');
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, isMissing ? 'Tenant DB not found' : `DB error: ${msg}`), 403);
   }
 });
 
@@ -149,7 +163,9 @@ plansRouter.delete('/:slug/plans/:id', async (c) => {
     const db = getTenantDb(c.env, slug);
     await db.prepare('DELETE FROM plans WHERE id = ?').bind(id).run();
     return c.json(ok({ deleted: true }));
-  } catch {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
+  } catch (e: any) {
+    const msg = e?.message ?? 'Unknown error';
+    const isMissing = msg.includes('binding') || msg.includes('not found');
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, isMissing ? 'Tenant DB not found' : `DB error: ${msg}`), 403);
   }
 });
