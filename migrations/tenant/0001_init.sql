@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS epapers (
   edition_id TEXT NOT NULL REFERENCES editions(id) ON DELETE CASCADE,
   publish_date DATETIME NOT NULL,
   r2_key TEXT,
-  cover_key TEXT,
   page_count INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'draft',
   is_free BOOLEAN NOT NULL DEFAULT 0,
