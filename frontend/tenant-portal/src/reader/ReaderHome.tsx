@@ -5,6 +5,7 @@ import { ReaderSession } from './lib';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationLink, PaginationNext, PaginationEllipsis } from '../components/ui/pagination';
 import { Newspaper, Lock } from 'lucide-react';
 
 interface Props {
@@ -22,6 +23,13 @@ export function ReaderHome({ slug, session, orgName }: Props) {
   const [filterEdition, setFilterEdition] = useState('');
   const [filterStart, setFilterStart] = useState('');
   const [filterEnd, setFilterEnd] = useState('');
+  
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [filterEdition, filterStart, filterEnd]);
 
   useEffect(() => {
     readerApi.getPublicEditions(slug).then(res => {
@@ -34,14 +42,20 @@ export function ReaderHome({ slug, session, orgName }: Props) {
     readerApi.getPapers(slug, { 
       edition_id: filterEdition || undefined,
       start_date: filterStart || undefined,
-      end_date: filterEnd || undefined
+      end_date: filterEnd || undefined,
+      page
     }).then(res => {
-      if (res.ok && res.data) setPapers(res.data.items ?? []);
+      if (res.ok && res.data) {
+        setPapers(res.data.items ?? []);
+        const limit = res.data.limit || 12;
+        const total = res.data.total || 0;
+        setTotalPages(Math.max(1, Math.ceil(total / limit)));
+      }
       setLoading(false);
     });
-  }, [slug, session, filterEdition, filterStart, filterEnd]);
+  }, [slug, session, filterEdition, filterStart, filterEnd, page]);
 
-  if (loading) return <div className="flex justify-center py-24"><div className="spinner" /></div>;
+  if (loading && papers.length === 0) return <div className="flex justify-center py-24"><div className="spinner" /></div>;
 
   const displayName = orgName || slug;
 
@@ -125,6 +139,42 @@ export function ReaderHome({ slug, session, orgName }: Props) {
               </Card>
             </Link>
           ))}
+        </div>
+      )}
+
+      {papers.length > 0 && totalPages > 1 && (
+        <div className="mt-8 flex justify-center">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious 
+                  onClick={() => setPage(p => Math.max(1, p - 1))} 
+                  className={page === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+              
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <PaginationItem key={p} className={
+                  totalPages > 7 && Math.abs(page - p) > 2 && p !== 1 && p !== totalPages ? "hidden" : ""
+                }>
+                  <PaginationLink 
+                    isActive={page === p} 
+                    onClick={() => setPage(p)}
+                    className="cursor-pointer"
+                  >
+                    {p}
+                  </PaginationLink>
+                </PaginationItem>
+              ))}
+
+              <PaginationItem>
+                <PaginationNext 
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  className={page === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
         </div>
       )}
     </div>

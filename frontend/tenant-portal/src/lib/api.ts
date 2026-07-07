@@ -80,13 +80,15 @@ export const readerApi = {
   signup: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/signup`, { method: 'POST', body: JSON.stringify(body) }),
   login: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/login`, { method: 'POST', body: JSON.stringify(body) }),
   me: (slug: string, token: string) => apiFetch<any>(`/api/read/${slug}/me`, {}, token),
-  getPapers: (slug: string, filters?: { edition_id?: string; start_date?: string; end_date?: string }) => {
+  getPapers: (slug: string, filters?: { edition_id?: string; start_date?: string; end_date?: string; page?: number; limit?: number }) => {
     let url = `/api/read/${slug}/papers`;
     if (filters) {
       const q = new URLSearchParams();
       if (filters.edition_id) q.set('edition_id', filters.edition_id);
       if (filters.start_date) q.set('start_date', filters.start_date);
       if (filters.end_date) q.set('end_date', filters.end_date);
+      if (filters.page) q.set('page', filters.page.toString());
+      if (filters.limit) q.set('limit', filters.limit.toString());
       url += '?' + q.toString();
     }
     return apiFetch<any>(url);

@@ -118,6 +118,9 @@ readerRouter.get('/:slug/papers', async (c) => {
   const edition_id = url.searchParams.get('edition_id');
   const start_date = url.searchParams.get('start_date');
   const end_date = url.searchParams.get('end_date');
+  const page = parseInt(url.searchParams.get('page') || '1', 10);
+  const limit = parseInt(url.searchParams.get('limit') || '12', 10);
+  const offset = (page - 1) * limit;
 
   try {
     const db = getTenantDb(c.env, slug);
@@ -131,10 +134,14 @@ readerRouter.get('/:slug/papers', async (c) => {
     if (start_date) { q += ' AND e.publish_date >= ?'; params.push(start_date); }
     if (end_date) { q += ' AND e.publish_date <= ?'; params.push(end_date); }
     
-    q += ' ORDER BY e.publish_date DESC';
+    const countRows = await db.prepare(q.replace('SELECT e.id, e.title, e.publish_date, e.is_free, e.page_count, e.free_page_count, e.cover_key,\n              ed.id AS edition_id, ed.title AS edition_title, ed.tier_id', 'SELECT COUNT(*) as c')).bind(...params).first<{ c: number }>();
+    const total = countRows ? countRows.c : 0;
+
+    q += ' ORDER BY e.publish_date DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
     
     const rows = await db.prepare(q).bind(...params).all();
-    return c.json(ok({ items: rows.results }));
+    return c.json(ok({ items: rows.results, total, page, limit }));
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }
