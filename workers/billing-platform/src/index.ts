@@ -49,10 +49,28 @@ async function verifyWebhookSignature(payload: string, signature: string, secret
 }
 
 app.get('/api/billing/platform/plans', async (c) => {
-  const res = await razorpayRequest(c.env, 'plans');
-  if (!res.ok) return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to fetch plans from Razorpay'), 500);
-  const data = await res.json();
-  return c.json(ok(data));
+  const { results } = await c.env.CONTROL_DB.prepare(
+    'SELECT * FROM platform_tiers WHERE price_inr > 0 ORDER BY price_inr ASC'
+  ).all();
+
+  const items = results.map((t: any) => {
+    const totalInr = t.price_inr + (t.price_inr * ((t.tax_percentage || 0) / 100));
+    const amountPaise = Math.round(totalInr * 100);
+    return {
+      id: t.razorpay_plan_id,
+      period: (t.billing_cycle || 'monthly').toLowerCase(),
+      interval: 1,
+      item: {
+        name: t.name,
+        amount: amountPaise,
+        unit_amount: amountPaise,
+        currency: 'INR',
+        description: `Storage: ${t.max_storage_mb} MB | Views: ${t.max_views_per_day}/day`
+      }
+    };
+  });
+
+  return c.json(ok({ entity: 'collection', count: items.length, items }));
 });
 
 app.post('/api/billing/platform/subscribe', async (c) => {
