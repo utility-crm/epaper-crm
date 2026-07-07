@@ -21,6 +21,9 @@ app.use('*', async (c, next) => {
       if (tenant?.status === 'suspended') {
         return c.json(err(ErrorCode.FORBIDDEN, 'TENANT_SUSPENDED'), 403);
       }
+      if (tenant?.status === 'deleting' || tenant?.status === 'deleted') {
+        return c.json(err(ErrorCode.NOT_FOUND, 'TENANT_DELETED'), 404);
+      }
     } catch (e) {
       // If DB error, fail open or log? We'll log and continue.
       console.error('Failed to check tenant status', e);

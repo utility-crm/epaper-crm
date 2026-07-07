@@ -74,6 +74,8 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
       setDeleteError(res.error?.message || 'Failed to delete organization');
       setIsDeleting(false);
     } else {
+      localStorage.removeItem('epaper:orgToken');
+      localStorage.removeItem('epaper:tenantStatus');
       window.location.href = '/';
     }
   };

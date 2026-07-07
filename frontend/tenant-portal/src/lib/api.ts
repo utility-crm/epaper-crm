@@ -10,9 +10,11 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
     const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
     const data = await res.json();
     
-    if (!data.ok && data.error?.message === 'TENANT_SUSPENDED') {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('epaper:tenant-suspended'));
+    if (!data.ok) {
+      if (data.error?.message === 'TENANT_SUSPENDED') {
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('epaper:tenant-suspended'));
+      } else if (data.error?.message === 'TENANT_DELETED') {
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('epaper:tenant-deleted'));
       }
     }
     

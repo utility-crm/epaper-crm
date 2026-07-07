@@ -122,8 +122,19 @@ export default function App() {
       localStorage.setItem('epaper:tenantStatus', 'suspended');
       setTenantStatus('suspended');
     };
+    const onDeleted = () => {
+      localStorage.removeItem('epaper:orgToken');
+      localStorage.removeItem('epaper:tenantStatus');
+      setToken(null);
+      setTenantStatus('pending');
+      window.location.href = '/';
+    };
     window.addEventListener('epaper:tenant-suspended', onSuspended);
-    return () => window.removeEventListener('epaper:tenant-suspended', onSuspended);
+    window.addEventListener('epaper:tenant-deleted', onDeleted);
+    return () => {
+      window.removeEventListener('epaper:tenant-suspended', onSuspended);
+      window.removeEventListener('epaper:tenant-deleted', onDeleted);
+    };
   }, []);
 
   function handleLogout() {
