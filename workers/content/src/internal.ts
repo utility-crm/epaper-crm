@@ -9,7 +9,7 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   if (!saltHex || !hashHex) return false;
   const salt = new Uint8Array(saltHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
   const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
-  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' }, keyMaterial, 256);
+  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, 256);
   const derivedHex = Array.from(new Uint8Array(derivedBits)).map(b => b.toString(16).padStart(2, '0')).join('');
   return derivedHex === hashHex;
 }
@@ -28,11 +28,11 @@ internalRouter.post('/internal/:slug/verify-owner', async (c) => {
     ).bind(body.email).first<Pick<OrgUserRow, 'id' | 'email' | 'password_hash' | 'name' | 'role'>>();
     
     if (!user) {
-      return c.json(ok({ valid: false, role: null }));
+      return c.json(ok({ valid: false, role: null, userId: null }));
     }
     
     const valid = await verifyPassword(body.password, user.password_hash);
-    return c.json(ok({ valid, role: valid ? user.role : null }));
+    return c.json(ok({ valid, role: valid ? user.role : null, userId: valid ? user.id : null }));
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not available'), 403);
   }

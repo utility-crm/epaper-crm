@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getTenantDb } from './db';
 import { ok, err, ErrorCode } from '@epaper/types';
 
-export const editionsRouter = new Hono();
+export const editionsRouter = new Hono<{ Bindings: Record<string, unknown>; Variables: { userId: string } }>();
 
 editionsRouter.get('/:slug/editions', async (c) => {
   const slug = c.req.param('slug');
@@ -34,9 +34,11 @@ editionsRouter.post('/:slug/editions', async (c) => {
   const slug = c.req.param('slug');
   const body = await c.req.json();
   
-  if (!body.title || !body.publish_date || !body.created_by) {
+  if (!body.title || !body.publish_date) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Missing required fields'), 400);
   }
+  
+  const created_by = c.var.userId;
   
   try {
     const db = getTenantDb(c.env, slug);
@@ -44,7 +46,7 @@ editionsRouter.post('/:slug/editions', async (c) => {
     
     await db.prepare(
       'INSERT INTO editions (id, title, publish_date, status, created_by) VALUES (?, ?, ?, ?, ?)'
-    ).bind(id, body.title, body.publish_date, 'draft', body.created_by).run();
+    ).bind(id, body.title, body.publish_date, 'draft', created_by).run();
     
     return c.json(ok({ id }), 201);
   } catch (e) {

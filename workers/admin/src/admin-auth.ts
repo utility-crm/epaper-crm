@@ -21,7 +21,7 @@ async function hashPassword(password: string): Promise<string> {
     {
       name: 'PBKDF2',
       salt,
-      iterations: 200000,
+      iterations: 100000,
       hash: 'SHA-256'
     },
     keyMaterial,
@@ -51,7 +51,7 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
     {
       name: 'PBKDF2',
       salt,
-      iterations: 200000,
+      iterations: 100000,
       hash: 'SHA-256'
     },
     keyMaterial,

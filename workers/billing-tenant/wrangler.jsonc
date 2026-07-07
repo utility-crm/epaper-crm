@@ -8,9 +8,9 @@
   ],
   "d1_databases": [
     {
-      "binding": "TEST_EDB2_DB",
-      "database_name": "epaper-test-edb2",
-      "database_id": "5d90aa36-8dbe-4a80-acd7-216f2e18e23a"
+      "binding": "TEST_SLUG4_DB",
+      "database_name": "epaper-test-slug4",
+      "database_id": "d9896420-ce09-41b0-b0e9-b31018b4a790"
     }
   ]
 }

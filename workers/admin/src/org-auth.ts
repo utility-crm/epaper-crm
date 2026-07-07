@@ -10,7 +10,7 @@ const encoder = new TextEncoder();
 async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
-  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' }, keyMaterial, 256);
+  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, 256);
   const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('');
   const hashHex = Array.from(new Uint8Array(derivedBits)).map(b => b.toString(16).padStart(2, '0')).join('');
   return `${saltHex}:${hashHex}`;
@@ -21,7 +21,7 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   if (!saltHex || !hashHex) return false;
   const salt = new Uint8Array(saltHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
   const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
-  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' }, keyMaterial, 256);
+  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, 256);
   const derivedHex = Array.from(new Uint8Array(derivedBits)).map(b => b.toString(16).padStart(2, '0')).join('');
   return derivedHex === hashHex;
 }
@@ -83,6 +83,7 @@ orgAuthRouter.post('/signup', async (c) => {
     sub: tenantId,
     tenantSlug: slug,
     role: 'owner',
+    userId: ownerId,
     exp: Math.floor(Date.now() / 1000) + 28800
   };
   const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);
@@ -102,6 +103,7 @@ orgAuthRouter.post('/org-login', async (c) => {
   
   let valid = false;
   let role: OrgUserJwtPayload['role'] = 'owner';
+  let userId: string | undefined;
 
   // Check pending_owners first (covers pending + provisioning states)
   const owner = await c.env.CONTROL_DB.prepare(
@@ -109,6 +111,7 @@ orgAuthRouter.post('/org-login', async (c) => {
   ).bind(tenant.id).first<Pick<PendingOwnerRow, 'id' | 'password_hash'>>();
   
   if (owner) {
+    userId = owner.id;
     valid = await verifyPassword(password, owner.password_hash);
   } else if (tenant.status === 'active') {
     // Active tenant: verify against the tenant's own D1 org_users table
@@ -122,9 +125,10 @@ orgAuthRouter.post('/org-login', async (c) => {
         })
       );
       if (res.ok) {
-        const data = await res.json() as { ok: boolean; data?: { valid: boolean; role: string } };
+        const data = await res.json() as { ok: boolean; data?: { valid: boolean; role: string; userId: string } };
         if (data.ok && data.data?.valid) {
           valid = true;
+          userId = data.data.userId;
           role = (data.data.role as OrgUserJwtPayload['role']) ?? 'owner';
         }
       }
@@ -140,6 +144,7 @@ orgAuthRouter.post('/org-login', async (c) => {
     sub: tenant.id,
     tenantSlug: tenant.slug,
     role,
+    userId: userId!,
     exp: Math.floor(Date.now() / 1000) + 28800
   };
   const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);

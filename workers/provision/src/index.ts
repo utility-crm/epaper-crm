@@ -128,6 +128,51 @@ app.post('/api/provision/deprovision', async (c) => {
   }
 });
 
+app.get('/api/provision/debug/:runId', async (c) => {
+  const runId = c.req.param('runId');
+  const url = `https://api.github.com/repos/${c.env.GH_REPO}/actions/runs/${runId}`;
+  const res = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${c.env.GH_TOKEN}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'Cloudflare-Worker'
+    }
+  });
+  if (!res.ok) return c.json(err(ErrorCode.INTERNAL_ERROR, await res.text()), 500);
+  const data = await res.json();
+  return c.json(ok(data));
+});
+
+app.get('/api/provision/debug/:runId/jobs', async (c) => {
+  const runId = c.req.param('runId');
+  const url = `https://api.github.com/repos/${c.env.GH_REPO}/actions/runs/${runId}/jobs`;
+  const res = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${c.env.GH_TOKEN}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'Cloudflare-Worker'
+    }
+  });
+  if (!res.ok) return c.json(err(ErrorCode.INTERNAL_ERROR, await res.text()), 500);
+  const data = await res.json();
+  return c.json(ok(data));
+});
+
+app.get('/api/provision/debug/jobs/:jobId/logs', async (c) => {
+  const jobId = c.req.param('jobId');
+  const url = `https://api.github.com/repos/${c.env.GH_REPO}/actions/jobs/${jobId}/logs`;
+  const res = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${c.env.GH_TOKEN}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'Cloudflare-Worker'
+    },
+    redirect: 'follow'
+  });
+  if (!res.ok) return c.text(await res.text(), 500);
+  return c.text(await res.text());
+});
+
 app.get('/health', (c) => c.json(ok({ status: 'ok', worker: 'provision' })));
 
 export default {

@@ -15,7 +15,7 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use('/api/*', async (c, next) => {
   const corsMiddleware = cors({
-    origin: c.env.ALLOWED_ORIGIN,
+    origin: c.env.ALLOWED_ORIGIN.split(','),
     allowHeaders: ['Content-Type', 'Authorization'],
     allowMethods: ['POST', 'GET', 'OPTIONS', 'PATCH', 'DELETE', 'PUT'],
     exposeHeaders: ['Content-Length'],
