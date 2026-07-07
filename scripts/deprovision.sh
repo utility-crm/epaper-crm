@@ -45,14 +45,14 @@ EOF
 
 (
   cd /tmp/cleanup-$SLUG
-  # Deploy the worker, suppressing output unless it fails
-  npx wrangler deploy > /dev/null 2>&1 || true
+  # Deploy the worker, suppressing output unless it fails (CI=true bypasses prompts)
+  CI=true npx wrangler deploy > /dev/null 2>&1 || true
   
   # Trigger the cleanup
   curl -s "https://r2-clean-$SLUG.satishkumar-link.workers.dev" > /dev/null 2>&1 || true
   
   # Delete the temporary worker
-  npx wrangler delete --name r2-clean-$SLUG --force > /dev/null 2>&1 || true
+  CI=true npx wrangler delete --name r2-clean-$SLUG --force > /dev/null 2>&1 || true
 ) || true
 
 # Delete R2 Bucket
