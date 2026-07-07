@@ -8,7 +8,8 @@
     {
       "binding": "CONTROL_DB",
       "database_name": "epaper-control",
-      "database_id": "b0fff5dc-a1b6-4606-a3fc-10324e1b0df1"
+      "database_id": "b0fff5dc-a1b6-4606-a3fc-10324e1b0df1",
+      "migrations_dir": "../../migrations/control"
     }
   ],
   "services": [
