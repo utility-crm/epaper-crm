@@ -6,7 +6,8 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useEffect } from 'react';
-import { ImageIcon, Upload, CheckCircle2 } from 'lucide-react';
+import { ImageIcon, Upload, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 
 interface Props { slug: string; token: string; onSettingsChange?: (s: any) => void; }
 
@@ -26,6 +27,11 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const load = useCallback(async () => {
     const res = await portalApi.getSettings(slug, token);
@@ -57,6 +63,19 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
     setSaved(true);
     onSettingsChange?.({ org_name: orgName, theme_id: themeId, logo_url: logoPreview });
     setTimeout(() => setSaved(false), 3000);
+  };
+
+  const handleDeleteOrganization = async () => {
+    if (deleteConfirmText !== slug) return;
+    setIsDeleting(true);
+    setDeleteError('');
+    const res = await portalApi.deleteOrganization(slug, token);
+    if (!res.ok) {
+      setDeleteError(res.error?.message || 'Failed to delete organization');
+      setIsDeleting(false);
+    } else {
+      window.location.href = '/';
+    }
   };
 
   return (
@@ -136,6 +155,57 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
         </Button>
         {saved && <span className="flex items-center gap-1.5 text-sm text-green-400"><CheckCircle2 className="h-4 w-4" /> Saved!</span>}
       </div>
+
+      {/* Danger Zone */}
+      <div className="pt-10">
+        <div className="rounded-lg border border-red-500/30 p-6">
+          <h2 className="text-lg font-semibold text-red-500 flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5" /> Danger Zone
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground max-w-2xl">
+            Permanently delete your organization, including all editions, reader accounts, and settings. 
+            All active reader subscriptions will be cancelled immediately. Your recurring platform subscription will also be cancelled.
+            This action cannot be undone.
+          </p>
+          <div className="mt-4">
+            <Button variant="destructive" onClick={() => setDeleteModalOpen(true)}>
+              Delete Organization
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-500">Delete Organization</DialogTitle>
+            <DialogDescription>
+              This action is irreversible. All data, settings, and reader accounts will be permanently destroyed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Type <span className="font-bold font-mono text-foreground">{slug}</span> to confirm</Label>
+              <Input
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={slug}
+              />
+            </div>
+            {deleteError && (
+              <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                {deleteError}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteModalOpen(false)} disabled={isDeleting}>Cancel</Button>
+            <Button variant="destructive" disabled={deleteConfirmText !== slug || isDeleting} onClick={handleDeleteOrganization}>
+              {isDeleting ? 'Deleting...' : 'Permanently Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -67,3 +67,40 @@ settingsRouter.get('/:slug/settings/logo', async (c) => {
     return new Response('Not found', { status: 404 });
   }
 });
+
+// Staff-only: Delete organization
+settingsRouter.delete('/:slug/settings', async (c) => {
+  const slug = c.req.param('slug');
+  try {
+    const db = getTenantDb(c.env, slug);
+    
+    // 1. Cancel reader subscriptions immediately
+    await db.prepare("UPDATE reader_subscriptions SET status = 'cancelled' WHERE status = 'active'").run();
+
+    // 2. Cancel the platform subscription using internal billing API
+    if ((c.env as any).BILLING_PLATFORM_WORKER) {
+      const billingRes = await (c.env as any).BILLING_PLATFORM_WORKER.fetch(
+        new Request(`http://billing/internal/billing/platform/${slug}/subscription`, { method: 'DELETE' })
+      );
+      if (!billingRes.ok) console.error('Failed to cancel platform subscription:', await billingRes.text());
+    }
+
+    // 3. Trigger the actual resource destruction via admin internal API
+    if ((c.env as any).ADMIN_WORKER) {
+      const adminRes = await (c.env as any).ADMIN_WORKER.fetch(
+        new Request(`http://admin/internal/tenants/${slug}/deprovision`, { method: 'DELETE' })
+      );
+      if (!adminRes.ok) {
+        console.error('Failed to trigger deprovision:', await adminRes.text());
+        return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to trigger deletion'), 500);
+      }
+    } else {
+      return c.json(err(ErrorCode.INTERNAL_ERROR, 'Admin worker binding missing'), 500);
+    }
+
+    return c.json(ok({ deleted: true }));
+  } catch (e) {
+    console.error(e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Deletion failed'), 500);
+  }
+});

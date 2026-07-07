@@ -23,5 +23,15 @@
       "binding": "TEST_EDB2_R2",
       "bucket_name": "epaper-test-edb2"
     }
+  ],
+  "services": [
+    {
+      "binding": "ADMIN_WORKER",
+      "service": "epaper-admin"
+    },
+    {
+      "binding": "BILLING_PLATFORM_WORKER",
+      "service": "epaper-billing-platform"
+    }
   ]
 }

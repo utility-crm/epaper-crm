@@ -246,6 +246,30 @@ app.patch('/internal/billing/platform/:slug/subscription', async (c) => {
   return c.json(ok({ updated: true, subscription_id: sub.id }));
 });
 
+app.delete('/internal/billing/platform/:slug/subscription', async (c) => {
+  const slug = c.req.param('slug');
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, razorpay_sub_id FROM tenants WHERE slug = ?').bind(slug).first();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+
+  if (tenant.razorpay_sub_id) {
+    // Cancel the subscription in Razorpay
+    const res = await razorpayRequest(c.env, `subscriptions/${tenant.razorpay_sub_id}/cancel`, 'POST', {
+      cancel_at_cycle_end: 0 // cancel immediately
+    });
+    
+    if (!res.ok) {
+      console.error('Failed to cancel Razorpay subscription', await res.text());
+      return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to cancel subscription in Razorpay'), 500);
+    }
+  }
+
+  await c.env.CONTROL_DB.prepare(
+    'UPDATE tenants SET razorpay_plan_id = NULL, razorpay_sub_id = NULL, plan = NULL, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
+  ).bind(slug).run();
+
+  return c.json(ok({ cancelled: true }));
+});
+
 export default {
   fetch: app.fetch,
 };

@@ -41,6 +41,28 @@ tenantsRouter.patch('/internal/:slug/delete-complete', async (c) => {
   return c.json(ok({ deleted: true }));
 });
 
+tenantsRouter.delete('/internal/:slug/deprovision', async (c) => {
+  const slug = c.req.param('slug');
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id FROM tenants WHERE slug = ?').bind(slug).first<{id: string}>();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+  
+  await c.env.CONTROL_DB.batch([
+    c.env.CONTROL_DB.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?').bind('deleting', slug),
+    c.env.CONTROL_DB.prepare('INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), tenant.id, 'tenant.delete_initiated', 'system_self_serve', '{}')
+  ]);
+  
+  c.executionCtx.waitUntil(
+    c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/deprovision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug })
+    })).catch(e => console.error('Deprovision trigger failed', e))
+  );
+  
+  return c.json(ok({ deleting: true }));
+});
+
 tenantsRouter.use('/*', adminAuth);
 
 tenantsRouter.get('/', async (c) => {

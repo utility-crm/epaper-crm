@@ -86,6 +86,7 @@ export const portalApi = {
   updateSettings: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/settings`, { method: 'PATCH', body: JSON.stringify(body) }, token),
   uploadLogo: (slug: string, file: File, token: string) => apiFetch<any>(`/api/content/${slug}/settings/logo`, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } }, token),
   logoUrl: (slug: string) => `${API_BASE}/api/content/${slug}/settings/logo`,
+  deleteOrganization: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/settings`, { method: 'DELETE' }, token),
 };
 
 // --- Reader-facing API (public; used by the /read section) ---
