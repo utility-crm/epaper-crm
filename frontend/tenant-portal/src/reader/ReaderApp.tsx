@@ -53,7 +53,7 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
       if (!res.ok) {
         if (res.error?.message === 'TENANT_SUSPENDED') {
           setIsSuspended(true);
-        } else if (res.status === 404 || res.error?.message === 'TENANT_DELETED' || res.error?.message === 'Tenant deleted' || res.error?.message === 'Tenant not found') {
+        } else if (res.error?.message === 'TENANT_DELETED' || res.error?.message === 'Tenant deleted' || res.error?.message === 'Tenant not found' || res.error?.message === 'NOT_FOUND') {
           setIsNotFound(true);
         }
         return;
