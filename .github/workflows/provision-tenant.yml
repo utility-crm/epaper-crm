@@ -65,7 +65,8 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add workers/content/wrangler.jsonc workers/billing-tenant/wrangler.jsonc
-          git commit -m "chore: inject bindings for ${{ github.event.inputs.tenant_slug }}"
+          git commit -m "chore: inject bindings for ${{ github.event.inputs.tenant_slug }}" || true
+          git pull --rebase origin main || true
           git push
 
       # Always runs last — reports success or failure. Uses -f so curl itself fails on HTTP errors.

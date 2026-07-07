@@ -50,7 +50,8 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add workers/content/wrangler.jsonc workers/billing-tenant/wrangler.jsonc
-          git commit -m "chore: remove bindings for ${{ github.event.inputs.tenant_slug }}"
+          git commit -m "chore: remove bindings for ${{ github.event.inputs.tenant_slug }}" || true
+          git pull --rebase origin main || true
           git push
 
       # Purge Cloudflare cache for all URLs belonging to this tenant slug.
