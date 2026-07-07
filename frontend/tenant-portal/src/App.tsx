@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut } from 'lucide-react';
+import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut, Settings } from 'lucide-react';
 import { SignupPage } from './pages/SignupPage';
 import { OrgLoginPage } from './pages/OrgLoginPage';
 import { ProvisioningScreen } from './pages/ProvisioningScreen';
@@ -10,7 +10,9 @@ import { PlansPage } from './pages/PlansPage';
 import { DomainPage } from './pages/DomainPage';
 import { ReaderSubscriptionSetup } from './pages/ReaderSubscriptionSetup';
 import { PlatformBillingPage } from './pages/PlatformBillingPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { ReaderApp } from './reader/ReaderApp';
+import { portalApi } from './lib/api';
 import { cn } from './lib/utils';
 import './index.css';
 
@@ -29,16 +31,34 @@ const NAV = [
   { to: '/portal/platform-billing', label: 'Platform Billing', icon: Building2 },
 ];
 
-function PortalSidebar({ slug, onLogout }: { slug: string; onLogout: () => void }) {
+interface OrgSettings { org_name: string | null; logo_url: string | null; }
+
+function PortalSidebar({ slug, token, onLogout }: { slug: string; token: string; onLogout: () => void }) {
+  const [settings, setSettings] = useState<OrgSettings | null>(null);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    portalApi.getSettings(slug, token).then(res => {
+      if (res.ok && res.data) setSettings(res.data);
+    });
+  }, [slug, token]);
+
+  const displayName = settings?.org_name || slug;
+  const logoSrc = settings?.logo_url ? portalApi.logoUrl(slug) : null;
+
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-card/40 px-3 py-6">
       <div className="mb-9 flex items-center gap-2.5 px-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-violet-600 shadow-lg shadow-primary/30">
-          <Newspaper className="h-4 w-4 text-white" />
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-violet-600 shadow-lg shadow-primary/30 overflow-hidden flex-shrink-0">
+          {logoSrc && !imgError ? (
+            <img src={logoSrc} alt={displayName} className="h-full w-full object-cover" onError={() => setImgError(true)} />
+          ) : (
+            <Newspaper className="h-4 w-4 text-white" />
+          )}
         </div>
-        <div className="leading-tight">
-          <div className="font-serif text-sm font-700 text-foreground">Publisher</div>
-          <div className="font-mono text-[0.7rem] text-primary">{slug}</div>
+        <div className="leading-tight min-w-0">
+          <div className="font-serif text-sm font-700 text-foreground truncate">{displayName}</div>
+          <div className="font-mono text-[0.7rem] text-primary truncate">{slug}</div>
         </div>
       </div>
 
@@ -62,13 +82,25 @@ function PortalSidebar({ slug, onLogout }: { slug: string; onLogout: () => void 
         ))}
       </nav>
 
-      <button
-        onClick={onLogout}
-        className="mt-4 flex items-center gap-3 rounded-lg border-t border-border px-3 pt-4 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <LogOut className="h-4 w-4" />
-        Sign Out
-      </button>
+      <div className="mt-4 border-t border-border pt-4 space-y-1">
+        <NavLink
+          to="/portal/settings"
+          className={({ isActive }) =>
+            cn('flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+              isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-white/5')
+          }
+        >
+          <Settings className="h-4 w-4" />
+          Settings
+        </NavLink>
+        <button
+          onClick={onLogout}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-white/5"
+        >
+          <LogOut className="h-4 w-4" />
+          Sign Out
+        </button>
+      </div>
     </aside>
   );
 }
@@ -97,7 +129,6 @@ export default function App() {
   }
 
   // Public reader experience — served at the tenant's custom domain (or /read/:slug).
-  // Rendered before any staff-auth gating.
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   if (path.startsWith('/read')) {
     return <ReaderApp />;
@@ -128,7 +159,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-background font-sans text-foreground">
-      <PortalSidebar slug={slug} onLogout={handleLogout} />
+      <PortalSidebar slug={slug} token={token} onLogout={handleLogout} />
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl px-8 py-8">
           <Routes>
@@ -138,6 +169,7 @@ export default function App() {
             <Route path="/portal/domain" element={<DomainPage slug={slug} token={token} />} />
             <Route path="/portal/reader-setup" element={<ReaderSubscriptionSetup slug={slug} token={token} />} />
             <Route path="/portal/platform-billing" element={<PlatformBillingPage slug={slug} token={token} />} />
+            <Route path="/portal/settings" element={<SettingsPage slug={slug} token={token} />} />
             {/* legacy paths */}
             <Route path="/portal/editions" element={<Navigate to="/portal/papers" replace />} />
             <Route path="/portal/epapers" element={<Navigate to="/portal/papers" replace />} />

@@ -58,11 +58,18 @@ export const portalApi = {
   getDomain: (token: string) => apiFetch<any>(`/api/domain`, {}, token),
   setDomain: (domain: string, token: string) => apiFetch<any>(`/api/domain`, { method: 'POST', body: JSON.stringify({ domain }) }, token),
   removeDomain: (token: string) => apiFetch<any>(`/api/domain`, { method: 'DELETE' }, token),
+
+  // org settings & branding
+  getSettings: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/settings`, {}, token),
+  updateSettings: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/settings`, { method: 'PATCH', body: JSON.stringify(body) }, token),
+  uploadLogo: (slug: string, file: File, token: string) => apiFetch<any>(`/api/content/${slug}/settings/logo`, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } }, token),
+  logoUrl: (slug: string) => `${API_BASE}/api/content/${slug}/settings/logo`,
 };
 
 // --- Reader-facing API (public; used by the /read section) ---
 export const readerApi = {
   resolveDomain: (host: string) => apiFetch<{ slug: string }>(`/api/domain/resolve?host=${encodeURIComponent(host)}`),
+  getSettings: (slug: string) => apiFetch<any>(`/api/content/${slug}/settings`),
   signup: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/signup`, { method: 'POST', body: JSON.stringify(body) }),
   login: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/login`, { method: 'POST', body: JSON.stringify(body) }),
   me: (slug: string, token: string) => apiFetch<any>(`/api/read/${slug}/me`, {}, token),

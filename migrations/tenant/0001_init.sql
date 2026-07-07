@@ -74,3 +74,14 @@ CREATE INDEX IF NOT EXISTS idx_epapers_status ON epapers(status);
 CREATE INDEX IF NOT EXISTS idx_epapers_edition_id ON epapers(edition_id);
 CREATE INDEX IF NOT EXISTS idx_epapers_publish_date ON epapers(publish_date);
 CREATE INDEX IF NOT EXISTS idx_reader_subscriptions_status ON reader_subscriptions(status);
+
+CREATE TABLE IF NOT EXISTS tenant_settings (
+  id TEXT PRIMARY KEY DEFAULT 'singleton',
+  org_name TEXT,
+  logo_url TEXT,
+  theme_id TEXT NOT NULL DEFAULT 'modern',
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR IGNORE INTO tenant_settings (id) VALUES ('singleton');
+
