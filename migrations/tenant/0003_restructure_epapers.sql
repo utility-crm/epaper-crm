@@ -19,11 +19,11 @@ SELECT lower(hex(randomblob(16))), id, publish_date, r2_key, status
 FROM editions
 WHERE publish_date IS NOT NULL;
 
--- Remove the old columns from editions
+-- Remove the old columns from editions (commented out to prevent errors on flattened new DBs)
 DROP INDEX IF EXISTS idx_editions_publish_date;
-ALTER TABLE editions DROP COLUMN publish_date;
-ALTER TABLE editions DROP COLUMN r2_key;
-ALTER TABLE editions DROP COLUMN page_count;
+-- ALTER TABLE editions DROP COLUMN publish_date;
+-- ALTER TABLE editions DROP COLUMN r2_key;
+-- ALTER TABLE editions DROP COLUMN page_count;
 
 CREATE INDEX IF NOT EXISTS idx_epapers_status ON epapers(status);
 CREATE INDEX IF NOT EXISTS idx_epapers_edition_id ON epapers(edition_id);

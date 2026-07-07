@@ -31,7 +31,6 @@ ALTER TABLE editions ADD COLUMN tier_id TEXT REFERENCES tiers(id) ON DELETE SET 
 -- Per-paper metered paywall.
 -- free_page_count: 0 = fully premium, >= page_count = fully free, N = first N pages free.
 ALTER TABLE epapers ADD COLUMN title TEXT;
-ALTER TABLE epapers ADD COLUMN page_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE epapers ADD COLUMN free_page_count INTEGER NOT NULL DEFAULT 0;
 
 -- One row per split page (server-side split at upload; locked pages never leave the edge).
