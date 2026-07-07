@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '../components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff } from 'lucide-react';
+import PdfWorker from '../lib/pdfWorker?worker';
 
 interface Props { slug: string; token: string; }
 const NONE = '__none__';
@@ -415,6 +416,7 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<'form' | 'uploading' | 'done'>('form');
+  const [progressMsg, setProgressMsg] = useState('');
   const [error, setError] = useState('');
 
   const isPdf = files.length === 1 && files[0].type === 'application/pdf';
@@ -443,12 +445,36 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
     const epaperId = res.data?.id;
     if (epaperId && files.length > 0) {
       setStep('uploading');
-      let uploadRes: any;
+      
+      let finalFiles = files;
       if (isPdf) {
-        uploadRes = await portalApi.uploadPdf(slug, epaperId, files[0], token);
-      } else {
-        uploadRes = await portalApi.uploadImages(slug, epaperId, files, token);
+        setProgressMsg('Loading PDF...');
+        const worker = new PdfWorker();
+        try {
+          finalFiles = await new Promise<File[]>((resolve, reject) => {
+            worker.onmessage = (ev) => {
+              const data = ev.data;
+              if (data.type === 'progress') setProgressMsg(data.message);
+              else if (data.type === 'error') reject(new Error(data.error));
+              else if (data.type === 'done') {
+                const arr = data.pages.map((bytes: Uint8Array, i: number) => 
+                  new File([bytes as any], `page-${i + 1}.pdf`, { type: 'application/pdf' })
+                );
+                resolve(arr);
+              }
+            };
+            files[0].arrayBuffer().then(buf => worker.postMessage({ fileData: buf }));
+          });
+          setProgressMsg('Uploading pages...');
+        } catch (err: any) {
+          setError('PDF processing failed: ' + err.message);
+          setBusy(false); setStep('form'); return;
+        } finally {
+          worker.terminate();
+        }
       }
+
+      const uploadRes = await portalApi.uploadPages(slug, epaperId, finalFiles, token);
       if (!uploadRes.ok) {
         setError('Paper created but file upload failed: ' + (uploadRes.error?.message ?? 'unknown error'));
         setBusy(false); setStep('form'); return;
@@ -474,9 +500,9 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
       <DialogContent>
         <div className="py-8 text-center">
           <div className="spinner mx-auto mb-4" />
-          <div className="text-lg font-semibold">{isPdf ? 'Splitting pages…' : 'Uploading images…'}</div>
+          <div className="text-lg font-semibold">{isPdf ? 'Processing PDF…' : 'Uploading images…'}</div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isPdf ? 'Slicing your PDF at the edge.' : `Storing ${files.length} image${files.length > 1 ? 's' : ''}…`}
+            {isPdf ? progressMsg : `Storing ${files.length} image${files.length > 1 ? 's' : ''}…`}
           </p>
         </div>
       </DialogContent>
@@ -548,6 +574,7 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
 function UploadModal({ slug, token, paper, onClose }: { slug: string; token: string; paper: any; onClose: () => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [step, setStep] = useState<'form' | 'uploading' | 'done'>('form');
+  const [progressMsg, setProgressMsg] = useState('');
   const [error, setError] = useState('');
 
   const isPdf = files.length === 1 && files[0].type === 'application/pdf';
@@ -565,12 +592,36 @@ function UploadModal({ slug, token, paper, onClose }: { slug: string; token: str
     e.preventDefault();
     if (!files.length) return;
     setStep('uploading'); setError('');
-    let res: any;
+    
+    let finalFiles = files;
     if (isPdf) {
-      res = await portalApi.uploadPdf(slug, paper.id, files[0], token);
-    } else {
-      res = await portalApi.uploadImages(slug, paper.id, files, token);
+      setProgressMsg('Loading PDF...');
+      const worker = new PdfWorker();
+      try {
+        finalFiles = await new Promise<File[]>((resolve, reject) => {
+          worker.onmessage = (ev) => {
+            const data = ev.data;
+            if (data.type === 'progress') setProgressMsg(data.message);
+            else if (data.type === 'error') reject(new Error(data.error));
+            else if (data.type === 'done') {
+              const arr = data.pages.map((bytes: Uint8Array, i: number) => 
+                new File([bytes as any], `page-${i + 1}.pdf`, { type: 'application/pdf' })
+              );
+              resolve(arr);
+            }
+          };
+          files[0].arrayBuffer().then(buf => worker.postMessage({ fileData: buf }));
+        });
+        setProgressMsg('Uploading pages...');
+      } catch (err: any) {
+        setError('PDF processing failed: ' + err.message);
+        setStep('form'); return;
+      } finally {
+        worker.terminate();
+      }
     }
+
+    const res = await portalApi.uploadPages(slug, paper.id, finalFiles, token);
     if (!res.ok) { setError(res.error?.message ?? 'Upload failed'); setStep('form'); return; }
     setStep('done');
     setTimeout(onClose, 1400);
@@ -584,9 +635,9 @@ function UploadModal({ slug, token, paper, onClose }: { slug: string; token: str
         ) : step === 'uploading' ? (
           <div className="py-8 text-center">
             <div className="spinner mx-auto mb-4" />
-            <div className="text-lg font-semibold">{isPdf ? 'Splitting pages…' : 'Uploading images…'}</div>
+            <div className="text-lg font-semibold">{isPdf ? 'Processing PDF…' : 'Uploading images…'}</div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {isPdf ? 'Slicing your PDF at the edge.' : `Storing ${files.length} image${files.length > 1 ? 's' : ''}…`}
+              {isPdf ? progressMsg : `Storing ${files.length} image${files.length > 1 ? 's' : ''}…`}
             </p>
           </div>
         ) : (
