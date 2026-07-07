@@ -9,9 +9,14 @@ fi
 
 echo "Provisioning DB and Bucket for $SLUG..."
 
-# Create D1 Database
-D1_OUTPUT=$(npx wrangler d1 create epaper-$SLUG | grep database_id)
-DB_ID=$(echo $D1_OUTPUT | awk -F'"' '{print $4}')
+# Create D1 Database or get existing ID
+if DB_INFO=$(npx wrangler d1 info epaper-$SLUG --json 2>/dev/null); then
+  DB_ID=$(echo "$DB_INFO" | jq -r .uuid)
+  echo "Database already exists. ID: $DB_ID"
+else
+  D1_OUTPUT=$(npx wrangler d1 create epaper-$SLUG | grep database_id)
+  DB_ID=$(echo $D1_OUTPUT | awk -F'"' '{print $4}')
+fi
 
 if [ -z "$DB_ID" ]; then
   echo "Failed to extract DB ID"
@@ -20,8 +25,8 @@ fi
 
 echo "DB ID: $DB_ID"
 
-# Create R2 Bucket
-npx wrangler r2 bucket create epaper-$SLUG
+# Create R2 Bucket (ignore error if already exists)
+npx wrangler r2 bucket create epaper-$SLUG || echo "Bucket might already exist, continuing..."
 
 # Inject bindings into wrangler.jsonc files
 node -e "
