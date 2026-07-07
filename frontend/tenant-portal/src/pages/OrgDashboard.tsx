@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import {
-  PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid,
+  PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Label
 } from 'recharts';
 import { Newspaper, Eye, HardDrive, CheckCircle2, Copy, Upload, CreditCard, ArrowUpRight } from 'lucide-react';
 
@@ -147,11 +147,17 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={diskData} innerRadius={62} outerRadius={86} paddingAngle={2} dataKey="value" stroke="none">
-                    <Cell fill="#6366f1" />
-                    <Cell fill="rgba(255,255,255,0.08)" />
+                  <Pie data={diskData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={80} outerRadius={100} stroke="none">
+                    <Cell fill="var(--color-brand-primary)" />
+                    <Cell fill="var(--color-border)" />
+                    <Label 
+                      value={`${Math.round((diskUsed / Math.max(1, diskLimitBytes)) * 100)}% Used`} 
+                      position="center" 
+                      fill="var(--color-text-primary)" 
+                      style={{ fontSize: '1.25rem', fontWeight: 600 }} 
+                    />
                   </Pie>
-                  <RTooltip formatter={(v: any) => formatBytes(Number(v))} contentStyle={tooltipStyle} />
+                  <RTooltip formatter={(v: any) => formatBytes(Number(v))} contentStyle={{ background: 'var(--color-surface-elevated)', border: 'none', borderRadius: 8, color: 'var(--color-text-primary)' }} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
