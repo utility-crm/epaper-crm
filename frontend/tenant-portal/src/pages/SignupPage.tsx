@@ -13,6 +13,7 @@ const PLANS = [
 ];
 
 export function SignupPage({ onSignup }: { onSignup: (token: string, slug: string) => void }) {
+  const navigate = useNavigate();
   const [orgName, setOrgName] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -35,7 +36,12 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
       if (res.ok && res.data?.token) {
         onSignup(res.data.token, res.data.slug);
       } else {
-        setError(res.error?.message ?? 'Signup failed');
+        const errorMsg = res.error?.message ?? 'Signup failed';
+        if (errorMsg === 'Account already exists. Please login.') {
+          navigate('/login');
+        } else {
+          setError(errorMsg);
+        }
       }
     } finally {
       setLoading(false);

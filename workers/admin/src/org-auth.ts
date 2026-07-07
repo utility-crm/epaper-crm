@@ -47,9 +47,17 @@ orgAuthRouter.post('/signup', async (c) => {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Password must contain uppercase and digit'), 400);
   }
   
-  const existing = await c.env.CONTROL_DB.prepare('SELECT id FROM tenants WHERE email = ?').bind(email).first();
+  const existing = await c.env.CONTROL_DB.prepare('SELECT id, status, slug FROM tenants WHERE email = ?').bind(email).first<{id: string, status: string, slug: string}>();
   if (existing) {
-    return c.json(err(ErrorCode.CONFLICT, 'Email already in use'), 409);
+    if (existing.status === 'active' || existing.status === 'suspended') {
+      return c.json(err(ErrorCode.CONFLICT, 'Account already exists. Please login.'), 409);
+    } else if (existing.status === 'provisioning') {
+      return c.json(err(ErrorCode.CONFLICT, 'Provisioning is currently in progress. Please wait a moment.'), 409);
+    } else {
+      // It is pending, provision_failed, deleting, or deleted.
+      // We can safely delete the old record and allow them to sign up again for a clean slate.
+      await c.env.CONTROL_DB.prepare('DELETE FROM tenants WHERE id = ?').bind(existing.id).run();
+    }
   }
   
   const tenantId = crypto.randomUUID();
