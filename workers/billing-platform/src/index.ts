@@ -175,7 +175,13 @@ app.post('/api/billing/platform/webhook', async (c) => {
 
 app.get('/api/billing/platform/:slug/status', async (c) => {
   const slug = c.req.param('slug');
-  const tenant = await c.env.CONTROL_DB.prepare('SELECT plan, razorpay_plan_id, razorpay_sub_id FROM tenants WHERE slug = ?').bind(slug).first();
+  const tenant = await c.env.CONTROL_DB.prepare(`
+    SELECT t.plan, t.razorpay_plan_id, t.razorpay_sub_id,
+           p.max_storage_mb, p.max_views_per_day, p.max_simultaneous_editions, p.max_papers_per_day
+    FROM tenants t
+    LEFT JOIN platform_tiers p ON LOWER(t.plan) = LOWER(p.name)
+    WHERE t.slug = ?
+  `).bind(slug).first();
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
   
   let razorpayStatus = null;
@@ -190,7 +196,13 @@ app.get('/api/billing/platform/:slug/status', async (c) => {
   return c.json(ok({
     plan: tenant.plan,
     has_subscription: !!tenant.razorpay_sub_id,
-    razorpay_status: razorpayStatus
+    razorpay_status: razorpayStatus,
+    limits: {
+      storage_mb: tenant.max_storage_mb,
+      views_per_day: tenant.max_views_per_day,
+      simultaneous_editions: tenant.max_simultaneous_editions,
+      papers_per_day: tenant.max_papers_per_day
+    }
   }));
 });
 

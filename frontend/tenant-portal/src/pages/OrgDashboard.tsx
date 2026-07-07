@@ -46,8 +46,10 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
 
   const plan = billing?.plan || 'starter';
   const isEnterprise = plan === 'enterprise';
-  const diskLimitGB = isEnterprise ? 2000 : plan === 'growth' ? 500 : 100;
-  const diskLimitBytes = diskLimitGB * 1024 * 1024 * 1024;
+  
+  // Use limits from DB, fallback to hardcoded if not loaded yet
+  const limitMB = billing?.limits?.storage_mb ?? (isEnterprise ? 2000000 : plan === 'growth' ? 51200 : plan === 'starter' ? 10240 : 100);
+  const diskLimitBytes = limitMB * 1024 * 1024;
   const diskUsed = stats.disk_usage_bytes || 0;
   const diskFree = Math.max(0, diskLimitBytes - diskUsed);
 
@@ -140,7 +142,7 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
         </Card>
 
         <Card className="lg:col-span-2">
-          <CardHeader><CardTitle>Storage</CardTitle><CardDescription>{formatBytes(diskUsed)} of {isEnterprise ? 'Custom' : `${diskLimitGB} GB`} ({plan})</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Storage</CardTitle><CardDescription>{formatBytes(diskUsed)} of {isEnterprise ? 'Custom' : (limitMB >= 1024 ? `${(limitMB/1024).toFixed(1).replace('.0','')} GB` : `${limitMB} MB`)} ({plan})</CardDescription></CardHeader>
           <CardContent>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
