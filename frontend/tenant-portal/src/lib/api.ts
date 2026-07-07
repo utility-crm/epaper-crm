@@ -24,13 +24,15 @@ export const portalApi = {
   getEditions: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/editions`, {}, token),
   createEdition: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/editions`, { method: 'POST', body: JSON.stringify(body) }, token),
   updateEdition: (slug: string, id: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/editions/${id}`, { method: 'PATCH', body: JSON.stringify(body) }, token),
-
-  // epapers
+  deleteEdition: (slug: string, id: string, token: string) => apiFetch<any>(`/api/content/${slug}/editions/${id}`, { method: 'DELETE' }, token),
+  
   getEpapers: (slug: string, editionId: string, token: string) => apiFetch<any>(`/api/content/${slug}/editions/${editionId}/epapers`, {}, token),
   createEpaper: (slug: string, editionId: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/editions/${editionId}/epapers`, { method: 'POST', body: JSON.stringify(body) }, token),
   updateEpaper: (slug: string, id: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/epapers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }, token),
-  uploadPages: (slug: string, epaperId: string, files: File[], token: string) => {
+  setDefaultPaper: (slug: string, id: string, token: string) => apiFetch<any>(`/api/content/${slug}/epapers/${id}/default`, { method: 'PATCH' }, token),
+  uploadPages: (slug: string, epaperId: string, files: File[], token: string, cover?: File) => {
     const fd = new FormData();
+    if (cover) fd.append('cover', cover);
     files.forEach(f => fd.append('pages', f));
     return apiFetch<any>(
       `/api/content/${slug}/epapers/${epaperId}/upload`,
@@ -77,7 +79,19 @@ export const readerApi = {
   signup: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/signup`, { method: 'POST', body: JSON.stringify(body) }),
   login: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/login`, { method: 'POST', body: JSON.stringify(body) }),
   me: (slug: string, token: string) => apiFetch<any>(`/api/read/${slug}/me`, {}, token),
-  getPapers: (slug: string) => apiFetch<any>(`/api/read/${slug}/papers`),
+  getPapers: (slug: string, filters?: { edition_id?: string; start_date?: string; end_date?: string }) => {
+    let url = `/api/read/${slug}/papers`;
+    if (filters) {
+      const q = new URLSearchParams();
+      if (filters.edition_id) q.set('edition_id', filters.edition_id);
+      if (filters.start_date) q.set('start_date', filters.start_date);
+      if (filters.end_date) q.set('end_date', filters.end_date);
+      url += '?' + q.toString();
+    }
+    return apiFetch<any>(url);
+  },
+  getTodayPaper: (slug: string) => apiFetch<any>(`/api/read/${slug}/today`),
+  getPublicEditions: (slug: string) => apiFetch<any>(`/api/read/${slug}/editions`),
   getPaper: (slug: string, id: string, token?: string) => apiFetch<any>(`/api/read/${slug}/papers/${id}`, {}, token),
   getPlans: (slug: string) => apiFetch<any>(`/api/read/${slug}/plans`),
   pageUrl: (slug: string, id: string, n: number) => `${API_BASE}/api/read/${slug}/papers/${id}/pages/${n}`,

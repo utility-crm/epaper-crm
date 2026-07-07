@@ -14,14 +14,31 @@ interface Props {
 
 export function ReaderHome({ slug, session, orgName }: Props) {
   const [papers, setPapers] = useState<any[]>([]);
+  const [editions, setEditions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Filters
+  const [filterEdition, setFilterEdition] = useState('');
+  const [filterStart, setFilterStart] = useState('');
+  const [filterEnd, setFilterEnd] = useState('');
 
   useEffect(() => {
-    readerApi.getPapers(slug).then(res => {
+    readerApi.getPublicEditions(slug).then(res => {
+      if (res.ok && res.data) setEditions(res.data.items ?? []);
+    });
+  }, [slug]);
+
+  useEffect(() => {
+    setLoading(true);
+    readerApi.getPapers(slug, { 
+      edition_id: filterEdition || undefined,
+      start_date: filterStart || undefined,
+      end_date: filterEnd || undefined
+    }).then(res => {
       if (res.ok && res.data) setPapers(res.data.items ?? []);
       setLoading(false);
     });
-  }, [slug, session]);
+  }, [slug, session, filterEdition, filterStart, filterEnd]);
 
   if (loading) return <div className="flex justify-center py-24"><div className="spinner" /></div>;
 
@@ -32,8 +49,47 @@ export function ReaderHome({ slug, session, orgName }: Props) {
       <h1 className="font-serif text-3xl font-700 tracking-tight">{displayName}</h1>
       <p className="mt-1 text-sm text-muted-foreground">Browse published editions. Free papers open instantly; premium papers show a preview.</p>
 
+      {/* Filter Bar */}
+      <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end rounded-lg border bg-card p-4 shadow-sm">
+        <div className="flex-1 space-y-1">
+          <label className="text-xs font-medium">Edition</label>
+          <select 
+            value={filterEdition} onChange={e => setFilterEdition(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="">All Editions</option>
+            {editions.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
+          </select>
+        </div>
+        <div className="flex-1 space-y-1">
+          <label className="text-xs font-medium">From Date</label>
+          <input 
+            type="date" 
+            value={filterStart} onChange={e => setFilterStart(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
+        <div className="flex-1 space-y-1">
+          <label className="text-xs font-medium">To Date</label>
+          <input 
+            type="date" 
+            value={filterEnd} onChange={e => setFilterEnd(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            type="button" 
+            onClick={() => { setFilterEdition(''); setFilterStart(''); setFilterEnd(''); }}
+            className="h-9 px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
       {papers.length === 0 ? (
-        <div className="py-24 text-center text-muted-foreground"><Newspaper className="mx-auto mb-3 h-10 w-10" /> No papers published yet.</div>
+        <div className="py-24 text-center text-muted-foreground"><Newspaper className="mx-auto mb-3 h-10 w-10" /> No papers found matching criteria.</div>
       ) : (
         <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
           {papers.map(p => (

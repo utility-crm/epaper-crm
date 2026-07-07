@@ -7,11 +7,13 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '../components/ui/sheet';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff } from 'lucide-react';
+import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff, Image as ImageIcon, Share2 } from 'lucide-react';
 import PdfWorker from '../lib/pdfWorker?worker';
+import { extractPdfThumbnail } from '../lib/pdfThumbnail';
+import { ShareModal } from '../components/ShareModal';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
 
 interface Props { slug: string; token: string; }
 const NONE = '__none__';
@@ -27,6 +29,7 @@ export function PapersPage({ slug, token }: Props) {
   const [upload, setUpload] = useState<any>(null);
   const [editEdition, setEditEdition] = useState<any>(null);
   const [editPaper, setEditPaper] = useState<any>(null);
+  const [sharePaper, setSharePaper] = useState<any>(null);
 
   const loadEditions = useCallback(async () => {
     const [edRes, tierRes] = await Promise.all([portalApi.getEditions(slug, token), portalApi.getTiers(slug, token)]);
@@ -62,6 +65,11 @@ export function PapersPage({ slug, token }: Props) {
     loadPapers();
   };
 
+  const setDefault = async (p: any) => {
+    await portalApi.setDefaultPaper(slug, p.id, token);
+    loadPapers();
+  };
+
   if (loading) return <div className="flex justify-center py-24"><div className="spinner" /></div>;
 
   return (
@@ -83,7 +91,6 @@ export function PapersPage({ slug, token }: Props) {
         </CardContent></Card>
       ) : (
         <>
-          {/* Edition selector + tier + edit button */}
           <Card>
             <CardContent className="flex flex-wrap items-center gap-4 p-5">
               <div className="flex items-center gap-2">
@@ -160,9 +167,13 @@ export function PapersPage({ slug, token }: Props) {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="sm" onClick={() => setEditPaper(p)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => setDefault(p)} title="Set as default paper for this date">
+                              <span className={p.is_default_for_day ? 'text-amber-500' : 'text-muted-foreground'}>★</span>
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => setSharePaper(p)} title="Share"><Share2 className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="sm" onClick={() => setEditPaper(p)} title="Edit"><Pencil className="h-3.5 w-3.5" /></Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -177,8 +188,8 @@ export function PapersPage({ slug, token }: Props) {
       {modal === 'edition' && <EditionModal slug={slug} token={token} tiers={tiers} onClose={() => { setModal(null); loadEditions(); }} />}
       {modal === 'paper' && edition && <PaperModal slug={slug} token={token} editionId={edition.id} onClose={() => { setModal(null); loadPapers(); }} />}
       {upload && <UploadModal slug={slug} token={token} paper={upload} onClose={() => { setUpload(null); loadPapers(); }} />}
+      {sharePaper && <ShareModal slug={slug} paper={sharePaper} onClose={() => setSharePaper(null)} />}
 
-      {/* Edit Edition Sheet */}
       <Sheet open={!!editEdition} onOpenChange={o => !o && setEditEdition(null)}>
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
           {editEdition && (
@@ -190,7 +201,6 @@ export function PapersPage({ slug, token }: Props) {
         </SheetContent>
       </Sheet>
 
-      {/* Edit Paper Sheet */}
       <Sheet open={!!editPaper} onOpenChange={o => !o && setEditPaper(null)}>
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
           {editPaper && (
@@ -412,8 +422,9 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [isFree, setIsFree] = useState(false);
-  const [freePages, setFreePages] = useState(1);
+  const [freePages, setFreePages] = useState(0);
   const [files, setFiles] = useState<File[]>([]);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<'form' | 'uploading' | 'done'>('form');
   const [progressMsg, setProgressMsg] = useState('');
@@ -427,7 +438,13 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
     const pdfs = arr.filter(f => f.type === 'application/pdf');
     if (pdfs.length > 0) { setFiles([pdfs[0]]); return; }
     const imgs = arr.filter(f => f.type.startsWith('image/'));
-    if (imgs.length > 0) setFiles(imgs);
+    if (imgs.length > 0) setFiles(imgs.sort((a, b) => a.name.localeCompare(b.name)));
+  };
+
+  const onCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setCoverFile(e.target.files[0]);
+    }
   };
 
   const onDrop = (e: React.DragEvent) => {
@@ -447,7 +464,18 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
       setStep('uploading');
       
       let finalFiles = files;
+      let finalCover = coverFile;
+      
       if (isPdf) {
+        if (!finalCover) {
+          setProgressMsg('Generating thumbnail...');
+          try {
+            finalCover = await extractPdfThumbnail(files[0]);
+          } catch (e) {
+            console.warn('Failed to generate thumbnail', e);
+          }
+        }
+        
         setProgressMsg('Loading PDF...');
         const worker = new PdfWorker();
         try {
@@ -474,7 +502,7 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
         }
       }
 
-      const uploadRes = await portalApi.uploadPages(slug, epaperId, finalFiles, token);
+      const uploadRes = await portalApi.uploadPages(slug, epaperId, finalFiles, token, finalCover ?? undefined);
       if (!uploadRes.ok) {
         setError('Paper created but file upload failed: ' + (uploadRes.error?.message ?? 'unknown error'));
         setBusy(false); setStep('form'); return;
@@ -531,31 +559,34 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
           <div className="space-y-1.5">
             <Label>Upload file <span className="text-muted-foreground text-xs">(optional — can upload later)</span></Label>
             <div
-              onClick={() => document.getElementById('paper-file-in')!.click()}
+              className="group relative flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/20 px-6 py-12 transition-colors hover:border-primary/50 hover:bg-muted/50"
               onDragOver={e => e.preventDefault()}
               onDrop={onDrop}
-              className={`cursor-pointer rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
-                files.length > 0 ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
-              }`}
             >
-              <input
-                id="paper-file-in" type="file" multiple className="hidden"
-                accept="application/pdf,image/jpeg,image/png,image/webp"
-                onChange={e => onFilesChange(e.target.files)}
-              />
-              <FileText className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
-              {files.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  Drag &amp; drop a <strong>PDF</strong> or <strong>multiple images</strong>, or click to browse
-                </div>
-              ) : isPdf ? (
-                <div className="text-sm font-medium">{files[0].name} <span className="text-muted-foreground">({(files[0].size / 1024 / 1024).toFixed(1)} MB)</span></div>
-              ) : (
-                <div className="text-sm font-medium">{files.length} image{files.length > 1 ? 's' : ''} selected</div>
-              )}
+              <input type="file" multiple accept=".pdf,image/png,image/jpeg,image/webp" onChange={e => onFilesChange(e.target.files)} className="absolute inset-0 cursor-pointer opacity-0" />
+              <div className="pointer-events-none flex flex-col items-center space-y-2">
+                <FileText className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
+                {files.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">
+                    Drag &amp; drop a <strong>PDF</strong> or <strong>multiple images</strong>, or click to browse
+                  </div>
+                ) : isPdf ? (
+                  <div className="text-sm font-medium">{files[0].name} <span className="text-muted-foreground">({(files[0].size / 1024 / 1024).toFixed(1)} MB)</span></div>
+                ) : (
+                  <div className="text-sm font-medium">{files.length} image{files.length > 1 ? 's' : ''} selected</div>
+                )}
+              </div>
             </div>
             {files.length > 0 && (
-              <button type="button" onClick={() => setFiles([])} className="text-xs text-muted-foreground hover:text-foreground">✕ Remove</button>
+              <div className="flex justify-between items-center px-1">
+                <button type="button" onClick={() => setFiles([])} className="text-xs text-muted-foreground hover:text-foreground">✕ Remove file(s)</button>
+                
+                <label className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  <ImageIcon className="w-3 h-3" />
+                  {coverFile ? coverFile.name : 'Upload Custom Thumbnail'}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onCoverChange} className="hidden" />
+                </label>
+              </div>
             )}
           </div>
 
@@ -573,6 +604,7 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
 /* ── PDF / Image Upload Modal (replace after creation) ──────────────────── */
 function UploadModal({ slug, token, paper, onClose }: { slug: string; token: string; paper: any; onClose: () => void }) {
   const [files, setFiles] = useState<File[]>([]);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
   const [step, setStep] = useState<'form' | 'uploading' | 'done'>('form');
   const [progressMsg, setProgressMsg] = useState('');
   const [error, setError] = useState('');
@@ -588,13 +620,28 @@ function UploadModal({ slug, token, paper, onClose }: { slug: string; token: str
     if (imgs.length > 0) setFiles(imgs);
   };
 
+  const onCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setCoverFile(e.target.files[0]);
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!files.length) return;
     setStep('uploading'); setError('');
     
     let finalFiles = files;
+    let finalCover = coverFile;
     if (isPdf) {
+      if (!finalCover) {
+        setProgressMsg('Generating thumbnail...');
+        try {
+          finalCover = await extractPdfThumbnail(files[0]);
+        } catch (e) {
+          console.warn('Failed to generate thumbnail', e);
+        }
+      }
       setProgressMsg('Loading PDF...');
       const worker = new PdfWorker();
       try {
@@ -621,7 +668,7 @@ function UploadModal({ slug, token, paper, onClose }: { slug: string; token: str
       }
     }
 
-    const res = await portalApi.uploadPages(slug, paper.id, finalFiles, token);
+    const res = await portalApi.uploadPages(slug, paper.id, finalFiles, token, finalCover ?? undefined);
     if (!res.ok) { setError(res.error?.message ?? 'Upload failed'); setStep('form'); return; }
     setStep('done');
     setTimeout(onClose, 1400);
@@ -647,27 +694,33 @@ function UploadModal({ slug, token, paper, onClose }: { slug: string; token: str
               Upload a single <strong>PDF</strong> (auto-split into pages) or select <strong>multiple images</strong> (one per page, sorted by filename).
             </p>
             <div
-              onClick={() => document.getElementById('upload-file-in')!.click()}
+              className="group relative flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/20 px-6 py-12 transition-colors hover:border-primary/50 hover:bg-muted/50"
               onDragOver={e => e.preventDefault()}
               onDrop={e => { e.preventDefault(); onFilesChange(e.dataTransfer.files); }}
-              className={`cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
-                files.length > 0 ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
-              }`}
             >
-              <input
-                id="upload-file-in" type="file" multiple className="hidden"
-                accept="application/pdf,image/jpeg,image/png,image/webp"
-                onChange={e => onFilesChange(e.target.files)}
-              />
-              <FileText className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
-              {files.length === 0 ? (
-                <div className="text-sm text-muted-foreground">Drag &amp; drop a PDF or images, or click to browse</div>
-              ) : isPdf ? (
-                <div className="text-sm font-medium">{files[0].name} <span className="text-muted-foreground">({(files[0].size / 1024 / 1024).toFixed(1)} MB)</span></div>
-              ) : (
-                <div className="text-sm font-medium">{files.length} image{files.length > 1 ? 's' : ''} selected</div>
-              )}
+              <input type="file" multiple accept=".pdf,image/png,image/jpeg,image/webp" onChange={e => onFilesChange(e.target.files)} className="absolute inset-0 cursor-pointer opacity-0" />
+              <div className="pointer-events-none flex flex-col items-center space-y-2">
+                <FileText className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
+                {files.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">Drag &amp; drop a PDF or images, or click to browse</div>
+                ) : isPdf ? (
+                  <div className="text-sm font-medium">{files[0].name} <span className="text-muted-foreground">({(files[0].size / 1024 / 1024).toFixed(1)} MB)</span></div>
+                ) : (
+                  <div className="text-sm font-medium">{files.length} image{files.length > 1 ? 's' : ''} selected</div>
+                )}
+              </div>
             </div>
+            {files.length > 0 && (
+              <div className="flex justify-between items-center px-1">
+                <button type="button" onClick={() => setFiles([])} className="text-xs text-muted-foreground hover:text-foreground">✕ Remove file(s)</button>
+                
+                <label className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                  <ImageIcon className="w-3 h-3" />
+                  {coverFile ? coverFile.name : 'Upload Custom Thumbnail'}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onCoverChange} className="hidden" />
+                </label>
+              </div>
+            )}
             {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
             <DialogFooter><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={!files.length}>Upload</Button></DialogFooter>
           </form>

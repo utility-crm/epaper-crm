@@ -1,0 +1,1 @@
+ALTER TABLE epapers ADD COLUMN is_default_for_day BOOLEAN NOT NULL DEFAULT 0;

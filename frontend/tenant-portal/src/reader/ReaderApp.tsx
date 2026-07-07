@@ -5,6 +5,7 @@ import { useReaderSession } from './lib';
 import { ReaderHome } from './ReaderHome';
 import { PaperViewer } from './PaperViewer';
 import { ReaderAuthDialog } from './ReaderAuthDialog';
+import { TodayRedirect } from './TodayRedirect';
 import { Button } from '../components/ui/button';
 import { Newspaper } from 'lucide-react';
 
@@ -89,6 +90,7 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
 
       <Routes>
         <Route path="/" element={<ReaderHome slug={slug} session={session} orgName={displayName} />} />
+        <Route path="/today" element={<TodayRedirect />} />
         <Route path="/paper/:id" element={<PaperViewer slug={slug} session={session} onRequireAuth={() => openAuth('login')} />} />
         <Route path="*" element={<Navigate to={basePath} replace />} />
       </Routes>

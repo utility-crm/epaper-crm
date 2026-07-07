@@ -37,24 +37,41 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
     }
 
     const form = await c.req.formData();
-    // Accept any field containing a file (the frontend uses 'pages' or 'images')
-    const files: File[] = [];
-    for (const [, v] of form.entries()) {
+    
+    // Extract pages and cover separately
+    const pageFiles: File[] = [];
+    let coverFile: File | null = null;
+    
+    for (const [key, v] of form.entries()) {
       if (v instanceof File && ACCEPTED_TYPES.has(v.type)) {
-        files.push(v);
+        if (key === 'cover') {
+          coverFile = v;
+        } else {
+          pageFiles.push(v);
+        }
       }
     }
-    if (files.length === 0) return c.json(err(ErrorCode.BAD_REQUEST, 'No valid files provided (pdf/jpeg/png/webp)'), 400);
+    
+    if (pageFiles.length === 0) return c.json(err(ErrorCode.BAD_REQUEST, 'No valid pages provided'), 400);
 
-    // Sort by name so that multi-select uploads preserve order.
-    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    // Sort pages by name so that multi-select uploads preserve order.
+    pageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
     let totalBytes = 0;
     let coverKey: string | null = null;
     const pageRows: { id: string; page_no: number; r2_key: string }[] = [];
 
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
+    // Handle cover
+    if (coverFile) {
+      const ext = coverFile.type === 'application/pdf' ? 'pdf' : coverFile.type === 'image/png' ? 'png' : coverFile.type === 'image/webp' ? 'webp' : 'jpg';
+      coverKey = `epapers/${id}/cover.${ext}`;
+      const bytes = await coverFile.arrayBuffer();
+      const obj = await bucket.put(coverKey, bytes, { httpMetadata: { contentType: coverFile.type } });
+      totalBytes += obj?.size ?? bytes.byteLength;
+    }
+
+    for (let i = 0; i < pageFiles.length; i++) {
+      const f = pageFiles[i];
       const ext = f.type === 'application/pdf' ? 'pdf' : f.type === 'image/png' ? 'png' : f.type === 'image/webp' ? 'webp' : 'jpg';
       const key = `epapers/${id}/page-${i + 1}.${ext}`;
       const bytes = await f.arrayBuffer();
@@ -62,9 +79,9 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
       totalBytes += obj?.size ?? bytes.byteLength;
       pageRows.push({ id: crypto.randomUUID(), page_no: i + 1, r2_key: key });
       
-      if (i === 0) {
-        // First page is the cover — store a separate copy so page 1 can use auth-gating
-        // while the cover can be served publicly for thumbnails.
+      if (i === 0 && !coverKey) {
+        // Fallback: If no explicit cover was uploaded, use the first page.
+        // We store a separate copy so the cover can be served publicly for thumbnails.
         const coverK = `epapers/${id}/cover.${ext}`;
         await bucket.put(coverK, bytes, { httpMetadata: { contentType: f.type } });
         coverKey = coverK;
@@ -76,14 +93,14 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
     );
     stmts.push(
       db.prepare('UPDATE epapers SET page_count=?, free_page_count=MIN(free_page_count,?), r2_key=?, cover_key=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
-        .bind(files.length, files.length, pageRows[0]?.r2_key ?? null, coverKey, id)
+        .bind(pageFiles.length, pageFiles.length, pageRows[0]?.r2_key ?? null, coverKey, id)
     );
     stmts.push(
       db.prepare('UPDATE tenant_stats SET disk_usage_bytes=disk_usage_bytes+?, updated_at=CURRENT_TIMESTAMP WHERE id=1').bind(totalBytes)
     );
     await db.batch(stmts);
 
-    return c.json(ok({ uploaded: true, page_count: files.length, type: files[0].type.includes('pdf') ? 'pdf' : 'images' }));
+    return c.json(ok({ uploaded: true, page_count: pageFiles.length, type: pageFiles[0].type.includes('pdf') ? 'pdf' : 'images' }));
   } catch (e) {
     console.error('upload error', e);
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB/Bucket not found or unavailable'), 403);

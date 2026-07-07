@@ -114,16 +114,56 @@ readerRouter.get('/:slug/plans', async (c) => {
 // Published papers with their edition + tier, newest first.
 readerRouter.get('/:slug/papers', async (c) => {
   const slug = c.req.param('slug');
+  const url = new URL(c.req.url);
+  const edition_id = url.searchParams.get('edition_id');
+  const start_date = url.searchParams.get('start_date');
+  const end_date = url.searchParams.get('end_date');
+
   try {
     const db = getTenantDb(c.env, slug);
-    const rows = await db.prepare(
-      `SELECT e.id, e.title, e.publish_date, e.is_free, e.page_count, e.free_page_count, e.cover_key,
+    let q = `SELECT e.id, e.title, e.publish_date, e.is_free, e.page_count, e.free_page_count, e.cover_key,
               ed.id AS edition_id, ed.title AS edition_title, ed.tier_id
        FROM epapers e JOIN editions ed ON ed.id = e.edition_id
-       WHERE e.status = 'published' AND ed.status != 'archived'
-       ORDER BY e.publish_date DESC`
-    ).all();
+       WHERE e.status = 'published' AND ed.status != 'archived'`;
+    const params: any[] = [];
+    
+    if (edition_id) { q += ' AND ed.id = ?'; params.push(edition_id); }
+    if (start_date) { q += ' AND e.publish_date >= ?'; params.push(start_date); }
+    if (end_date) { q += ' AND e.publish_date <= ?'; params.push(end_date); }
+    
+    q += ' ORDER BY e.publish_date DESC';
+    
+    const rows = await db.prepare(q).bind(...params).all();
     return c.json(ok({ items: rows.results }));
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+readerRouter.get('/:slug/today', async (c) => {
+  const slug = c.req.param('slug');
+  try {
+    const db = getTenantDb(c.env, slug);
+    const today = new Date().toISOString().split('T')[0];
+    
+    const { results } = await db.prepare(
+      `SELECT e.id, e.is_default_for_day 
+       FROM epapers e JOIN editions ed ON ed.id = e.edition_id
+       WHERE e.status = 'published' AND ed.status != 'archived' AND e.publish_date = ? 
+       ORDER BY e.created_at ASC`
+    ).bind(today).all<{ id: string, is_default_for_day: number }>();
+    
+    if (!results || results.length === 0) {
+      return c.json(err(ErrorCode.NOT_FOUND, 'No papers available for today'), 404);
+    }
+    
+    const defaultPaper = results.find(p => p.is_default_for_day === 1);
+    const paper = defaultPaper || results[0];
+    
+    return c.json(ok({
+      paper_id: paper.id,
+      multiple_available: results.length > 1 && !defaultPaper
+    }));
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }
@@ -145,6 +185,19 @@ readerRouter.get('/:slug/papers/:id', async (c) => {
     const reader = await getReader(c, slug);
     const unlocked = !!paper.is_free || (reader ? await hasActiveSub(db, reader.sub, paper.tier_id) : false);
     return c.json(ok({ ...paper, unlocked, signed_in: !!reader }));
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+readerRouter.get('/:slug/editions', async (c) => {
+  const slug = c.req.param('slug');
+  try {
+    const db = getTenantDb(c.env, slug);
+    const { results } = await db.prepare(
+      `SELECT id, title FROM editions WHERE status != 'archived' ORDER BY title ASC`
+    ).all();
+    return c.json(ok({ items: results }));
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }

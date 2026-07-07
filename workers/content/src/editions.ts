@@ -179,3 +179,23 @@ editionsRouter.patch('/:slug/epapers/:id', async (c) => {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
   }
 });
+
+// Set default paper for the day
+editionsRouter.patch('/:slug/epapers/:id/default', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  
+  try {
+    const db = getTenantDb(c.env, slug);
+    const paper = await db.prepare('SELECT publish_date FROM epapers WHERE id = ?').bind(id).first<{ publish_date: string }>();
+    if (!paper) return c.json(err(ErrorCode.NOT_FOUND, 'Epaper not found'), 404);
+
+    await db.batch([
+      db.prepare('UPDATE epapers SET is_default_for_day = 0 WHERE publish_date = ?').bind(paper.publish_date),
+      db.prepare('UPDATE epapers SET is_default_for_day = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(id)
+    ]);
+    return c.json(ok({ updated: true }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
