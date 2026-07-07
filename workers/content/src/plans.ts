@@ -48,6 +48,28 @@ plansRouter.delete('/:slug/tiers/:id', async (c) => {
   }
 });
 
+plansRouter.patch('/:slug/tiers/:id', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  try {
+    const db = getTenantDb(c.env, slug);
+    const existing = await db.prepare('SELECT * FROM tiers WHERE id = ?').bind(id).first<any>();
+    if (!existing) return c.json(err(ErrorCode.NOT_FOUND, 'Tier not found'), 404);
+
+    const merged = {
+      name: body.name ?? existing.name,
+      description: body.description !== undefined ? body.description : existing.description,
+    };
+
+    await db.prepare('UPDATE tiers SET name=?, description=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+      .bind(merged.name, merged.description, id).run();
+    return c.json(ok({ updated: true }));
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found'), 403);
+  }
+});
+
 // --- Plans ---
 
 plansRouter.get('/:slug/plans', async (c) => {

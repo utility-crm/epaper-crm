@@ -44,6 +44,7 @@ export const portalApi = {
   // tiers + plans
   getTiers: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/tiers`, {}, token),
   createTier: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/tiers`, { method: 'POST', body: JSON.stringify(body) }, token),
+  updateTier: (slug: string, id: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/tiers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }, token),
   deleteTier: (slug: string, id: string, token: string) => apiFetch<any>(`/api/content/${slug}/tiers/${id}`, { method: 'DELETE' }, token),
   getPlans: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/plans`, {}, token),
   createPlan: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/plans`, { method: 'POST', body: JSON.stringify(body) }, token),

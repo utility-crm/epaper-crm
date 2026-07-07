@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Layers, Plus, Trash2, Tag, Users } from 'lucide-react';
+import { Layers, Plus, Trash2, Tag, Users, Pencil, Check } from 'lucide-react';
 
 interface Props { slug: string; token: string; }
 
@@ -19,7 +19,7 @@ export function PlansPage({ slug, token }: Props) {
   const [plans, setPlans] = useState<any[]>([]);
   const [subs, setSubs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<null | 'tier' | 'plan'>(null);
+  const [modal, setModal] = useState<{ type: 'tier' | 'plan', data?: any } | null>(null);
 
   const load = useCallback(async () => {
     const [t, p, s] = await Promise.all([
@@ -68,7 +68,7 @@ export function PlansPage({ slug, token }: Props) {
       <Card>
         <CardHeader className="flex-row items-center justify-between">
           <div><CardTitle>Content Tiers</CardTitle><CardDescription>Assign editions to a tier; a subscription to that tier unlocks its papers.</CardDescription></div>
-          <Button variant="secondary" size="sm" onClick={() => setModal('tier')}><Plus className="h-4 w-4" /> New Tier</Button>
+          <Button variant="secondary" size="sm" onClick={() => setModal({ type: 'tier' })}><Plus className="h-4 w-4" /> New Tier</Button>
         </CardHeader>
         <CardContent>
           {tiers.length === 0 ? (
@@ -82,7 +82,10 @@ export function PlansPage({ slug, token }: Props) {
                     {t.description && <div className="mt-0.5 text-xs text-muted-foreground">{t.description}</div>}
                     <div className="mt-2 text-xs text-muted-foreground">{plans.filter(p => p.tier_id === t.id).length} plan(s)</div>
                   </div>
-                  <button onClick={() => delTier(t.id)} className="text-muted-foreground hover:text-red-400"><Trash2 className="h-4 w-4" /></button>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setModal({ type: 'tier', data: t })} className="p-1 text-muted-foreground hover:text-foreground"><Pencil className="h-4 w-4" /></button>
+                    <button onClick={() => delTier(t.id)} className="p-1 text-muted-foreground hover:text-red-400"><Trash2 className="h-4 w-4" /></button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -94,7 +97,7 @@ export function PlansPage({ slug, token }: Props) {
       <Card>
         <CardHeader className="flex-row items-center justify-between">
           <div><CardTitle>Subscription Plans</CardTitle><CardDescription>Pricing readers see at checkout.</CardDescription></div>
-          <Button size="sm" onClick={() => setModal('plan')} disabled={tiers.length === 0}><Plus className="h-4 w-4" /> New Plan</Button>
+          <Button size="sm" onClick={() => setModal({ type: 'plan' })} disabled={tiers.length === 0}><Plus className="h-4 w-4" /> New Plan</Button>
         </CardHeader>
         <CardContent>
           {tiers.length === 0 ? (
@@ -117,6 +120,7 @@ export function PlansPage({ slug, token }: Props) {
                     <div className="text-xs text-muted-foreground">{INTERVAL_LABEL[p.interval] ?? p.interval}</div>
                     {p.offer_pct > 0 && <Badge variant="success" className="mt-3">{p.offer_label || `${p.offer_pct}% off`}</Badge>}
                     <div className="mt-4 flex gap-2">
+                      <button onClick={() => setModal({ type: 'plan', data: p })} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"><Pencil className="h-3.5 w-3.5" /> Edit</button>
                       <button onClick={() => delPlan(p.id)} className="text-xs text-muted-foreground hover:text-red-400 flex items-center gap-1"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
                     </div>
                   </div>
@@ -127,22 +131,30 @@ export function PlansPage({ slug, token }: Props) {
         </CardContent>
       </Card>
 
-      {modal === 'tier' && <TierModal slug={slug} token={token} onClose={() => { setModal(null); load(); }} />}
-      {modal === 'plan' && <PlanModal slug={slug} token={token} tiers={tiers} onClose={() => { setModal(null); load(); }} />}
+      {modal?.type === 'tier' && <TierModal slug={slug} token={token} initialData={modal.data} onClose={() => { setModal(null); load(); }} />}
+      {modal?.type === 'plan' && <PlanModal slug={slug} token={token} tiers={tiers} initialData={modal.data} onClose={() => { setModal(null); load(); }} />}
     </div>
   );
 }
 
-function TierModal({ slug, token, onClose }: { slug: string; token: string; onClose: () => void }) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
+const TIER_FEATURES = ['Daily Epapers', 'Weekly Magazines', 'Archived Editions', 'Exclusive Content', 'Ad-free Reading', 'Downloadable PDFs', 'Early Access'];
+
+function TierModal({ slug, token, initialData, onClose }: { slug: string; token: string; initialData?: any; onClose: () => void }) {
+  const [name, setName] = useState(initialData?.name ?? '');
+  const [features, setFeatures] = useState<string[]>(initialData?.description ? initialData.description.split(',').map((s: string) => s.trim()) : []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  
+  const toggleFeature = (f: string) => setFeatures(prev => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name) return;
     setBusy(true); setError('');
-    const res = await portalApi.createTier(slug, { name, description }, token);
+    const description = features.join(', ');
+    const res = initialData
+      ? await portalApi.updateTier(slug, initialData.id, { name, description }, token)
+      : await portalApi.createTier(slug, { name, description }, token);
     setBusy(false);
     if (!res.ok) { setError(res.error?.message ?? 'Failed'); return; }
     onClose();
@@ -150,25 +162,35 @@ function TierModal({ slug, token, onClose }: { slug: string; token: string; onCl
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
       <DialogContent>
-        <DialogHeader><DialogTitle>New Content Tier</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{initialData ? 'Edit Content Tier' : 'New Content Tier'}</DialogTitle></DialogHeader>
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-1.5"><Label>Name</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Premium" autoFocus /></div>
-          <div className="space-y-1.5"><Label>Description (optional)</Label><Input value={description} onChange={e => setDescription(e.target.value)} placeholder="What this tier includes" /></div>
+          <div className="space-y-1.5">
+            <Label>Tier Features</Label>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {TIER_FEATURES.map(f => (
+                <Badge key={f} variant={features.includes(f) ? 'default' : 'outline'} className="cursor-pointer select-none" onClick={() => toggleFeature(f)}>
+                  {features.includes(f) && <Check className="mr-1 h-3 w-3" />} {f}
+                </Badge>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Select the features included in this tier. Readers will see this list.</p>
+          </div>
           {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
-          <DialogFooter><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Saving…' : (initialData ? 'Save Changes' : 'Create')}</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
   );
 }
 
-function PlanModal({ slug, token, tiers, onClose }: { slug: string; token: string; tiers: any[]; onClose: () => void }) {
-  const [tierId, setTierId] = useState(tiers[0]?.id ?? '');
-  const [name, setName] = useState('');
-  const [interval, setInterval] = useState('monthly');
-  const [rupees, setRupees] = useState('99');
-  const [offerPct, setOfferPct] = useState('0');
-  const [offerLabel, setOfferLabel] = useState('');
+function PlanModal({ slug, token, tiers, initialData, onClose }: { slug: string; token: string; tiers: any[]; initialData?: any; onClose: () => void }) {
+  const [tierId, setTierId] = useState(initialData?.tier_id ?? (tiers[0]?.id ?? ''));
+  const [name, setName] = useState(initialData?.name ?? '');
+  const [interval, setInterval] = useState(initialData?.interval ?? 'monthly');
+  const [rupees, setRupees] = useState(initialData ? String(initialData.price_paise / 100) : '99');
+  const [offerPct, setOfferPct] = useState(initialData ? String(initialData.offer_pct) : '0');
+  const [offerLabel, setOfferLabel] = useState(initialData?.offer_label ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -176,12 +198,15 @@ function PlanModal({ slug, token, tiers, onClose }: { slug: string; token: strin
     e.preventDefault();
     if (!tierId || !name) { setError('Tier and name required'); return; }
     setBusy(true); setError('');
-    const res = await portalApi.createPlan(slug, {
+    const payload = {
       tier_id: tierId, name, interval,
       price_paise: Math.round(parseFloat(rupees || '0') * 100),
       offer_pct: parseInt(offerPct) || 0,
       offer_label: offerLabel || undefined,
-    }, token);
+    };
+    const res = initialData
+      ? await portalApi.updatePlan(slug, initialData.id, payload, token)
+      : await portalApi.createPlan(slug, payload, token);
     setBusy(false);
     if (!res.ok) { setError(res.error?.message ?? 'Failed'); return; }
     onClose();
@@ -190,7 +215,7 @@ function PlanModal({ slug, token, tiers, onClose }: { slug: string; token: strin
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
       <DialogContent>
-        <DialogHeader><DialogTitle>New Subscription Plan</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{initialData ? 'Edit Subscription Plan' : 'New Subscription Plan'}</DialogTitle></DialogHeader>
         <form onSubmit={submit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -219,7 +244,7 @@ function PlanModal({ slug, token, tiers, onClose }: { slug: string; token: strin
           </div>
           {parseInt(offerPct) > 0 && <div className="space-y-1.5"><Label>Offer label</Label><Input value={offerLabel} onChange={e => setOfferLabel(e.target.value)} placeholder="e.g. Launch offer" /></div>}
           {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
-          <DialogFooter><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create Plan'}</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Saving…' : (initialData ? 'Save Changes' : 'Create Plan')}</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
