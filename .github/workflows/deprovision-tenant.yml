@@ -55,8 +55,8 @@ jobs:
 
       # Purge Cloudflare cache for all URLs belonging to this tenant slug.
       # This ensures any cached API responses for deleted tenant data are cleared immediately.
+      # Non-fatal: if CLOUDFLARE_ZONE_ID secret is not set, curl will fail and the echo fallback runs.
       - name: Purge Cloudflare Cache for Tenant
-        if: ${{ secrets.CLOUDFLARE_ZONE_ID != '' }}
         run: |
           SLUG="${{ github.event.inputs.tenant_slug }}"
           # Purge all possible tenant API URL prefixes
