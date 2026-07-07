@@ -8,6 +8,7 @@ export interface Env {
   ORG_JWT_SECRET: string;
   PROVISION_WORKER: Fetcher;
   CONTENT_WORKER: Fetcher;
+  BILLING_WORKER: Fetcher;
 }
 
 export async function adminAuth(c: Context<{ Bindings: Env; Variables: { adminId: string; adminRole: AdminRole } }>, next: Next) {

@@ -128,6 +128,43 @@ app.get('/api/billing/platform/:slug/status', async (c) => {
 
 app.get('/health', (c) => c.json(ok({ status: 'ok', worker: 'billing-platform' })));
 
+app.patch('/internal/billing/platform/:slug/subscription', async (c) => {
+  const slug = c.req.param('slug');
+  const { planName } = await c.req.json();
+  if (!planName) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing planName'), 400);
+
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, razorpay_sub_id FROM tenants WHERE slug = ?').bind(slug).first();
+  if (!tenant || !tenant.razorpay_sub_id) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant or subscription not found'), 404);
+
+  // Fetch all plans
+  const plansRes = await razorpayRequest(c.env, 'plans');
+  if (!plansRes.ok) return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to fetch plans'), 500);
+  
+  const plansData = await plansRes.json() as any;
+  const targetPlan = plansData.items?.find((p: any) => p.item?.name?.toLowerCase() === planName.toLowerCase());
+  
+  if (!targetPlan) return c.json(err(ErrorCode.NOT_FOUND, `Plan matching name ${planName} not found in Razorpay`), 404);
+
+  // Update subscription in Razorpay
+  const updateRes = await razorpayRequest(c.env, `subscriptions/${tenant.razorpay_sub_id}`, 'PATCH', {
+    plan_id: targetPlan.id,
+    customer_notify: 1
+  });
+
+  if (!updateRes.ok) {
+    console.error('Failed to update Razorpay subscription', await updateRes.text());
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to update subscription in Razorpay'), 500);
+  }
+
+  const sub = await updateRes.json() as any;
+
+  await c.env.CONTROL_DB.prepare(
+    'UPDATE tenants SET razorpay_plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
+  ).bind(targetPlan.id, slug).run();
+
+  return c.json(ok({ updated: true, subscription_id: sub.id }));
+});
+
 export default {
   fetch: app.fetch,
 };

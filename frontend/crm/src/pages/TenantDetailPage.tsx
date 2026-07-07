@@ -13,7 +13,7 @@ export function TenantDetailPage() {
   const [loading, setLoading] = useState(true);
   const [planLoading, setPlanLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState('');
-  const [modal, setModal] = useState<'suspend' | 'delete' | null>(null);
+  const [modal, setModal] = useState<'suspend' | 'release' | 'delete' | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
@@ -42,6 +42,15 @@ export function TenantDetailPage() {
     setModal(null);
   };
 
+  const handleRelease = async () => {
+    setActionLoading(true);
+    await crmApi.patchTenant(slug!, { status: 'active' });
+    const res = await crmApi.getTenant(slug!);
+    if (res.ok) setTenant(res.data);
+    setActionLoading(false);
+    setModal(null);
+  };
+
   const handleDelete = async () => {
     setActionLoading(true);
     await crmApi.deleteTenant(slug!);
@@ -62,6 +71,17 @@ export function TenantDetailPage() {
           confirmLabel="Suspend Now"
           confirmClass="btn-danger"
           onConfirm={handleSuspend}
+          onCancel={() => setModal(null)}
+          loading={actionLoading}
+        />
+      )}
+      {modal === 'release' && (
+        <ConfirmModal
+          title="Release Suspension"
+          message={`Are you sure you want to release the suspension for "${tenant.name}"? They will regain access to the platform.`}
+          confirmLabel="Release Suspension"
+          confirmClass="btn-primary"
+          onConfirm={handleRelease}
           onCancel={() => setModal(null)}
           loading={actionLoading}
         />
@@ -139,6 +159,11 @@ export function TenantDetailPage() {
               <button style={{ background: 'rgba(245,158,11,0.1)', color: 'var(--color-warning)', border: '1px solid rgba(245,158,11,0.4)',
                 padding: '10px 20px', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}
                 onClick={() => setModal('suspend')}>Suspend Organisation</button>
+            )}
+            {tenant.status === 'suspended' && (
+              <button style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--color-success)', border: '1px solid rgba(16,185,129,0.4)',
+                padding: '10px 20px', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}
+                onClick={() => setModal('release')}>Release Suspension</button>
             )}
             <button style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--color-danger)', border: '1px solid rgba(239,68,68,0.4)',
               padding: '10px 20px', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}

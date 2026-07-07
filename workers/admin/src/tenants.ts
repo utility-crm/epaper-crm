@@ -92,15 +92,30 @@ tenantsRouter.patch('/:slug', async (c) => {
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
   
   if (body.plan) {
+    const tenantWithSub = await c.env.CONTROL_DB.prepare('SELECT razorpay_sub_id FROM tenants WHERE slug = ?').bind(slug).first<{razorpay_sub_id: string | null}>();
     await c.env.CONTROL_DB.prepare('UPDATE tenants SET plan = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?').bind(body.plan, slug).run();
     await c.env.CONTROL_DB.prepare('INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)')
       .bind(crypto.randomUUID(), tenant.id, 'tenant.plan_updated', c.var.adminId, JSON.stringify({ plan: body.plan })).run();
+      
+    if (tenantWithSub?.razorpay_sub_id) {
+      c.executionCtx.waitUntil(
+        c.env.BILLING_WORKER.fetch(new Request(`http://billing/internal/billing/platform/${slug}/subscription`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ planName: body.plan })
+        })).catch(e => console.error('Subscription update trigger failed', e))
+      );
+    }
   }
   
   if (body.status === 'suspended') {
     await c.env.CONTROL_DB.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?').bind('suspended', slug).run();
     await c.env.CONTROL_DB.prepare('INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)')
       .bind(crypto.randomUUID(), tenant.id, 'tenant.suspended', c.var.adminId, '{}').run();
+  } else if (body.status === 'active') {
+    await c.env.CONTROL_DB.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?').bind('active', slug).run();
+    await c.env.CONTROL_DB.prepare('INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), tenant.id, 'tenant.unsuspended', c.var.adminId, '{}').run();
   }
   
   return c.json(ok({ updated: true }));
