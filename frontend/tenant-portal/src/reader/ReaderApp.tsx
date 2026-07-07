@@ -42,7 +42,7 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
   const { session, signIn, signOut } = useReaderSession(slug);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
-  const [orgSettings, setOrgSettings] = useState<{ org_name: string | null; logo_url: string | null } | null>(null);
+  const [orgSettings, setOrgSettings] = useState<{ org_name: string | null; logo_url: string | null; theme_id?: string } | null>(null);
   const [logoError, setLogoError] = useState(false);
 
   useEffect(() => {

@@ -6,6 +6,7 @@ on:
       - main
 
 jobs:
+  # Deploy all Cloudflare Workers in parallel
   deploy-workers:
     runs-on: ubuntu-latest
     strategy:
@@ -13,24 +14,74 @@ jobs:
         worker: [admin, provision, content, billing-platform, billing-tenant, gateway]
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          
+
       - name: Install dependencies
         run: npm ci
-        
+
       - name: Build Gateway Shell
         if: ${{ matrix.worker == 'gateway' }}
         env:
           VITE_CRM_REMOTE_URL: 'https://epaper-crm.pages.dev'
           VITE_PORTAL_REMOTE_URL: 'https://epaper-portal.pages.dev'
         run: npm run build --workspace=frontend/shell
-        
+
       - name: Deploy Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npm run deploy --workspace=workers/${{ matrix.worker }}
+
+  # Deploy Tenant Portal (epaper-portal.pages.dev)
+  deploy-portal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tenant Portal
+        env:
+          VITE_API_URL: 'https://epaper-gateway.satishkumar-link.workers.dev'
+        run: npm run build --workspace=frontend/tenant-portal
+
+      - name: Deploy to Cloudflare Pages (epaper-portal)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages deploy frontend/tenant-portal/dist --project-name=epaper-portal --branch=main
+
+  # Deploy CRM (epaper-crm.pages.dev)
+  deploy-crm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CRM
+        env:
+          VITE_API_URL: 'https://epaper-gateway.satishkumar-link.workers.dev'
+        run: npm run build --workspace=frontend/crm
+
+      - name: Deploy to Cloudflare Pages (epaper-crm)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages deploy frontend/crm/dist --project-name=epaper-crm --branch=main
