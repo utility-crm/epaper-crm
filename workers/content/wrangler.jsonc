@@ -3,7 +3,20 @@
   "name": "epaper-content",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
-  "compatibility_flags": ["nodejs_compat"],
-  "d1_databases": [],
-  "r2_buckets": []
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "d1_databases": [
+    {
+      "binding": "TEST_EDB2_DB",
+      "database_name": "epaper-test-edb2",
+      "database_id": "5d90aa36-8dbe-4a80-acd7-216f2e18e23a"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "TEST_EDB2_R2",
+      "bucket_name": "epaper-test-edb2"
+    }
+  ]
 }

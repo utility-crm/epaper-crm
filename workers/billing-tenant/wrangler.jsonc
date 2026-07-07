@@ -3,7 +3,14 @@
   "name": "epaper-billing-tenant",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
-  "compatibility_flags": ["nodejs_compat"],
-  "d1_databases": []
-  // Note: secret TENANT_ENCRYPTION_KEY should be set
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "d1_databases": [
+    {
+      "binding": "TEST_EDB2_DB",
+      "database_name": "epaper-test-edb2",
+      "database_id": "5d90aa36-8dbe-4a80-acd7-216f2e18e23a"
+    }
+  ]
 }
