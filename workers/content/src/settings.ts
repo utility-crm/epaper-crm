@@ -88,7 +88,7 @@ settingsRouter.delete('/:slug/settings', async (c) => {
     // 3. Trigger the actual resource destruction via admin internal API
     if ((c.env as any).ADMIN_WORKER) {
       const adminRes = await (c.env as any).ADMIN_WORKER.fetch(
-        new Request(`http://admin/internal/tenants/${slug}/deprovision`, { method: 'DELETE' })
+        new Request(`http://admin/api/tenants/internal/${slug}/deprovision`, { method: 'DELETE' })
       );
       if (!adminRes.ok) {
         console.error('Failed to trigger deprovision:', await adminRes.text());
