@@ -117,6 +117,15 @@ export default function App() {
     setTenantStatus(status);
   }
 
+  useEffect(() => {
+    const onSuspended = () => {
+      localStorage.setItem('epaper:tenantStatus', 'suspended');
+      setTenantStatus('suspended');
+    };
+    window.addEventListener('epaper:tenant-suspended', onSuspended);
+    return () => window.removeEventListener('epaper:tenant-suspended', onSuspended);
+  }, []);
+
   function handleLogout() {
     localStorage.removeItem('epaper:orgToken');
     localStorage.removeItem('epaper:tenantStatus');

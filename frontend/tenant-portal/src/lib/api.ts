@@ -12,8 +12,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
     
     if (!data.ok && data.error?.message === 'TENANT_SUSPENDED') {
       if (typeof window !== 'undefined') {
-        localStorage.setItem('epaper:tenantStatus', 'suspended');
-        window.location.reload();
+        window.dispatchEvent(new CustomEvent('epaper:tenant-suspended'));
       }
     }
     
