@@ -157,3 +157,39 @@ orgAuthRouter.get('/provision-status', orgUserAuth, async (c) => {
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
   return c.json(ok(tenant));
 });
+
+// Tenant self-service: retry provisioning after a provision_failed state
+orgAuthRouter.post('/reprovision', orgUserAuth, async (c) => {
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, slug, status FROM tenants WHERE id = ?')
+    .bind(c.var.tenantId).first<{id: string; slug: string; status: string}>();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+
+  if (!['provision_failed', 'pending'].includes(tenant.status)) {
+    return c.json(err(ErrorCode.BAD_REQUEST, `Cannot reprovision from status: ${tenant.status}`), 400);
+  }
+
+  // Delegate to the internal reprovision endpoint (which fires the GitHub workflow)
+  const res = await c.env.PROVISION_WORKER.fetch(
+    new Request('http://provision/api/provision/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: tenant.slug })
+    })
+  );
+
+  if (!res.ok) {
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to trigger reprovisioning'), 500);
+  }
+
+  // Mark as provisioning again
+  await c.env.CONTROL_DB.batch([
+    c.env.CONTROL_DB.prepare(
+      'UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).bind('provisioning', tenant.id),
+    c.env.CONTROL_DB.prepare(
+      'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
+    ).bind(crypto.randomUUID(), tenant.id, 'tenant.reprovision_self_service', tenant.id, JSON.stringify({ slug: tenant.slug }))
+  ]);
+
+  return c.json(ok({ reprovisioning: true }));
+});

@@ -7,6 +7,7 @@ interface StatusBadgeProps {
 const statusLabels: Record<string, string> = {
   pending: 'Pending',
   provisioning: 'Provisioning',
+  provision_failed: 'Failed',
   active: 'Active',
   suspended: 'Suspended',
   deleting: 'Deleting',

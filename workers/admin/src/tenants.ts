@@ -41,6 +41,56 @@ tenantsRouter.patch('/internal/:slug/delete-complete', async (c) => {
   return c.json(ok({ deleted: true }));
 });
 
+// Called by provision worker webhook when the GitHub Actions job fails
+tenantsRouter.patch('/internal/:slug/provision-failed', async (c) => {
+  const slug = c.req.param('slug');
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, email, name FROM tenants WHERE slug = ?').bind(slug).first<{id: string; email: string; name: string}>();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+
+  await c.env.CONTROL_DB.batch([
+    c.env.CONTROL_DB.prepare(
+      'UPDATE tenants SET status = ?, d1_id = NULL, r2_bucket = NULL, provision_run_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
+    ).bind('provision_failed', slug),
+    c.env.CONTROL_DB.prepare(
+      'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
+    ).bind(crypto.randomUUID(), tenant.id, 'tenant.provision_failed', 'system', JSON.stringify({ slug }))
+  ]);
+
+  return c.json(ok({ failed: true }));
+});
+
+// Called by org-auth (tenant self-service) or admin to re-trigger provisioning
+tenantsRouter.post('/internal/:slug/reprovision', async (c) => {
+  const slug = c.req.param('slug');
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, status FROM tenants WHERE slug = ?').bind(slug).first<{id: string; status: string}>();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+
+  // Only allow re-trigger from a failed or pending state
+  if (!['provision_failed', 'pending'].includes(tenant.status)) {
+    return c.json(err(ErrorCode.BAD_REQUEST, `Cannot reprovision from status: ${tenant.status}`), 400);
+  }
+
+  await c.env.CONTROL_DB.batch([
+    c.env.CONTROL_DB.prepare(
+      'UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
+    ).bind('provisioning', slug),
+    c.env.CONTROL_DB.prepare(
+      'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
+    ).bind(crypto.randomUUID(), tenant.id, 'tenant.reprovision_requested', 'system', JSON.stringify({ slug }))
+  ]);
+
+  // Fire-and-forget: trigger the provision workflow
+  c.executionCtx.waitUntil(
+    c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug })
+    })).catch(e => console.error('Re-provision trigger failed', e))
+  );
+
+  return c.json(ok({ reprovisioning: true }));
+});
+
 tenantsRouter.delete('/internal/:slug/deprovision', async (c) => {
   const slug = c.req.param('slug');
   const tenant = await c.env.CONTROL_DB.prepare('SELECT id FROM tenants WHERE slug = ?').bind(slug).first<{id: string}>();

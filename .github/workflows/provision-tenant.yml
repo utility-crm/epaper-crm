@@ -73,3 +73,10 @@ jobs:
           curl -X POST https://epaper-gateway.satishkumar-link.workers.dev/api/provision/webhook \
             -H "Content-Type: application/json" \
             -d '{"secret": "${{ secrets.PROVISION_WEBHOOK_SECRET }}", "slug": "${{ github.event.inputs.tenant_slug }}", "isDeprovision": false}'
+
+      - name: Report Failure to Provision Worker
+        if: failure()
+        run: |
+          curl -X POST https://epaper-gateway.satishkumar-link.workers.dev/api/provision/webhook \
+            -H "Content-Type: application/json" \
+            -d '{"secret": "${{ secrets.PROVISION_WEBHOOK_SECRET }}", "slug": "${{ github.event.inputs.tenant_slug }}", "isDeprovision": false, "isFailure": true}'

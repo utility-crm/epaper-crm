@@ -90,23 +90,35 @@ app.post('/api/provision/deprovision', async (c) => {
 });
 
 app.post('/api/provision/webhook', async (c) => {
-  const { secret, slug, isDeprovision } = await c.req.json();
+  const { secret, slug, isDeprovision, isFailure } = await c.req.json();
   if (secret !== c.env.WEBHOOK_SECRET) {
     return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid secret'), 401);
   }
-  
-  const endpoint = isDeprovision ? `/api/tenants/internal/${slug}/delete-complete` : `/api/tenants/internal/${slug}/activate`;
-  const reqBody = isDeprovision ? {} : {
-    d1_id: `epaper-${slug}`,
-    r2_bucket: `epaper-${slug}`
-  };
-  
+
+  let endpoint: string;
+  let reqBody: Record<string, unknown>;
+
+  if (isFailure) {
+    // Provisioning job failed — mark tenant as provision_failed so user/admin can retry
+    endpoint = `/api/tenants/internal/${slug}/provision-failed`;
+    reqBody = {};
+  } else if (isDeprovision) {
+    endpoint = `/api/tenants/internal/${slug}/delete-complete`;
+    reqBody = {};
+  } else {
+    endpoint = `/api/tenants/internal/${slug}/activate`;
+    reqBody = {
+      d1_id: `epaper-${slug}`,
+      r2_bucket: `epaper-${slug}`
+    };
+  }
+
   await c.env.ADMIN_WORKER.fetch(new Request(`http://admin${endpoint}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(reqBody)
   }));
-  
+
   return c.json(ok({ handled: true }));
 });
 

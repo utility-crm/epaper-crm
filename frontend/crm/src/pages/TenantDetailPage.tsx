@@ -127,6 +127,14 @@ export function TenantDetailPage() {
     navigate('/tenants');
   };
 
+  const handleReprovision = async () => {
+    setActionLoading(true);
+    await crmApi.reprovisionTenant(slug!);
+    const res = await crmApi.getTenant(slug!);
+    if (res.ok) setTenant(res.data);
+    setActionLoading(false);
+  };
+
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><div className="spinner" /></div>;
   if (!tenant) return <div className="card">Tenant not found</div>;
 
@@ -177,6 +185,29 @@ export function TenantDetailPage() {
           {tenant.slug}
         </p>
       </div>
+
+      {/* Provision Failed Banner */}
+      {tenant.status === 'provision_failed' && (
+        <div style={{ marginBottom: 20, padding: '16px 20px', background: 'rgba(220,38,38,0.08)',
+          border: '1px solid rgba(220,38,38,0.3)', borderRadius: 12, display: 'flex',
+          alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontWeight: 600, color: '#fca5a5', marginBottom: 4 }}>⚠ Provisioning Failed</div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+              The GitHub Actions workflow failed to provision this tenant. Resources have been rolled back. You can safely re-trigger provisioning.
+            </div>
+          </div>
+          <button
+            className="btn-primary"
+            disabled={actionLoading}
+            onClick={handleReprovision}
+            style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            {actionLoading && <span className="spinner" style={{ width: 14, height: 14 }} />}
+            ↻ Re-Provision
+          </button>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: isSuperAdmin ? '1fr 1fr' : '1fr', gap: 20, marginBottom: 20 }}>
         {/* Info Card */}

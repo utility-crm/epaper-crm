@@ -32,6 +32,7 @@ export const crmApi = {
   patchTenant: (slug: string, body: any) => apiFetch<any>(`/api/tenants/${slug}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteTenant: (slug: string) => apiFetch<any>(`/api/tenants/${slug}`, { method: 'DELETE' }),
   getAuditLog: (page = 1, tenantId?: string) => apiFetch<any>(`/api/audit?page=${page}${tenantId ? `&tenant_id=${tenantId}` : ''}`),
+  reprovisionTenant: (slug: string) => apiFetch<any>(`/api/tenants/internal/${slug}/reprovision`, { method: 'POST' }),
   
   // Admins
   updatePassword: (body: any) => apiFetch<any>('/api/auth/me/password', { method: 'PATCH', body: JSON.stringify(body) }),
