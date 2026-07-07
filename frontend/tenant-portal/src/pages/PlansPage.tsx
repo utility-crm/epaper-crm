@@ -137,7 +137,13 @@ export function PlansPage({ slug, token }: Props) {
   );
 }
 
-const TIER_FEATURES = ['Daily Epapers', 'Weekly Magazines', 'Archived Editions', 'Exclusive Content', 'Ad-free Reading', 'Downloadable PDFs', 'Early Access'];
+const TIER_FEATURES = [
+  'Daily Epapers',
+  'Archived Editions',
+  'Weekly Magazines',
+  'Sunday Supplements',
+  'Regional Editions'
+];
 
 function TierModal({ slug, token, initialData, onClose }: { slug: string; token: string; initialData?: any; onClose: () => void }) {
   const [name, setName] = useState(initialData?.name ?? '');
