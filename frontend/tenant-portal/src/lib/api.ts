@@ -44,7 +44,6 @@ export const portalApi = {
       token
     );
   },
-  coverUrl: (slug: string, paperId: string) => `${API_BASE}/api/read/${slug}/papers/${paperId}/cover`,
 
   // tiers + plans
   getTiers: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/tiers`, {}, token),
@@ -88,6 +87,7 @@ export const readerApi = {
   getPaper: (slug: string, id: string, token?: string) => apiFetch<any>(`/api/read/${slug}/papers/${id}`, {}, token),
   getPlans: (slug: string) => apiFetch<any>(`/api/read/${slug}/plans`),
   pageUrl: (slug: string, id: string, n: number) => `${API_BASE}/api/read/${slug}/papers/${id}/pages/${n}`,
+  coverUrl: (slug: string, paperId: string) => `${API_BASE}/api/read/${slug}/papers/${paperId}/cover`,
   subscribe: (slug: string, plan_id: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/reader/subscribe`, { method: 'POST', body: JSON.stringify({ plan_id }) }, token),
   verify: (slug: string, body: any, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/reader/verify`, { method: 'POST', body: JSON.stringify(body) }, token),
 };

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { readerApi, portalApi } from '../lib/api';
+import { readerApi } from '../lib/api';
 import { ReaderSession } from './lib';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -76,7 +76,7 @@ export function ReaderHome({ slug, session, orgName }: Props) {
 function PaperThumbnail({ slug, paperId, alt }: { slug: string; paperId: string; alt: string }) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const src = portalApi.coverUrl(slug, paperId);
+  const src = readerApi.coverUrl(slug, paperId);
 
   if (failed) {
     return (
