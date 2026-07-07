@@ -5,6 +5,7 @@
 
 /* shadcn design tokens — dark editorial theme (indigo brand, slate surfaces). */
 :root {
+  color-scheme: dark;
   --background: #0a0d14;
   --foreground: #f1f5f9;
   --card: #111520;

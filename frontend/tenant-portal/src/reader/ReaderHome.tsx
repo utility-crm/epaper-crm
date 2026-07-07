@@ -4,6 +4,7 @@ import { readerApi } from '../lib/api';
 import { ReaderSession } from './lib';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Newspaper, Lock } from 'lucide-react';
 
 interface Props {
@@ -53,13 +54,15 @@ export function ReaderHome({ slug, session, orgName }: Props) {
       <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end rounded-lg border bg-card p-4 shadow-sm">
         <div className="flex-1 space-y-1">
           <label className="text-xs font-medium">Edition</label>
-          <select 
-            value={filterEdition} onChange={e => setFilterEdition(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <option value="">All Editions</option>
-            {editions.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
-          </select>
+          <Select value={filterEdition || "all"} onValueChange={v => setFilterEdition(v === "all" ? "" : v)}>
+            <SelectTrigger className="h-9 bg-transparent shadow-sm">
+              <SelectValue placeholder="All Editions" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Editions</SelectItem>
+              {editions.map(e => <SelectItem key={e.id} value={e.id}>{e.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex-1 space-y-1">
           <label className="text-xs font-medium">From Date</label>
