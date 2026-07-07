@@ -11,9 +11,19 @@
       "binding": "CONTROL_DB",
       "database_name": "epaper-control",
       "database_id": "b0fff5dc-a1b6-4606-a3fc-10324e1b0df1"
+    },
+    {
+      "binding": "TEST_7E36_DB",
+      "database_name": "epaper-test-7e36",
+      "database_id": "bdb3f3b3-8f2f-443d-ab81-2936a59d8668"
     }
   ],
-  "r2_buckets": [],
+  "r2_buckets": [
+    {
+      "binding": "TEST_7E36_R2",
+      "bucket_name": "epaper-test-7e36"
+    }
+  ],
   "services": [
     {
       "binding": "ADMIN_WORKER",
