@@ -181,7 +181,9 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                       {isLoading && <span className="spinner" style={{ width: 14, height: 14 }} />}
                       {isCurrentPlan ? 'Current Plan' : isLoading ? 'Opening…' : 'Subscribe'}
                     </button>
-              </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
