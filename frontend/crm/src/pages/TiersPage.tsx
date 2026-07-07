@@ -12,6 +12,7 @@ export function TiersPage() {
   const [maxPapersPerDay, setMaxPapersPerDay] = useState(1);
   const [razorpayPlanId, setRazorpayPlanId] = useState('');
   
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
 
@@ -27,7 +28,29 @@ export function TiersPage() {
     loadTiers();
   }, []);
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleEdit = (tier: any) => {
+    setEditingId(tier.id);
+    setName(tier.name);
+    setMaxStorageMb(tier.max_storage_mb);
+    setMaxViewsPerDay(tier.max_views_per_day);
+    setMaxSimultaneousEditions(tier.max_simultaneous_editions);
+    setMaxPapersPerDay(tier.max_papers_per_day);
+    setRazorpayPlanId(tier.razorpay_plan_id || '');
+    setError('');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setName('');
+    setMaxStorageMb(1024);
+    setMaxViewsPerDay(1000);
+    setMaxSimultaneousEditions(1);
+    setMaxPapersPerDay(1);
+    setRazorpayPlanId('');
+    setError('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
     setError('');
@@ -41,13 +64,18 @@ export function TiersPage() {
       razorpay_plan_id: razorpayPlanId || null,
     };
     
-    const res = await crmApi.createTier(body);
+    let res;
+    if (editingId) {
+      res = await crmApi.updateTier(editingId, body);
+    } else {
+      res = await crmApi.createTier(body);
+    }
+    
     if (res.ok) {
-      setName('');
-      setRazorpayPlanId('');
+      handleCancelEdit();
       loadTiers();
     } else {
-      setError(res.error?.message || 'Failed to create tier');
+      setError(res.error?.message || `Failed to ${editingId ? 'update' : 'create'} tier`);
     }
     setCreating(false);
   };
@@ -82,9 +110,14 @@ export function TiersPage() {
                         RPay: {t.razorpay_plan_id || 'Not set'}
                       </div>
                     </div>
-                    <button onClick={() => handleDelete(t.id)} style={{ color: 'var(--color-danger)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem' }}>
-                      Delete
-                    </button>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <button onClick={() => handleEdit(t)} style={{ color: 'var(--color-brand-primary)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem' }}>
+                        Edit
+                      </button>
+                      <button onClick={() => handleDelete(t.id)} style={{ color: 'var(--color-danger)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem' }}>
+                        Delete
+                      </button>
+                    </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
                     <div>Storage: <strong>{t.max_storage_mb} MB</strong></div>
@@ -100,9 +133,9 @@ export function TiersPage() {
         </div>
         
         <div className="card">
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 16 }}>Create Tier</h2>
+          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 16 }}>{editingId ? `Edit Tier: ${name}` : 'Create Tier'}</h2>
           {error && <div style={{ color: 'var(--color-danger)', fontSize: '0.85rem', marginBottom: 12 }}>{error}</div>}
-          <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
               <label className="label">Name</label>
               <input type="text" required className="input" placeholder="e.g. basic" value={name} onChange={e => setName(e.target.value)} />
@@ -131,9 +164,16 @@ export function TiersPage() {
                 <input type="number" required className="input" value={maxPapersPerDay} onChange={e => setMaxPapersPerDay(parseInt(e.target.value))} />
               </div>
             </div>
-            <button type="submit" className="btn-primary" disabled={creating} style={{ marginTop: 8 }}>
-              {creating ? 'Creating...' : 'Create Tier'}
-            </button>
+            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+              <button type="submit" className="btn-primary" disabled={creating} style={{ flex: 1 }}>
+                {creating ? 'Saving...' : editingId ? 'Update Tier' : 'Create Tier'}
+              </button>
+              {editingId && (
+                <button type="button" className="btn-secondary" onClick={handleCancelEdit}>
+                  Cancel
+                </button>
+              )}
+            </div>
           </form>
         </div>
       </div>
