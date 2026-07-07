@@ -32,6 +32,21 @@ export const crmApi = {
   patchTenant: (slug: string, body: any) => apiFetch<any>(`/api/tenants/${slug}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteTenant: (slug: string) => apiFetch<any>(`/api/tenants/${slug}`, { method: 'DELETE' }),
   getAuditLog: (page = 1, tenantId?: string) => apiFetch<any>(`/api/audit?page=${page}${tenantId ? `&tenant_id=${tenantId}` : ''}`),
+  
+  // Admins
+  updatePassword: (body: any) => apiFetch<any>('/api/auth/me/password', { method: 'PATCH', body: JSON.stringify(body) }),
+  getAdmins: () => apiFetch<any>('/api/auth/admins'),
+  createAdmin: (body: any) => apiFetch<any>('/api/auth/admins', { method: 'POST', body: JSON.stringify(body) }),
+  deleteAdmin: (id: string) => apiFetch<any>(`/api/auth/admins/${id}`, { method: 'DELETE' }),
+  
+  // Tiers
+  getTiers: () => apiFetch<any>('/api/tiers'),
+  createTier: (body: any) => apiFetch<any>('/api/tiers', { method: 'POST', body: JSON.stringify(body) }),
+  updateTier: (id: string, body: any) => apiFetch<any>(`/api/tiers/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteTier: (id: string) => apiFetch<any>(`/api/tiers/${id}`, { method: 'DELETE' }),
+  
+  // Billing
   getPlatformBillingStatus: (slug: string) => apiFetch<any>(`/api/billing/platform/${slug}/status`),
+  getPlatformBillingEvents: (slug: string) => apiFetch<any>(`/api/billing/platform/${slug}/events`),
   getPlatformPlans: () => apiFetch<any>('/api/billing/platform/plans'),
 };

@@ -5,6 +5,9 @@ import { TenantsPage } from './pages/TenantsPage';
 import { TenantDetailPage } from './pages/TenantDetailPage';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { AdminLoginPage } from './pages/AdminLoginPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { AdminsPage } from './pages/AdminsPage';
+import { TiersPage } from './pages/TiersPage';
 
 function decodeToken(token: string) {
   try {
@@ -12,7 +15,7 @@ function decodeToken(token: string) {
   } catch { return null; }
 }
 
-function Sidebar({ email, onLogout }: { email: string; onLogout: () => void }) {
+function Sidebar({ email, role, onLogout }: { email: string; role: string; onLogout: () => void }) {
   const linkStyle = (isActive: boolean): React.CSSProperties => ({
     display: 'block', padding: '10px 14px', borderRadius: 8,
     textDecoration: 'none', fontWeight: 500, fontSize: '0.9rem',
@@ -37,11 +40,20 @@ function Sidebar({ email, onLogout }: { email: string; onLogout: () => void }) {
         <NavLink to="/" end style={({ isActive }) => linkStyle(isActive)}>Dashboard</NavLink>
         <NavLink to="/tenants" style={({ isActive }) => linkStyle(isActive)}>Tenants</NavLink>
         <NavLink to="/audit" style={({ isActive }) => linkStyle(isActive)}>Audit Log</NavLink>
+        
+        {role === 'superadmin' && (
+          <>
+            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--color-text-muted)', padding: '0 14px', marginTop: 16, marginBottom: 4, letterSpacing: '0.08em' }}>Platform</div>
+            <NavLink to="/tiers" style={({ isActive }) => linkStyle(isActive)}>Subscription Tiers</NavLink>
+            <NavLink to="/admins" style={({ isActive }) => linkStyle(isActive)}>Admin Users</NavLink>
+          </>
+        )}
       </nav>
 
       <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
-        <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {email}
+        <NavLink to="/settings" style={({ isActive }) => ({...linkStyle(isActive), marginBottom: 8 })}>Settings</NavLink>
+        <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 10, padding: '0 14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {email} <span style={{ opacity: 0.6 }}>({role})</span>
         </div>
         <button className="btn-secondary" onClick={onLogout} style={{ width: '100%', fontSize: '0.875rem', padding: '8px 12px' }}>
           Sign Out
@@ -70,7 +82,7 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--color-bg-base)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>
-      <Sidebar email={payload.email ?? payload.sub ?? 'admin'} onLogout={handleLogout} />
+      <Sidebar email={payload.email ?? payload.sub ?? 'admin'} role={payload.role ?? 'admin'} onLogout={handleLogout} />
       <main style={{ flex: 1, overflowY: 'auto', padding: 32 }}>
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <Routes>
@@ -78,6 +90,13 @@ export default function App() {
             <Route path="/tenants" element={<TenantsPage />} />
             <Route path="/tenants/:slug" element={<TenantDetailPage />} />
             <Route path="/audit" element={<AuditLogPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            {payload.role === 'superadmin' && (
+              <>
+                <Route path="/admins" element={<AdminsPage />} />
+                <Route path="/tiers" element={<TiersPage />} />
+              </>
+            )}
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </div>

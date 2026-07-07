@@ -5,6 +5,8 @@ import { orgAuthRouter } from './org-auth';
 import { tenantsRouter } from './tenants';
 import { auditRouter } from './audit';
 import { domainRouter } from './domain';
+import { tiersRouter } from './tiers';
+import { billingRouter } from './billing';
 import { err, ErrorCode, ok } from '@epaper/types';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -14,6 +16,8 @@ app.route('/api/auth', orgAuthRouter);
 app.route('/api/tenants', tenantsRouter);
 app.route('/api/audit', auditRouter);
 app.route('/api/domain', domainRouter);
+app.route('/api/tiers', tiersRouter);
+app.route('/api/billing', billingRouter);
 
 app.get('/health', (c) => c.json(ok({ status: 'ok', worker: 'admin' })));
 

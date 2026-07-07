@@ -3,26 +3,69 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { crmApi } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
-const PLANS = ['starter', 'growth', 'enterprise'];
+function decodeToken(token: string | null) {
+  if (!token) return null;
+  try { return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); } catch { return null; }
+}
 
 export function TenantDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  
+  const adminToken = localStorage.getItem('epaper:adminToken');
+  const payload = decodeToken(adminToken);
+  const isSuperAdmin = payload?.role === 'superadmin';
+
   const [tenant, setTenant] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [planLoading, setPlanLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState('');
   const [modal, setModal] = useState<'suspend' | 'release' | 'delete' | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  
+  const [billingStatus, setBillingStatus] = useState<any>(null);
+  const [billingEvents, setBillingEvents] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  
+  const [tiers, setTiers] = useState<any[]>([]);
 
   useEffect(() => {
     if (!slug) return;
     crmApi.getTenant(slug).then(res => {
-      if (res.ok) { setTenant(res.data); setSelectedPlan(res.data.plan); }
+      if (res.ok) { 
+        setTenant(res.data); 
+        setSelectedPlan(res.data.plan); 
+        crmApi.getAuditLog(1, res.data.id).then(aRes => { if (aRes.ok) setAuditLogs(aRes.data.data || []); });
+      }
       setLoading(false);
     });
-  }, [slug]);
+    
+    if (isSuperAdmin) {
+      crmApi.getPlatformBillingStatus(slug).then(res => { if (res.ok) setBillingStatus(res.data); });
+      crmApi.getPlatformBillingEvents(slug).then(res => { if (res.ok) setBillingEvents(res.data); });
+      crmApi.getTiers().then(res => { if (res.ok) setTiers(res.data); });
+    }
+  }, [slug, isSuperAdmin]);
+
+  const auditData = React.useMemo(() => {
+    const grouped = auditLogs.reduce((acc, log) => {
+      const date = new Date(log.created_at).toLocaleDateString();
+      acc[date] = (acc[date] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    return Object.entries(grouped).map(([date, count]) => ({ date, count })).reverse();
+  }, [auditLogs]);
+
+  const billingData = React.useMemo(() => {
+    const grouped = billingEvents.reduce((acc, ev) => {
+      const date = new Date(ev.created_at).toLocaleDateString();
+      acc[date] = (acc[date] || 0) + (ev.amount_paise / 100);
+      return acc;
+    }, {} as Record<string, number>);
+    return Object.entries(grouped).map(([date, amount]) => ({ date, amount })).reverse();
+  }, [billingEvents]);
 
   const handlePlanChange = async () => {
     if (!slug || selectedPlan === tenant?.plan) return;
@@ -110,10 +153,10 @@ export function TenantDetailPage() {
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isSuperAdmin ? '1fr 1fr' : '1fr', gap: 20, marginBottom: 20 }}>
         {/* Info Card */}
         <div className="card">
-          <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 20 }}>Organisation Details</h2>
+          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 20 }}>Organisation Details</h2>
           <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '12px 16px', alignItems: 'start' }}>
             {[
               ['Email', tenant.email],
@@ -133,20 +176,143 @@ export function TenantDetailPage() {
           </dl>
         </div>
 
-        {/* Plan Card */}
-        <div className="card">
-          <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 20 }}>Plan Management</h2>
-          <div style={{ marginBottom: 16 }}>
-            <label className="label">Current Plan</label>
-            <select value={selectedPlan} onChange={e => setSelectedPlan(e.target.value)}
-              style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--color-border)',
-                color: 'var(--color-text-primary)', padding: '10px 14px', borderRadius: 8, fontFamily: 'var(--font-sans)', outline: 'none' }}>
-              {PLANS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-            </select>
+        {/* Plan Card (Superadmin only) */}
+        {isSuperAdmin && (
+          <div className="card">
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 20 }}>Plan & Billing</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20, padding: 16, background: 'var(--color-bg-elevated)', borderRadius: 8 }}>
+              <div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 4 }}>Current Subscription</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '1.1rem', fontWeight: 600, textTransform: 'capitalize' }}>{tenant.plan}</span>
+                  {billingStatus?.has_subscription && (
+                    <span className="badge" style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--color-success)', padding: '2px 6px', fontSize: '0.7rem' }}>
+                      {billingStatus.razorpay_status || 'Active'}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 4 }}>Razorpay ID</div>
+                <div style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>{tenant.razorpay_sub_id || 'Not subscribed'}</div>
+              </div>
+            </div>
+            
+            <div style={{ marginBottom: 16 }}>
+              <label className="label">Change Tier</label>
+              <select value={selectedPlan} onChange={e => setSelectedPlan(e.target.value)}
+                style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-primary)', padding: '10px 14px', borderRadius: 8, fontFamily: 'var(--font-sans)', outline: 'none' }}>
+                {tiers.map(t => <option key={t.name} value={t.name}>{t.name.charAt(0).toUpperCase() + t.name.slice(1)}</option>)}
+                {!tiers.find(t => t.name === selectedPlan) && <option value={selectedPlan}>{selectedPlan} (Legacy)</option>}
+              </select>
+            </div>
+            <button className="btn-primary" disabled={planLoading || selectedPlan === tenant.plan} onClick={handlePlanChange}>
+              {planLoading ? 'Updating…' : 'Update Plan'}
+            </button>
           </div>
-          <button className="btn-primary" disabled={planLoading || selectedPlan === tenant.plan} onClick={handlePlanChange}>
-            {planLoading ? 'Updating…' : 'Update Plan'}
-          </button>
+        )}
+      </div>
+      
+      {/* Visualizations */}
+      <div style={{ display: 'grid', gridTemplateColumns: isSuperAdmin ? '1fr 1fr' : '1fr', gap: 20, marginBottom: 20 }}>
+        {isSuperAdmin && (
+          <div className="card">
+            <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 16 }}>Platform Billing Revenue (INR)</h2>
+            <div style={{ height: 250, width: '100%' }}>
+              {billingData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={billingData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                    <XAxis dataKey="date" stroke="var(--color-text-muted)" fontSize={12} tickLine={false} />
+                    <YAxis stroke="var(--color-text-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `₹${val}`} />
+                    <Tooltip contentStyle={{ backgroundColor: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)', borderRadius: 8, color: '#fff' }} />
+                    <Bar dataKey="amount" fill="var(--color-brand-primary)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>No billing events</div>
+              )}
+            </div>
+          </div>
+        )}
+        <div className="card">
+          <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 16 }}>Audit Activity Trends</h2>
+          <div style={{ height: 250, width: '100%' }}>
+            {auditData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={auditData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                  <XAxis dataKey="date" stroke="var(--color-text-muted)" fontSize={12} tickLine={false} />
+                  <YAxis stroke="var(--color-text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={{ backgroundColor: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)', borderRadius: 8, color: '#fff' }} />
+                  <Line type="monotone" dataKey="count" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981', r: 4 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>No audit logs</div>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      <div style={{ display: 'grid', gridTemplateColumns: isSuperAdmin ? '1fr 1fr' : '1fr', gap: 20, marginBottom: 20 }}>
+        {isSuperAdmin && (
+          <div className="card">
+            <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 16 }}>Billing Events Log</h2>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="table" style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <th style={{ padding: '8px', color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>Date</th>
+                    <th style={{ padding: '8px', color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>Event</th>
+                    <th style={{ padding: '8px', color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {billingEvents.slice(0, 10).map(ev => (
+                    <tr key={ev.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                      <td style={{ padding: '8px', fontSize: '0.85rem' }}>{new Date(ev.created_at).toLocaleDateString()}</td>
+                      <td style={{ padding: '8px', fontSize: '0.85rem' }}>{ev.event_type}</td>
+                      <td style={{ padding: '8px', fontSize: '0.85rem', fontWeight: 600 }}>₹{(ev.amount_paise / 100).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {billingEvents.length === 0 && (
+                    <tr><td colSpan={3} style={{ padding: 12, textAlign: 'center', color: 'var(--color-text-muted)' }}>No billing events found</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        
+        <div className="card">
+          <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 16 }}>Recent Audit Logs</h2>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <th style={{ padding: '8px', color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>Date</th>
+                  <th style={{ padding: '8px', color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>Action</th>
+                  <th style={{ padding: '8px', color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditLogs.slice(0, 10).map(log => (
+                  <tr key={log.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <td style={{ padding: '8px', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>{new Date(log.created_at).toLocaleDateString()}</td>
+                    <td style={{ padding: '8px', fontSize: '0.85rem' }}>
+                      <span className="badge" style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: 4 }}>{log.action}</span>
+                    </td>
+                    <td style={{ padding: '8px', fontSize: '0.85rem' }}>{log.details}</td>
+                  </tr>
+                ))}
+                {auditLogs.length === 0 && (
+                  <tr><td colSpan={3} style={{ padding: 12, textAlign: 'center', color: 'var(--color-text-muted)' }}>No audit logs found</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
