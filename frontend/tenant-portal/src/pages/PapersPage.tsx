@@ -8,8 +8,9 @@ import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '../components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers } from 'lucide-react';
+import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff } from 'lucide-react';
 
 interface Props { slug: string; token: string; }
 const NONE = '__none__';
@@ -23,6 +24,8 @@ export function PapersPage({ slug, token }: Props) {
   const [loadingPapers, setLoadingPapers] = useState(false);
   const [modal, setModal] = useState<null | 'edition' | 'paper'>(null);
   const [upload, setUpload] = useState<any>(null);
+  const [editEdition, setEditEdition] = useState<any>(null);
+  const [editPaper, setEditPaper] = useState<any>(null);
 
   const loadEditions = useCallback(async () => {
     const [edRes, tierRes] = await Promise.all([portalApi.getEditions(slug, token), portalApi.getTiers(slug, token)]);
@@ -74,12 +77,12 @@ export function PapersPage({ slug, token }: Props) {
         <Card><CardContent className="flex flex-col items-center gap-3 py-16 text-center">
           <Newspaper className="h-10 w-10 text-muted-foreground" />
           <div className="text-lg font-semibold">No editions yet</div>
-          <p className="text-sm text-muted-foreground">An edition is a publication title (e.g. "Daily Times"). Create one to start publishing.</p>
-          <Button onClick={() => setModal('edition')}><Plus className="h-4 w-4" /> Create Edition</Button>
+          <p className="text-sm text-muted-foreground">Create your first edition to get started</p>
+          <Button onClick={() => setModal('edition')}><Plus className="h-4 w-4" /> Create First Edition</Button>
         </CardContent></Card>
       ) : (
         <>
-          {/* Edition selector + tier assignment */}
+          {/* Edition selector + tier + edit button */}
           <Card>
             <CardContent className="flex flex-wrap items-center gap-4 p-5">
               <div className="flex items-center gap-2">
@@ -92,6 +95,11 @@ export function PapersPage({ slug, token }: Props) {
                   {editions.map(e => <SelectItem key={e.id} value={e.id}>{e.title}</SelectItem>)}
                 </SelectContent>
               </Select>
+              {edition && (
+                <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setEditEdition(edition)}>
+                  <Pencil className="h-3.5 w-3.5" /> Edit Edition
+                </Button>
+              )}
               <div className="ml-auto flex items-center gap-2">
                 <Label className="text-foreground">Subscription tier</Label>
                 <Select value={edition?.tier_id ?? NONE} onValueChange={assignTier}>
@@ -107,7 +115,7 @@ export function PapersPage({ slug, token }: Props) {
 
           <div className="flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
-              {edition?.tier_id ? <>Premium papers here unlock with the <Badge variant="default">{tierName(edition.tier_id)}</Badge> tier.</> : 'This edition has no tier — premium papers cannot be unlocked until you assign one.'}
+              {edition?.tier_id ? <><>Premium papers here unlock with the </><Badge variant="default">{tierName(edition.tier_id)}</Badge><> tier.</></> : 'This edition has no tier — premium papers cannot be unlocked until you assign one.'}
             </div>
             <Button onClick={() => setModal('paper')}><Plus className="h-4 w-4" /> New Paper</Button>
           </div>
@@ -123,7 +131,7 @@ export function PapersPage({ slug, token }: Props) {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Title</TableHead><TableHead>Date</TableHead><TableHead>Pages</TableHead>
-                      <TableHead>Free preview</TableHead><TableHead>Status</TableHead><TableHead>PDF</TableHead>
+                      <TableHead>Free preview</TableHead><TableHead>Status</TableHead><TableHead>PDF</TableHead><TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -138,8 +146,10 @@ export function PapersPage({ slug, token }: Props) {
                             : <Badge variant="default">{p.free_page_count} page{p.free_page_count > 1 ? 's' : ''}</Badge>}
                         </TableCell>
                         <TableCell>
-                          <button onClick={() => togglePublish(p)} className="cursor-pointer">
-                            <Badge variant={p.status === 'published' ? 'success' : 'muted'}>{p.status}</Badge>
+                          <button onClick={() => togglePublish(p)} className="cursor-pointer" title={p.status === 'published' ? 'Click to unpublish' : 'Click to publish'}>
+                            <Badge variant={p.status === 'published' ? 'success' : 'muted'}>
+                              {p.status === 'published' ? <><Globe className="inline h-3 w-3 mr-1" />Published</> : <><EyeOff className="inline h-3 w-3 mr-1" />Draft</>}
+                            </Badge>
                           </button>
                         </TableCell>
                         <TableCell>
@@ -147,6 +157,11 @@ export function PapersPage({ slug, token }: Props) {
                             {p.r2_key ? <span className="flex items-center gap-1 text-xs text-green-400"><CheckCircle2 className="h-3.5 w-3.5" /> {p.page_count}p</span> : <span className="text-xs text-muted-foreground">No PDF</span>}
                             <Button variant="secondary" size="sm" onClick={() => setUpload(p)}><Upload className="h-3.5 w-3.5" /> {p.r2_key ? 'Replace' : 'Upload'}</Button>
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="sm" onClick={() => setEditPaper(p)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -161,10 +176,196 @@ export function PapersPage({ slug, token }: Props) {
       {modal === 'edition' && <EditionModal slug={slug} token={token} tiers={tiers} onClose={() => { setModal(null); loadEditions(); }} />}
       {modal === 'paper' && edition && <PaperModal slug={slug} token={token} editionId={edition.id} onClose={() => { setModal(null); loadPapers(); }} />}
       {upload && <UploadModal slug={slug} token={token} paper={upload} onClose={() => { setUpload(null); loadPapers(); }} />}
+
+      {/* Edit Edition Sheet */}
+      <Sheet open={!!editEdition} onOpenChange={o => !o && setEditEdition(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
+          {editEdition && (
+            <EditEditionSheet
+              slug={slug} token={token} tiers={tiers} edition={editEdition}
+              onSaved={() => { setEditEdition(null); loadEditions(); }}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* Edit Paper Sheet */}
+      <Sheet open={!!editPaper} onOpenChange={o => !o && setEditPaper(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
+          {editPaper && (
+            <EditPaperSheet
+              slug={slug} token={token} paper={editPaper}
+              onSaved={() => { setEditPaper(null); loadPapers(); }}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
 
+/* ── Edit Edition Sheet ──────────────────────────────────────── */
+function EditEditionSheet({ slug, token, tiers, edition, onSaved }: { slug: string; token: string; tiers: any[]; edition: any; onSaved: () => void }) {
+  const [title, setTitle] = useState(edition.title ?? '');
+  const [tierId, setTierId] = useState(edition.tier_id ?? NONE);
+  const [status, setStatus] = useState(edition.status ?? 'draft');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setError('');
+    const res = await portalApi.updateEdition(slug, edition.id, { title, tier_id: tierId === NONE ? null : tierId, status }, token);
+    setBusy(false);
+    if (!res.ok) { setError(res.error?.message ?? 'Failed'); return; }
+    onSaved();
+  };
+
+  return (
+    <form onSubmit={save} className="flex flex-col h-full gap-6">
+      <SheetHeader>
+        <SheetTitle>Edit Edition</SheetTitle>
+        <SheetDescription>Update the title, subscription tier, or status of this edition.</SheetDescription>
+      </SheetHeader>
+
+      <div className="flex-1 space-y-5">
+        <div className="space-y-1.5">
+          <Label>Title</Label>
+          <Input value={title} onChange={e => setTitle(e.target.value)} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Subscription tier</Label>
+          <Select value={tierId} onValueChange={setTierId}>
+            <SelectTrigger><SelectValue placeholder="Free / untiered" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>Free / untiered</SelectItem>
+              {tiers.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">Papers in this edition will require an active subscription of the assigned tier to read past the free preview.</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Status</Label>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="published">Published</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
+      </div>
+
+      <SheetFooter>
+        <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save Changes'}</Button>
+      </SheetFooter>
+    </form>
+  );
+}
+
+/* ── Edit Paper Sheet ────────────────────────────────────────── */
+function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: string; paper: any; onSaved: () => void }) {
+  const [title, setTitle] = useState(paper.title ?? '');
+  const [isFree, setIsFree] = useState(!!paper.is_free);
+  const [freePages, setFreePages] = useState(paper.free_page_count ?? 0);
+  const [status, setStatus] = useState(paper.status ?? 'draft');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setError('');
+    const res = await portalApi.updateEpaper(slug, paper.id, {
+      title: title || null,
+      is_free: isFree,
+      free_page_count: isFree ? 0 : freePages,
+      status,
+    }, token);
+    setBusy(false);
+    if (!res.ok) { setError(res.error?.message ?? 'Failed'); return; }
+    onSaved();
+  };
+
+  return (
+    <form onSubmit={save} className="flex flex-col h-full gap-6">
+      <SheetHeader>
+        <SheetTitle>Edit Paper</SheetTitle>
+        <SheetDescription>
+          {paper.publish_date ? new Date(paper.publish_date).toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Paper details'}
+        </SheetDescription>
+      </SheetHeader>
+
+      <div className="flex-1 space-y-5">
+        <div className="space-y-1.5">
+          <Label>Title <span className="text-muted-foreground text-xs">(optional)</span></Label>
+          <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Morning Edition" />
+        </div>
+
+        <div className="rounded-lg border border-border p-4 space-y-4">
+          <h3 className="text-sm font-semibold">Access Control</h3>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Free for everyone</div>
+              <div className="text-xs text-muted-foreground">All pages are publicly accessible — no subscription required.</div>
+            </div>
+            <Switch checked={isFree} onCheckedChange={setIsFree} />
+          </div>
+          {!isFree && (
+            <div className="space-y-1.5">
+              <Label>Free preview pages</Label>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number" min={0} max={paper.page_count || 9999}
+                  value={freePages}
+                  onChange={e => setFreePages(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-28"
+                />
+                {paper.page_count > 0 && (
+                  <span className="text-xs text-muted-foreground">of {paper.page_count} total pages</span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {freePages === 0
+                  ? '🔒 Fully locked — readers need a subscription to view any page.'
+                  : `Pages 1–${freePages} shown freely. Page ${freePages + 1} onwards require a subscription.`}
+              </p>
+              {paper.page_count > 0 && (
+                <div className="mt-2 flex gap-1.5 flex-wrap">
+                  {[0, 1, 2, 3].map(n => (
+                    <button key={n} type="button" onClick={() => setFreePages(n)}
+                      className={`px-2.5 py-1 rounded text-xs border transition ${freePages === n ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'}`}>
+                      {n === 0 ? 'Fully locked' : `${n} free`}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Status</Label>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="draft">Draft (hidden from readers)</SelectItem>
+              <SelectItem value="published">Published (visible to readers)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
+      </div>
+
+      <SheetFooter>
+        <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save Changes'}</Button>
+      </SheetFooter>
+    </form>
+  );
+}
+
+/* ── Create Edition Modal ────────────────────────────────────── */
 function EditionModal({ slug, token, tiers, onClose }: { slug: string; token: string; tiers: any[]; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [tierId, setTierId] = useState(NONE);
@@ -205,6 +406,7 @@ function EditionModal({ slug, token, tiers, onClose }: { slug: string; token: st
   );
 }
 
+/* ── Create Paper Modal ──────────────────────────────────────── */
 function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: string; editionId: string; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -239,7 +441,7 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
             <div className="space-y-1.5">
               <Label>Free preview pages</Label>
               <Input type="number" min={0} value={freePages} onChange={e => setFreePages(Math.max(0, parseInt(e.target.value) || 0))} />
-              <p className="text-xs text-muted-foreground">0 = fully locked. First {freePages} page{freePages === 1 ? '' : 's'} shown free; the rest need an active subscription.</p>
+              <p className="text-xs text-muted-foreground">0 = fully locked. First {freePages} page{freePages === 1 ? '' : 's'} shown free; the rest need a subscription.</p>
             </div>
           )}
           {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
@@ -250,6 +452,7 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
   );
 }
 
+/* ── PDF Upload Modal ────────────────────────────────────────── */
 function UploadModal({ slug, token, paper, onClose }: { slug: string; token: string; paper: any; onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState<'form' | 'uploading' | 'done'>('form');
