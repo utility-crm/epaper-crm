@@ -8,13 +8,20 @@ interface PlatformBillingPageProps {
 
 export function PlatformBillingPage({ slug, token }: PlatformBillingPageProps) {
   const [status, setStatus] = useState<any>(null);
+  const [tiers, setTiers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    portalApi.getPlatformBillingStatus(slug, token).then(res => {
-      if (res.ok && res.data) setStatus(res.data);
-      else setError(res.error?.message || 'Failed to load billing status');
+    Promise.all([
+      portalApi.getPlatformBillingStatus(slug, token),
+      portalApi.getPlatformTiers()
+    ]).then(([statusRes, tiersRes]) => {
+      if (statusRes.ok && statusRes.data) setStatus(statusRes.data);
+      else setError(statusRes.error?.message || 'Failed to load billing status');
+      
+      if (tiersRes.ok && tiersRes.data) setTiers(tiersRes.data);
+      
       setLoading(false);
     });
   }, [slug, token]);
@@ -66,41 +73,34 @@ export function PlatformBillingPage({ slug, token }: PlatformBillingPageProps) {
           <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 16 }}>Available Plans</h2>
           
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20 }}>
-            {/* Starter Plan */}
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 8 }}>Starter</h3>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 16 }}>Free</div>
-              <ul style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 24, paddingLeft: 18, flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <li>Up to 100GB Storage</li>
-                <li>Basic Analytics</li>
-                <li>Community Support</li>
-              </ul>
-              <button className="btn-secondary" disabled>Current Plan</button>
-            </div>
-
-            {/* Growth Plan */}
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px', border: '1px solid var(--color-brand-primary)' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 8, color: 'var(--color-brand-primary)' }}>Growth</h3>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 16 }}>$99<span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>/mo</span></div>
-              <ul style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 24, paddingLeft: 18, flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <li>Up to 500GB Storage</li>
-                <li>Advanced Analytics</li>
-                <li>Priority Email Support</li>
-              </ul>
-              <button className="btn-primary" onClick={() => handleSubscribe('plan_growth_placeholder')}>Subscribe</button>
-            </div>
-
-            {/* Enterprise Plan */}
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 8 }}>Enterprise</h3>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 16 }}>$299<span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>/mo</span></div>
-              <ul style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 24, paddingLeft: 18, flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <li>Up to 2TB Storage</li>
-                <li>Custom Integrations</li>
-                <li>24/7 Phone Support</li>
-              </ul>
-              <button className="btn-secondary" onClick={() => handleSubscribe('plan_enterprise_placeholder')}>Subscribe</button>
-            </div>
+            {tiers.map(tier => {
+              const isCurrent = status?.plan?.toLowerCase() === tier.name.toLowerCase();
+              return (
+                <div key={tier.id} className="card" style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px', border: isCurrent ? '1px solid var(--color-brand-primary)' : undefined }}>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 8, color: isCurrent ? 'var(--color-brand-primary)' : 'inherit', textTransform: 'capitalize' }}>
+                    {tier.name}
+                  </h3>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 16 }}>
+                    {tier.max_storage_mb < 2000 ? 'Free' : '$Paid'}<span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>/mo</span>
+                  </div>
+                  <ul style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 24, paddingLeft: 18, flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <li>Up to {tier.max_storage_mb >= 1024 ? `${(tier.max_storage_mb / 1024).toFixed(1)} GB` : `${tier.max_storage_mb} MB`} Storage</li>
+                    <li>{tier.max_views_per_day} Views / Day</li>
+                    <li>{tier.max_simultaneous_editions} Simultaneous Editions</li>
+                    <li>{tier.max_papers_per_day} Papers / Day</li>
+                  </ul>
+                  {isCurrent ? (
+                    <button className="btn-secondary" disabled>Current Plan</button>
+                  ) : (
+                    <button className="btn-primary" onClick={() => handleSubscribe(tier.razorpay_plan_id || `plan_${tier.name}`)}>Subscribe</button>
+                  )}
+                </div>
+              );
+            })}
+            
+            {tiers.length === 0 && (
+              <div style={{ color: 'var(--color-text-muted)' }}>No plans available.</div>
+            )}
           </div>
         </div>
       )}

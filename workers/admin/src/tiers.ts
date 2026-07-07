@@ -11,7 +11,25 @@ const requireSuperadmin = async (c: any, next: any) => {
   await next();
 };
 
-tiersRouter.use('*', adminAuth, requireSuperadmin);
+tiersRouter.use('/', async (c, next) => {
+  if (c.req.method === 'GET') {
+    return next();
+  }
+  return next();
+});
+
+const adminOnly = async (c: any, next: any) => {
+  await adminAuth(c, async () => {
+    await requireSuperadmin(c, next);
+  });
+};
+
+tiersRouter.use('*', async (c, next) => {
+  if (c.req.method !== 'GET') {
+    return adminOnly(c, next);
+  }
+  return next();
+});
 
 tiersRouter.get('/', async (c) => {
   const { results } = await c.env.CONTROL_DB.prepare('SELECT * FROM platform_tiers ORDER BY max_storage_mb ASC').all();
