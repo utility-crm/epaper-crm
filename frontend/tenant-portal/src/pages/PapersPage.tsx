@@ -406,14 +406,32 @@ function EditionModal({ slug, token, tiers, onClose }: { slug: string; token: st
   );
 }
 
-/* ── Create Paper Modal ──────────────────────────────────────── */
+/* ── Create Paper Modal (with inline file upload) ───────────────────────── */
 function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: string; editionId: string; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [isFree, setIsFree] = useState(false);
   const [freePages, setFreePages] = useState(1);
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<'form' | 'uploading' | 'done'>('form');
   const [error, setError] = useState('');
+
+  const isPdf = files.length === 1 && files[0].type === 'application/pdf';
+
+  const onFilesChange = (picked: FileList | null) => {
+    if (!picked) return;
+    const arr = Array.from(picked);
+    const pdfs = arr.filter(f => f.type === 'application/pdf');
+    if (pdfs.length > 0) { setFiles([pdfs[0]]); return; }
+    const imgs = arr.filter(f => f.type.startsWith('image/'));
+    if (imgs.length > 0) setFiles(imgs);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    onFilesChange(e.dataTransfer.files);
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -421,14 +439,53 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
     const res = await portalApi.createEpaper(slug, editionId, {
       title, publish_date: date, is_free: isFree, free_page_count: isFree ? 0 : freePages, publish_type: 'instant',
     }, token);
-    setBusy(false);
-    if (!res.ok) { setError(res.error?.message ?? 'Failed'); return; }
-    onClose();
+    if (!res.ok) { setError(res.error?.message ?? 'Failed'); setBusy(false); return; }
+    const epaperId = res.data?.id;
+    if (epaperId && files.length > 0) {
+      setStep('uploading');
+      let uploadRes: any;
+      if (isPdf) {
+        uploadRes = await portalApi.uploadPdf(slug, epaperId, files[0], token);
+      } else {
+        uploadRes = await portalApi.uploadImages(slug, epaperId, files, token);
+      }
+      if (!uploadRes.ok) {
+        setError('Paper created but file upload failed: ' + (uploadRes.error?.message ?? 'unknown error'));
+        setBusy(false); setStep('form'); return;
+      }
+    }
+    setStep('done');
+    setTimeout(onClose, 1200);
   };
+
+  if (step === 'done') return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent>
+        <div className="py-8 text-center">
+          <CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-green-400" />
+          <div className="text-lg font-semibold">Paper created!</div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
+  if (step === 'uploading') return (
+    <Dialog open onOpenChange={() => {}}>
+      <DialogContent>
+        <div className="py-8 text-center">
+          <div className="spinner mx-auto mb-4" />
+          <div className="text-lg font-semibold">{isPdf ? 'Splitting pages…' : 'Uploading images…'}</div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isPdf ? 'Slicing your PDF at the edge.' : `Storing ${files.length} image${files.length > 1 ? 's' : ''}…`}
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>New Paper Issue</DialogTitle></DialogHeader>
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-1.5"><Label>Title (optional)</Label><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Morning Edition" /></div>
@@ -444,25 +501,76 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
               <p className="text-xs text-muted-foreground">0 = fully locked. First {freePages} page{freePages === 1 ? '' : 's'} shown free; the rest need a subscription.</p>
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <Label>Upload file <span className="text-muted-foreground text-xs">(optional — can upload later)</span></Label>
+            <div
+              onClick={() => document.getElementById('paper-file-in')!.click()}
+              onDragOver={e => e.preventDefault()}
+              onDrop={onDrop}
+              className={`cursor-pointer rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+                files.length > 0 ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+              }`}
+            >
+              <input
+                id="paper-file-in" type="file" multiple className="hidden"
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                onChange={e => onFilesChange(e.target.files)}
+              />
+              <FileText className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
+              {files.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  Drag &amp; drop a <strong>PDF</strong> or <strong>multiple images</strong>, or click to browse
+                </div>
+              ) : isPdf ? (
+                <div className="text-sm font-medium">{files[0].name} <span className="text-muted-foreground">({(files[0].size / 1024 / 1024).toFixed(1)} MB)</span></div>
+              ) : (
+                <div className="text-sm font-medium">{files.length} image{files.length > 1 ? 's' : ''} selected</div>
+              )}
+            </div>
+            {files.length > 0 && (
+              <button type="button" onClick={() => setFiles([])} className="text-xs text-muted-foreground hover:text-foreground">✕ Remove</button>
+            )}
+          </div>
+
           {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
-          <DialogFooter><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Button></DialogFooter>
+          <DialogFooter>
+            <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={busy}>{busy ? 'Creating…' : (files.length > 0 ? 'Create & Upload' : 'Create')}</Button>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
   );
 }
 
-/* ── PDF Upload Modal ────────────────────────────────────────── */
+/* ── PDF / Image Upload Modal (replace after creation) ──────────────────── */
 function UploadModal({ slug, token, paper, onClose }: { slug: string; token: string; paper: any; onClose: () => void }) {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [step, setStep] = useState<'form' | 'uploading' | 'done'>('form');
   const [error, setError] = useState('');
 
+  const isPdf = files.length === 1 && files[0].type === 'application/pdf';
+
+  const onFilesChange = (picked: FileList | null) => {
+    if (!picked) return;
+    const arr = Array.from(picked);
+    const pdfs = arr.filter(f => f.type === 'application/pdf');
+    if (pdfs.length > 0) { setFiles([pdfs[0]]); return; }
+    const imgs = arr.filter(f => f.type.startsWith('image/'));
+    if (imgs.length > 0) setFiles(imgs);
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
+    if (!files.length) return;
     setStep('uploading'); setError('');
-    const res = await portalApi.uploadPdf(slug, paper.id, file, token);
+    let res: any;
+    if (isPdf) {
+      res = await portalApi.uploadPdf(slug, paper.id, files[0], token);
+    } else {
+      res = await portalApi.uploadImages(slug, paper.id, files, token);
+    }
     if (!res.ok) { setError(res.error?.message ?? 'Upload failed'); setStep('form'); return; }
     setStep('done');
     setTimeout(onClose, 1400);
@@ -472,26 +580,45 @@ function UploadModal({ slug, token, paper, onClose }: { slug: string; token: str
     <Dialog open onOpenChange={o => !o && onClose()}>
       <DialogContent>
         {step === 'done' ? (
-          <div className="py-8 text-center"><CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-green-400" /><div className="text-lg font-semibold">PDF split &amp; stored</div></div>
+          <div className="py-8 text-center"><CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-green-400" /><div className="text-lg font-semibold">Upload complete!</div></div>
         ) : step === 'uploading' ? (
-          <div className="py-8 text-center"><div className="spinner mx-auto mb-4" /><div className="text-lg font-semibold">Splitting pages…</div><p className="mt-1 text-sm text-muted-foreground">Uploading &amp; slicing at the edge</p></div>
+          <div className="py-8 text-center">
+            <div className="spinner mx-auto mb-4" />
+            <div className="text-lg font-semibold">{isPdf ? 'Splitting pages…' : 'Uploading images…'}</div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {isPdf ? 'Slicing your PDF at the edge.' : `Storing ${files.length} image${files.length > 1 ? 's' : ''}…`}
+            </p>
+          </div>
         ) : (
           <form onSubmit={submit} className="space-y-4">
-            <DialogHeader><DialogTitle>Upload PDF</DialogTitle></DialogHeader>
-            <p className="text-sm text-muted-foreground">Each page is stored separately so the paywall can serve free pages without leaking locked ones.</p>
+            <DialogHeader><DialogTitle>{paper.r2_key ? 'Replace Content' : 'Upload Content'}</DialogTitle></DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              Upload a single <strong>PDF</strong> (auto-split into pages) or select <strong>multiple images</strong> (one per page, sorted by filename).
+            </p>
             <div
-              onClick={() => document.getElementById('pdf-in')!.click()}
+              onClick={() => document.getElementById('upload-file-in')!.click()}
               onDragOver={e => e.preventDefault()}
-              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f?.type === 'application/pdf') setFile(f); }}
-              className={`cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors ${file ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}
+              onDrop={e => { e.preventDefault(); onFilesChange(e.dataTransfer.files); }}
+              className={`cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+                files.length > 0 ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+              }`}
             >
-              <input id="pdf-in" type="file" accept="application/pdf" className="hidden" onChange={e => e.target.files?.[0] && setFile(e.target.files[0])} />
+              <input
+                id="upload-file-in" type="file" multiple className="hidden"
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                onChange={e => onFilesChange(e.target.files)}
+              />
               <FileText className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
-              {file ? <div className="text-sm font-medium">{file.name} <span className="text-muted-foreground">({(file.size / 1024 / 1024).toFixed(1)} MB)</span></div>
-                : <div className="text-sm text-muted-foreground">Drag &amp; drop a PDF, or click to browse</div>}
+              {files.length === 0 ? (
+                <div className="text-sm text-muted-foreground">Drag &amp; drop a PDF or images, or click to browse</div>
+              ) : isPdf ? (
+                <div className="text-sm font-medium">{files[0].name} <span className="text-muted-foreground">({(files[0].size / 1024 / 1024).toFixed(1)} MB)</span></div>
+              ) : (
+                <div className="text-sm font-medium">{files.length} image{files.length > 1 ? 's' : ''} selected</div>
+              )}
             </div>
             {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
-            <DialogFooter><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={!file}>Upload</Button></DialogFooter>
+            <DialogFooter><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={!files.length}>Upload</Button></DialogFooter>
           </form>
         )}
       </DialogContent>

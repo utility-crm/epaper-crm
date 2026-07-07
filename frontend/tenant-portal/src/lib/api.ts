@@ -29,11 +29,22 @@ export const portalApi = {
   getEpapers: (slug: string, editionId: string, token: string) => apiFetch<any>(`/api/content/${slug}/editions/${editionId}/epapers`, {}, token),
   createEpaper: (slug: string, editionId: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/editions/${editionId}/epapers`, { method: 'POST', body: JSON.stringify(body) }, token),
   updateEpaper: (slug: string, id: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/epapers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }, token),
-  uploadPdf: (slug: string, epaperId: string, file: File, token: string) => apiFetch<any>(
-    `/api/content/${slug}/epapers/${epaperId}/upload`,
-    { method: 'PUT', body: file, headers: { 'Content-Type': 'application/pdf' } },
-    token
-  ),
+  uploadPdf: (slug: string, epaperId: string, file: File, token: string) =>
+    apiFetch<any>(
+      `/api/content/${slug}/epapers/${epaperId}/upload`,
+      { method: 'PUT', body: file, headers: { 'Content-Type': file.type } },
+      token
+    ),
+  uploadImages: (slug: string, epaperId: string, files: File[], token: string) => {
+    const fd = new FormData();
+    files.forEach(f => fd.append('images', f));
+    return apiFetch<any>(
+      `/api/content/${slug}/epapers/${epaperId}/upload`,
+      { method: 'PUT', body: fd },
+      token
+    );
+  },
+  coverUrl: (slug: string, paperId: string) => `${API_BASE}/api/read/${slug}/papers/${paperId}/cover`,
 
   // tiers + plans
   getTiers: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/tiers`, {}, token),

@@ -117,7 +117,7 @@ readerRouter.get('/:slug/papers', async (c) => {
   try {
     const db = getTenantDb(c.env, slug);
     const rows = await db.prepare(
-      `SELECT e.id, e.title, e.publish_date, e.is_free, e.page_count, e.free_page_count,
+      `SELECT e.id, e.title, e.publish_date, e.is_free, e.page_count, e.free_page_count, e.cover_key,
               ed.id AS edition_id, ed.title AS edition_title, ed.tier_id
        FROM epapers e JOIN editions ed ON ed.id = e.edition_id
        WHERE e.status = 'published' AND ed.status != 'archived'
@@ -150,7 +150,31 @@ readerRouter.get('/:slug/papers/:id', async (c) => {
   }
 });
 
-// Serve one page PDF. Free pages are public; locked pages require an active subscription.
+// Public cover thumbnail — always served without auth, even for premium papers.
+// For PDF-based papers, cover_key points to the first page PDF.
+// For image-based papers, cover_key points to a separate copy of the first image.
+readerRouter.get('/:slug/papers/:id/cover', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  try {
+    const db = getTenantDb(c.env, slug);
+    const paper = await db.prepare(
+      `SELECT cover_key FROM epapers WHERE id = ? AND status = 'published'`
+    ).bind(id).first<{ cover_key: string | null }>();
+    if (!paper?.cover_key) return c.json(err(ErrorCode.NOT_FOUND, 'No cover available'), 404);
+    const bucket = getTenantBucket(c.env, slug);
+    const obj = await bucket.get(paper.cover_key);
+    if (!obj) return c.json(err(ErrorCode.NOT_FOUND, 'Cover file missing'), 404);
+    const ct = obj.httpMetadata?.contentType ?? 'application/octet-stream';
+    return new Response(obj.body, {
+      headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=86400' },
+    });
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+// Serve one page. Free pages are public; locked pages require an active subscription.
 readerRouter.get('/:slug/papers/:id/pages/:n', async (c) => {
   const slug = c.req.param('slug');
   const id = c.req.param('id');
@@ -189,8 +213,10 @@ readerRouter.get('/:slug/papers/:id/pages/:n', async (c) => {
       db.prepare('UPDATE tenant_stats SET pageviews = pageviews + 1 WHERE id = 1').run().catch(() => {})
     );
 
+    // Use the content-type that was stored when the file was uploaded (pdf or image).
+    const ct = obj.httpMetadata?.contentType ?? 'application/pdf';
     return new Response(obj.body, {
-      headers: { 'Content-Type': 'application/pdf', 'Cache-Control': isFreePage ? 'public, max-age=3600' : 'private, no-store' },
+      headers: { 'Content-Type': ct, 'Cache-Control': isFreePage ? 'public, max-age=3600' : 'private, no-store' },
     });
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);

@@ -17,6 +17,7 @@ export function PaperViewer({ slug, session, onRequireAuth }: Props) {
   const [paper, setPaper] = useState<any>(null);
   const [page, setPage] = useState(1);
   const [pageUrl, setPageUrl] = useState<string | null>(null);
+  const [blobType, setBlobType] = useState<'pdf' | 'image'>('pdf');
   const [locked, setLocked] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [plans, setPlans] = useState<any[]>([]);
@@ -46,6 +47,7 @@ export function PaperViewer({ slug, session, onRequireAuth }: Props) {
       if (!res.ok) { setPageLoading(false); return; }
       const blob = await res.blob();
       if (cancelled) return;
+      setBlobType(blob.type.startsWith('image/') ? 'image' : 'pdf');
       revoked = URL.createObjectURL(blob);
       setPageUrl(revoked);
       setPageLoading(false);
@@ -132,7 +134,15 @@ export function PaperViewer({ slug, session, onRequireAuth }: Props) {
                 </div>
               </div>
             ) : pageUrl ? (
-              <iframe title={`Page ${page}`} src={`${pageUrl}#toolbar=0&navpanes=0`} className="h-[75vh] w-full" />
+              blobType === 'image' ? (
+                <img
+                  src={pageUrl}
+                  alt={`Page ${page}`}
+                  className="max-h-[75vh] w-full object-contain"
+                />
+              ) : (
+                <iframe title={`Page ${page}`} src={`${pageUrl}#toolbar=0&navpanes=0`} className="h-[75vh] w-full" />
+              )
             ) : (
               <div className="text-sm text-muted-foreground">Page unavailable</div>
             )}
