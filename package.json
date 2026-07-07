@@ -1,0 +1,23 @@
+{
+  "name": "epaper",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "workers/*",
+    "frontend/*"
+  ],
+  "scripts": {
+    "dev:shell": "npm run dev --workspace=frontend/shell",
+    "dev:crm": "npm run dev --workspace=frontend/crm",
+    "dev:portal": "npm run dev --workspace=frontend/tenant-portal",
+    "build:all": "npm run build --workspaces --if-present",
+    "lint": "oxlint"
+  },
+  "devDependencies": {
+    "oxlint": "^1.69.0",
+    "typescript": "~6.0.2",
+    "wrangler": "^4.107.0"
+  }
+}

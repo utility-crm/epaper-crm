@@ -1,0 +1,19 @@
+{
+  "name": "@epaper/worker-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "hono": "^4.7.11"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "typescript": "~6.0.2",
+    "wrangler": "^4.107.0"
+  }
+}

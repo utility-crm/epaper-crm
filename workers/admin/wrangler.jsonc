@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "epaper-admin",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "CONTROL_DB",
+      "database_name": "epaper-control",
+      "database_id": "xxx-xxx-xxx"
+    }
+  ],
+  "services": [
+    {
+      "binding": "PROVISION_WORKER",
+      "service": "epaper-provision"
+    },
+    {
+      "binding": "CONTENT_WORKER",
+      "service": "epaper-content"
+    }
+  ]
+  // Note: secrets ADMIN_JWT_SECRET and ORG_JWT_SECRET should be set via `wrangler secret put`
+}

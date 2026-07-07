@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "epaper-billing-platform",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "CONTROL_DB",
+      "database_name": "epaper-control",
+      "database_id": "xxx-xxx-xxx"
+    }
+  ]
+  // Note: secrets RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and RAZORPAY_WEBHOOK_SECRET should be set
+}

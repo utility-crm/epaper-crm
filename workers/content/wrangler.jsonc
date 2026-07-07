@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "epaper-content",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [],
+  "r2_buckets": []
+}

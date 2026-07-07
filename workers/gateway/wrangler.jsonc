@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "epaper-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "../../frontend/shell/dist",
+    "not_found_handling": "single-page-application"
+  },
+  "services": [
+    {
+      "binding": "ADMIN_WORKER",
+      "service": "epaper-admin"
+    },
+    {
+      "binding": "PROVISION_WORKER",
+      "service": "epaper-provision"
+    },
+    {
+      "binding": "CONTENT_WORKER",
+      "service": "epaper-content"
+    },
+    {
+      "binding": "BILLING_PLATFORM_WORKER",
+      "service": "epaper-billing-platform"
+    },
+    {
+      "binding": "BILLING_TENANT_WORKER",
+      "service": "epaper-billing-tenant"
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGIN": "http://localhost:5173"
+  }
+}

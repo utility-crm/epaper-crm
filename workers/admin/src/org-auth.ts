@@ -1,0 +1,154 @@
+import { Hono } from 'hono';
+import { Env, orgUserAuth } from './middleware';
+import { ok, err, ErrorCode, OrgUserJwtPayload, TenantRow, PendingOwnerRow, OrgUserRow } from '@epaper/types';
+import { signJwt } from './jwt';
+
+export const orgAuthRouter = new Hono<{ Bindings: Env; Variables: { tenantId: string; tenantSlug: string; orgRole: string } }>();
+
+const encoder = new TextEncoder();
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
+  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' }, keyMaterial, 256);
+  const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('');
+  const hashHex = Array.from(new Uint8Array(derivedBits)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${saltHex}:${hashHex}`;
+}
+
+async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  const [saltHex, hashHex] = stored.split(':');
+  if (!saltHex || !hashHex) return false;
+  const salt = new Uint8Array(saltHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
+  const derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' }, keyMaterial, 256);
+  const derivedHex = Array.from(new Uint8Array(derivedBits)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return derivedHex === hashHex;
+}
+
+function slugify(text: string): string {
+  return text.toString().toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^\w\-]+/g, '')
+    .replace(/\-\-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+}
+
+orgAuthRouter.post('/signup', async (c) => {
+  const body = await c.req.json();
+  const { orgName, name, email, password } = body;
+  
+  if (!orgName || !name || !email || !password || password.length < 8) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid input'), 400);
+  }
+  
+  if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Password must contain uppercase and digit'), 400);
+  }
+  
+  const existing = await c.env.CONTROL_DB.prepare('SELECT id FROM tenants WHERE email = ?').bind(email).first();
+  if (existing) {
+    return c.json(err(ErrorCode.CONFLICT, 'Email already in use'), 409);
+  }
+  
+  const tenantId = crypto.randomUUID();
+  const slugBase = slugify(orgName).slice(0, 32);
+  const slug = `${slugBase}-${crypto.randomUUID().slice(0, 4)}`;
+  const ownerId = crypto.randomUUID();
+  const hash = await hashPassword(password);
+  
+  await c.env.CONTROL_DB.batch([
+    c.env.CONTROL_DB.prepare(
+      'INSERT INTO tenants (id, slug, name, email, status) VALUES (?, ?, ?, ?, ?)'
+    ).bind(tenantId, slug, orgName, email, 'pending'),
+    c.env.CONTROL_DB.prepare(
+      'INSERT INTO pending_owners (id, tenant_id, name, password_hash) VALUES (?, ?, ?, ?)'
+    ).bind(ownerId, tenantId, name, hash),
+    c.env.CONTROL_DB.prepare(
+      'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
+    ).bind(crypto.randomUUID(), tenantId, 'tenant.created', 'system', JSON.stringify({ slug, email }))
+  ]);
+  
+  c.executionCtx.waitUntil(
+    c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug })
+    })).catch(e => console.error('Provision trigger failed', e))
+  );
+  
+  const payload: OrgUserJwtPayload = {
+    aud: 'tenant-portal',
+    sub: tenantId,
+    tenantSlug: slug,
+    role: 'owner',
+    exp: Math.floor(Date.now() / 1000) + 28800
+  };
+  const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);
+  
+  return c.json(ok({ token, slug }), 201);
+});
+
+orgAuthRouter.post('/org-login', async (c) => {
+  const { email, password } = await c.req.json();
+  
+  if (!email || !password) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing credentials'), 400);
+  
+  const tenant = await c.env.CONTROL_DB.prepare(
+    'SELECT id, slug, email, status, plan FROM tenants WHERE email = ?'
+  ).bind(email).first<Pick<TenantRow, 'id' | 'slug' | 'email' | 'status' | 'plan'>>();
+  if (!tenant) return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid credentials'), 401);
+  
+  let valid = false;
+  let role: OrgUserJwtPayload['role'] = 'owner';
+
+  // Check pending_owners first (covers pending + provisioning states)
+  const owner = await c.env.CONTROL_DB.prepare(
+    'SELECT id, password_hash FROM pending_owners WHERE tenant_id = ?'
+  ).bind(tenant.id).first<Pick<PendingOwnerRow, 'id' | 'password_hash'>>();
+  
+  if (owner) {
+    valid = await verifyPassword(password, owner.password_hash);
+  } else if (tenant.status === 'active') {
+    // Active tenant: verify against the tenant's own D1 org_users table
+    // We call the content worker's internal user-lookup endpoint via service binding
+    try {
+      const res = await c.env.CONTENT_WORKER.fetch(
+        new Request(`http://content/internal/${tenant.slug}/verify-owner`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        })
+      );
+      if (res.ok) {
+        const data = await res.json() as { ok: boolean; data?: { valid: boolean; role: string } };
+        if (data.ok && data.data?.valid) {
+          valid = true;
+          role = (data.data.role as OrgUserJwtPayload['role']) ?? 'owner';
+        }
+      }
+    } catch {
+      // Content worker unavailable — fall through to 401
+    }
+  }
+  
+  if (!valid) return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid credentials'), 401);
+  
+  const payload: OrgUserJwtPayload = {
+    aud: 'tenant-portal',
+    sub: tenant.id,
+    tenantSlug: tenant.slug,
+    role,
+    exp: Math.floor(Date.now() / 1000) + 28800
+  };
+  const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);
+  
+  return c.json(ok({ token, slug: tenant.slug, status: tenant.status }));
+});
+
+orgAuthRouter.get('/provision-status', orgUserAuth, async (c) => {
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT status, provision_run_id FROM tenants WHERE id = ?').bind(c.var.tenantId).first();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+  return c.json(ok(tenant));
+});

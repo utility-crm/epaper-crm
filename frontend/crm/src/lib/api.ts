@@ -1,0 +1,37 @@
+import React, { useState } from 'react';
+
+const API_BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) ?? 'http://localhost:8787';
+
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<{ ok: boolean; data?: T; error?: { code: string; message: string } }> {
+  const adminToken = localStorage.getItem('epaper:adminToken');
+  const orgToken = localStorage.getItem('epaper:orgToken');
+
+  const headers = new Headers(options.headers || {});
+  if (adminToken && !path.includes('admin-login') && !path.includes('setup')) {
+    headers.set('Authorization', `Bearer ${adminToken}`);
+  } else if (orgToken && !adminToken) {
+    headers.set('Authorization', `Bearer ${orgToken}`);
+  }
+  if (!headers.has('Content-Type') && options.body) headers.set('Content-Type', 'application/json');
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    return res.json();
+  } catch {
+    return { ok: false, error: { code: 'NETWORK_ERROR', message: 'Network error' } };
+  }
+}
+
+export const crmApi = {
+  setupStatus: () => apiFetch<{ setupDone: boolean }>('/api/auth/setup-status'),
+  setup: (body: { email: string; password: string }) => apiFetch<{ token: string }>('/api/auth/setup', { method: 'POST', body: JSON.stringify(body) }),
+  adminLogin: (body: { email: string; password: string }) => apiFetch<{ token: string }>('/api/auth/admin-login', { method: 'POST', body: JSON.stringify(body) }),
+  adminMe: () => apiFetch<{ id: string; email: string; role: string }>('/api/auth/me'),
+  getTenants: (status?: string, page = 1) => apiFetch<any>(`/api/tenants?page=${page}${status ? `&status=${status}` : ''}`),
+  getTenant: (slug: string) => apiFetch<any>(`/api/tenants/${slug}`),
+  patchTenant: (slug: string, body: any) => apiFetch<any>(`/api/tenants/${slug}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteTenant: (slug: string) => apiFetch<any>(`/api/tenants/${slug}`, { method: 'DELETE' }),
+  getAuditLog: (page = 1, tenantId?: string) => apiFetch<any>(`/api/audit?page=${page}${tenantId ? `&tenant_id=${tenantId}` : ''}`),
+  getPlatformBillingStatus: (slug: string) => apiFetch<any>(`/api/billing/platform/${slug}/status`),
+  getPlatformPlans: () => apiFetch<any>('/api/billing/platform/plans'),
+};

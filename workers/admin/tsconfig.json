@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noImplicitAny": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@epaper/types": ["../../packages/types/index.ts"]
+    }
+  }
+}
