@@ -9,8 +9,51 @@ fi
 
 echo "Deprovisioning DB and Bucket for $SLUG..."
 
-# Delete R2 Objects
-npx wrangler r2 object delete epaper-$SLUG --recursive || true
+# Empty R2 Bucket using a temporary worker
+echo "Emptying R2 bucket epaper-$SLUG..."
+mkdir -p /tmp/cleanup-$SLUG
+cat << 'EOF' > /tmp/cleanup-$SLUG/index.js
+export default {
+  async fetch(request, env) {
+    try {
+      let truncated = true;
+      let cursor = undefined;
+      while (truncated) {
+        const list = await env.BUCKET.list({ cursor });
+        const keys = list.objects.map(o => o.key);
+        if (keys.length > 0) {
+          await env.BUCKET.delete(keys);
+        }
+        truncated = list.truncated;
+        cursor = list.cursor;
+      }
+      return new Response("OK");
+    } catch (e) {
+      return new Response(e.message, { status: 500 });
+    }
+  }
+}
+EOF
+cat << EOF > /tmp/cleanup-$SLUG/wrangler.toml
+name = "r2-clean-$SLUG"
+main = "index.js"
+compatibility_date = "2024-01-01"
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "epaper-$SLUG"
+EOF
+
+(
+  cd /tmp/cleanup-$SLUG
+  # Deploy the worker, suppressing output unless it fails
+  npx wrangler deploy > /dev/null 2>&1 || true
+  
+  # Trigger the cleanup
+  curl -s "https://r2-clean-$SLUG.satishkumar-link.workers.dev" > /dev/null 2>&1 || true
+  
+  # Delete the temporary worker
+  npx wrangler delete --name r2-clean-$SLUG --force > /dev/null 2>&1 || true
+) || true
 
 # Delete R2 Bucket
 npx wrangler r2 bucket delete epaper-$SLUG || true
