@@ -65,9 +65,15 @@ export const portalApi = {
   getReaderSubscriptions: (slug: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/subscriptions`, {}, token),
 
   // platform billing (tenant pays platform)
-  getPlatformTiers: () => apiFetch<any>('/api/tiers'),
+  getPlatformPlans: (token: string) => apiFetch<any>('/api/billing/platform/plans', {}, token),
   getPlatformBillingStatus: (slug: string, token: string) => apiFetch<any>(`/api/billing/platform/${slug}/status`, {}, token),
-  subscribeToPlatform: (slug: string, plan_id: string, token: string) => apiFetch<any>(`/api/billing/platform/subscribe`, { method: 'POST', body: JSON.stringify({ slug, plan_id }) }, token),
+  subscribeToPlatformPlan: (slug: string, plan_id: string, token: string) =>
+    apiFetch<{ subscription_id: string; key_id: string }>('/api/billing/platform/subscribe', { method: 'POST', body: JSON.stringify({ slug, plan_id }) }, token),
+  verifyPlatformPayment: (body: { slug: string; razorpay_payment_id: string; razorpay_subscription_id: string; razorpay_signature: string }, token: string) =>
+    apiFetch<{ verified: boolean; plan: string }>('/api/billing/platform/verify-payment', { method: 'POST', body: JSON.stringify(body) }, token),
+  // kept for backwards compat — delegates to subscribeToPlatformPlan
+  subscribeToPlatform: (slug: string, plan_id: string, token: string) =>
+    apiFetch<any>('/api/billing/platform/subscribe', { method: 'POST', body: JSON.stringify({ slug, plan_id }) }, token),
 
   // stats + domain
   getTenantStats: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/stats`, {}, token),

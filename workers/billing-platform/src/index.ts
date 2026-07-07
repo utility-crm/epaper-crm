@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { ok, err, ErrorCode } from '@epaper/types';
+import { verifySubscriptionSignature } from './razorpay';
 
 export interface Env {
   CONTROL_DB: D1Database;
@@ -55,31 +56,77 @@ app.get('/api/billing/platform/plans', async (c) => {
 });
 
 app.post('/api/billing/platform/subscribe', async (c) => {
-  const { slug, tier_id } = await c.req.json();
-  if (!slug || !tier_id) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing slug or tier_id'), 400);
-  
-  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, email FROM tenants WHERE slug = ?').bind(slug).first();
-  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
-  
-  const tier = await c.env.CONTROL_DB.prepare('SELECT name, razorpay_plan_id FROM platform_tiers WHERE id = ?').bind(tier_id).first();
-  if (!tier || !tier.razorpay_plan_id) return c.json(err(ErrorCode.NOT_FOUND, 'Tier or Razorpay plan not found'), 404);
+  const { slug, plan_id } = await c.req.json();
+  if (!slug || !plan_id) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing slug or plan_id'), 400);
 
-  // Create subscription in Razorpay
+  const tenant = await c.env.CONTROL_DB.prepare(
+    'SELECT id, name, email FROM tenants WHERE slug = ?'
+  ).bind(slug).first<{ id: string; name: string; email: string }>();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+
+  // Create Razorpay Subscription — e-mandate / auto-debit enabled via subscription checkout.
   const res = await razorpayRequest(c.env, 'subscriptions', 'POST', {
-    plan_id: tier.razorpay_plan_id,
-    total_count: 120, // 10 years
-    customer_notify: 1
+    plan_id,
+    total_count: 120, // up to 10 years of recurring billing
+    customer_notify: 1,
+    notify_info: {
+      notify_email: tenant.email,
+    },
   });
-  
-  if (!res.ok) return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to create subscription'), 500);
-  
+
+  if (!res.ok) {
+    const detail = await res.text();
+    return c.json(err(ErrorCode.INTERNAL_ERROR, `Failed to create subscription: ${detail}`), 500);
+  }
+
   const sub = await res.json() as any;
-  
+
+  // Persist subscription ID so webhook events can be matched to the tenant.
   await c.env.CONTROL_DB.prepare(
-    'UPDATE tenants SET plan = ?, razorpay_plan_id = ?, razorpay_sub_id = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
-  ).bind(tier.name, tier.razorpay_plan_id, sub.id, slug).run();
-  
-  return c.json(ok({ subscription_id: sub.id }));
+    'UPDATE tenants SET razorpay_plan_id = ?, razorpay_sub_id = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
+  ).bind(plan_id, sub.id, slug).run();
+
+  // Return key_id alongside subscription_id so the frontend can open the Razorpay modal.
+  return c.json(ok({ subscription_id: sub.id, key_id: c.env.RAZORPAY_KEY_ID }));
+});
+
+// Verify Razorpay subscription checkout callback and mark the tenant as actively billed.
+app.post('/api/billing/platform/verify-payment', async (c) => {
+  const body = await c.req.json<{
+    slug: string;
+    razorpay_payment_id: string;
+    razorpay_subscription_id: string;
+    razorpay_signature: string;
+  }>();
+
+  if (!body.slug || !body.razorpay_payment_id || !body.razorpay_subscription_id || !body.razorpay_signature) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Missing required payment fields'), 400);
+  }
+
+  // Verify HMAC-SHA256(payment_id + "|" + subscription_id, KEY_SECRET)
+  const valid = await verifySubscriptionSignature(
+    body.razorpay_payment_id,
+    body.razorpay_subscription_id,
+    body.razorpay_signature,
+    c.env.RAZORPAY_KEY_SECRET
+  );
+  if (!valid) return c.json(err(ErrorCode.UNAUTHORIZED, 'Payment signature verification failed'), 401);
+
+  // Fetch the subscription from Razorpay to get the linked plan.
+  const subRes = await razorpayRequest(c.env, `subscriptions/${body.razorpay_subscription_id}`);
+  if (!subRes.ok) return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to fetch subscription from Razorpay'), 500);
+  const sub = await subRes.json() as any;
+
+  // Fetch the plan name so we can set tenant.plan accordingly.
+  const planRes = await razorpayRequest(c.env, `plans/${sub.plan_id}`);
+  const planName: string = planRes.ok ? ((await planRes.json() as any).item?.name ?? 'paid').toLowerCase() : 'paid';
+
+  // Mark tenant as active with the verified subscription.
+  await c.env.CONTROL_DB.prepare(
+    'UPDATE tenants SET razorpay_sub_id = ?, razorpay_plan_id = ?, plan = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
+  ).bind(body.razorpay_subscription_id, sub.plan_id, planName, body.slug).run();
+
+  return c.json(ok({ verified: true, plan: planName }));
 });
 
 app.post('/api/billing/platform/webhook', async (c) => {
