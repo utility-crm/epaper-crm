@@ -1,4 +1,4 @@
-CREATE TABLE org_users (
+CREATE TABLE IF NOT EXISTS org_users (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
@@ -8,7 +8,7 @@ CREATE TABLE org_users (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE editions (
+CREATE TABLE IF NOT EXISTS editions (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   publish_date DATETIME NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE editions (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE sections (
+CREATE TABLE IF NOT EXISTS sections (
   id TEXT PRIMARY KEY,
   edition_id TEXT NOT NULL REFERENCES editions(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE sections (
   page_end INTEGER NOT NULL
 );
 
-CREATE TABLE razorpay_config (
+CREATE TABLE IF NOT EXISTS razorpay_config (
   id INTEGER PRIMARY KEY CHECK(id=1),
   key_id TEXT NOT NULL,
   key_secret_enc TEXT NOT NULL,
@@ -37,7 +37,7 @@ CREATE TABLE razorpay_config (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE reader_subscriptions (
+CREATE TABLE IF NOT EXISTS reader_subscriptions (
   id TEXT PRIMARY KEY,
   reader_id TEXT NOT NULL,
   razorpay_sub_id TEXT UNIQUE NOT NULL,
@@ -49,7 +49,7 @@ CREATE TABLE reader_subscriptions (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE reader_billing_events (
+CREATE TABLE IF NOT EXISTS reader_billing_events (
   id TEXT PRIMARY KEY,
   subscription_id TEXT NOT NULL REFERENCES reader_subscriptions(id),
   event_type TEXT NOT NULL,
@@ -59,6 +59,6 @@ CREATE TABLE reader_billing_events (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_editions_status ON editions(status);
-CREATE INDEX idx_editions_publish_date ON editions(publish_date);
-CREATE INDEX idx_reader_subscriptions_status ON reader_subscriptions(status);
+CREATE INDEX IF NOT EXISTS idx_editions_status ON editions(status);
+CREATE INDEX IF NOT EXISTS idx_editions_publish_date ON editions(publish_date);
+CREATE INDEX IF NOT EXISTS idx_reader_subscriptions_status ON reader_subscriptions(status);
