@@ -154,7 +154,7 @@ export function TiersPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 <label className="label">Price (INR)</label>
-                <input type="number" required className="input" value={priceInr} onChange={e => setPriceInr(parseInt(e.target.value))} />
+                <input type="number" required className="input" value={priceInr} onChange={e => setPriceInr(parseInt(e.target.value) || 0)} />
               </div>
               <div>
                 <label className="label">Billing Cycle</label>
@@ -172,28 +172,28 @@ export function TiersPage() {
               {includeTax && (
                 <div style={{ marginTop: 8 }}>
                   <label className="label">Tax Percentage (%)</label>
-                  <input type="number" required className="input" value={taxPercentage} onChange={e => setTaxPercentage(parseInt(e.target.value))} />
+                  <input type="number" required className="input" value={taxPercentage} onChange={e => setTaxPercentage(parseInt(e.target.value) || 0)} />
                 </div>
               )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 <label className="label">Storage (MB)</label>
-                <input type="number" required className="input" value={maxStorageMb} onChange={e => setMaxStorageMb(parseInt(e.target.value))} />
+                <input type="number" required className="input" value={maxStorageMb} onChange={e => setMaxStorageMb(parseInt(e.target.value) || 0)} />
               </div>
               <div>
                 <label className="label">Views / Day</label>
-                <input type="number" required className="input" value={maxViewsPerDay} onChange={e => setMaxViewsPerDay(parseInt(e.target.value))} />
+                <input type="number" required className="input" value={maxViewsPerDay} onChange={e => setMaxViewsPerDay(parseInt(e.target.value) || 0)} />
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 <label className="label">Simultaneous Editions</label>
-                <input type="number" required className="input" value={maxSimultaneousEditions} onChange={e => setMaxSimultaneousEditions(parseInt(e.target.value))} />
+                <input type="number" required className="input" value={maxSimultaneousEditions} onChange={e => setMaxSimultaneousEditions(parseInt(e.target.value) || 0)} />
               </div>
               <div>
                 <label className="label">Papers / Day</label>
-                <input type="number" required className="input" value={maxPapersPerDay} onChange={e => setMaxPapersPerDay(parseInt(e.target.value))} />
+                <input type="number" required className="input" value={maxPapersPerDay} onChange={e => setMaxPapersPerDay(parseInt(e.target.value) || 0)} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>

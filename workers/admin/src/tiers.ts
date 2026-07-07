@@ -46,28 +46,25 @@ tiersRouter.post('/', async (c) => {
   const cycle = body.billing_cycle || 'monthly';
 
   if (priceInr > 0) {
-    const internalReq = new Request('http://internal/internal/billing/platform/plans', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: body.name,
-        price_inr: priceInr,
-        tax_percentage: taxPct,
-        billing_cycle: cycle
-      })
-    });
-    
-    const res = await c.env.BILLING_PLATFORM_WORKER.fetch(internalReq);
-    if (res.ok) {
-      const data = await res.json() as any;
-      if (data.data?.razorpay_plan_id) {
-        razorpayPlanId = data.data.razorpay_plan_id;
+    try {
+      const internalReq = new Request('http://internal/internal/billing/platform/plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: body.name, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle })
+      });
+      const res = await c.env.BILLING_PLATFORM_WORKER.fetch(internalReq);
+      if (res.ok) {
+        const data = await res.json() as any;
+        if (data.data?.razorpay_plan_id) razorpayPlanId = data.data.razorpay_plan_id;
+      } else {
+        const detail = await res.text().catch(() => 'unknown error');
+        return c.json(err(ErrorCode.INTERNAL_ERROR, `Failed to create Razorpay plan: ${detail}`), 502);
       }
-    } else {
-      return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to generate Razorpay plan automatically'), 500);
+    } catch (e: any) {
+      return c.json(err(ErrorCode.INTERNAL_ERROR, `Billing worker unreachable — ensure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET secrets are set on the billing-platform worker. (${e?.message ?? 'fetch failed'})`), 502);
     }
   }
-  
+
   try {
     await c.env.CONTROL_DB.prepare(
       `INSERT INTO platform_tiers (id, name, max_storage_mb, max_views_per_day, max_simultaneous_editions, max_papers_per_day, razorpay_plan_id, price_inr, tax_percentage, billing_cycle)
@@ -81,9 +78,10 @@ tiersRouter.post('/', async (c) => {
     if (e.message.includes('UNIQUE')) return c.json(err(ErrorCode.CONFLICT, 'Tier name already exists'), 409);
     throw e;
   }
-  
+
   return c.json(ok({ id, ...body, razorpay_plan_id: razorpayPlanId, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle }));
 });
+
 
 tiersRouter.put('/:id', async (c) => {
   const id = c.req.param('id');
@@ -100,29 +98,27 @@ tiersRouter.put('/:id', async (c) => {
 
   // If price or cycle changed, we must create a NEW Razorpay plan
   if (priceInr > 0 && (existing.price_inr !== priceInr || existing.tax_percentage !== taxPct || existing.billing_cycle !== cycle || !existing.razorpay_plan_id)) {
-    const internalReq = new Request('http://internal/internal/billing/platform/plans', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: body.name,
-        price_inr: priceInr,
-        tax_percentage: taxPct,
-        billing_cycle: cycle
-      })
-    });
-    const res = await c.env.BILLING_PLATFORM_WORKER.fetch(internalReq);
-    if (res.ok) {
-      const data = await res.json() as any;
-      if (data.data?.razorpay_plan_id) {
-        razorpayPlanId = data.data.razorpay_plan_id;
+    try {
+      const internalReq = new Request('http://internal/internal/billing/platform/plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: body.name, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle })
+      });
+      const res = await c.env.BILLING_PLATFORM_WORKER.fetch(internalReq);
+      if (res.ok) {
+        const data = await res.json() as any;
+        if (data.data?.razorpay_plan_id) razorpayPlanId = data.data.razorpay_plan_id;
+      } else {
+        const detail = await res.text().catch(() => 'unknown error');
+        return c.json(err(ErrorCode.INTERNAL_ERROR, `Failed to update Razorpay plan: ${detail}`), 502);
       }
-    } else {
-      return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to update Razorpay plan automatically'), 500);
+    } catch (e: any) {
+      return c.json(err(ErrorCode.INTERNAL_ERROR, `Billing worker unreachable — ensure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET secrets are set on the billing-platform worker. (${e?.message ?? 'fetch failed'})`), 502);
     }
   } else if (priceInr === 0) {
     razorpayPlanId = null;
   }
-  
+
   await c.env.CONTROL_DB.prepare(
     `UPDATE platform_tiers SET name = ?, max_storage_mb = ?, max_views_per_day = ?, max_simultaneous_editions = ?, max_papers_per_day = ?, razorpay_plan_id = ?, price_inr = ?, tax_percentage = ?, billing_cycle = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
   ).bind(
@@ -130,7 +126,7 @@ tiersRouter.put('/:id', async (c) => {
     body.max_simultaneous_editions, body.max_papers_per_day, razorpayPlanId,
     priceInr, taxPct, cycle, id
   ).run();
-  
+
   return c.json(ok({ id, ...body, razorpay_plan_id: razorpayPlanId, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle }));
 });
 
