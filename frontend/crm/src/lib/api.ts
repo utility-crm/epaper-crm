@@ -16,7 +16,12 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<{ o
 
   try {
     const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-    return res.json();
+    const data = await res.json();
+    if ((res.status === 401 || res.status === 403) && !path.includes('admin-login') && !path.includes('setup')) {
+      localStorage.removeItem('epaper:adminToken');
+      window.location.href = '/admin-login';
+    }
+    return data;
   } catch {
     return { ok: false, error: { code: 'NETWORK_ERROR', message: 'Network error' } };
   }

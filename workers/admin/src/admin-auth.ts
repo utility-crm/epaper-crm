@@ -99,7 +99,7 @@ adminAuthRouter.post('/setup', async (c) => {
     aud: 'crm',
     sub: id,
     role: 'superadmin',
-    exp: Math.floor(Date.now() / 1000) + 28800
+    exp: Math.floor(Date.now() / 1000) + 604800
   };
   const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ADMIN_JWT_SECRET);
   
@@ -129,7 +129,7 @@ adminAuthRouter.post('/admin-login', async (c) => {
     aud: 'crm',
     sub: admin.id,
     role: admin.role,
-    exp: Math.floor(Date.now() / 1000) + 28800
+    exp: Math.floor(Date.now() / 1000) + 604800
   };
   const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ADMIN_JWT_SECRET);
   
