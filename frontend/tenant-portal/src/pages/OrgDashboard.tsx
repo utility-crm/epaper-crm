@@ -63,8 +63,18 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
   const months = ['Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'];
   const base = stats.pageviews || 0;
   const trafficData = months.map((m, i) => ({ name: m, views: Math.round(base * [0.05, 0.09, 0.14, 0.22, 0.3, 0.2][i]) }));
+  if (base > 0 && trafficData.every(d => d.views === 0)) {
+    trafficData[5].views = base; // Assign to latest month if rounding zeroed everything
+  }
 
   const publicLink = domain?.custom_domain ? `https://${domain.custom_domain}` : `${window.location.origin}/read/${slug}`;
+
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(publicLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   if (loading) {
     return <div className="flex justify-center py-24"><div className="spinner" /></div>;
@@ -96,7 +106,15 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
           </div>
           <div className="flex items-center gap-2">
             <code className="rounded-md bg-black/30 px-3 py-1.5 font-mono text-xs text-primary">{publicLink}</code>
-            <Button variant="secondary" size="sm" onClick={() => navigator.clipboard.writeText(publicLink)}><Copy className="h-3.5 w-3.5" /> Copy</Button>
+            <Button variant="secondary" size="sm" onClick={handleCopy} className="min-w-[80px]">
+              {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <a href={publicLink} target="_blank" rel="noopener noreferrer">
+                Open <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
+              </a>
+            </Button>
           </div>
         </CardContent>
       </Card>
