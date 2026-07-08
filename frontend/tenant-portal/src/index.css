@@ -3,49 +3,49 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* shadcn design tokens — dark editorial theme (indigo brand, slate surfaces). */
+/* shadcn design tokens — Light theme of white and red throughout all pages */
 :root {
-  color-scheme: dark;
-  --background: #0a0d14;
-  --foreground: #f1f5f9;
-  --card: #111520;
-  --card-foreground: #f1f5f9;
-  --popover: #1a2035;
-  --popover-foreground: #f1f5f9;
-  --primary: #6366f1;
+  color-scheme: light;
+  --background: #f8f9fa;
+  --foreground: #1e1e24;
+  --card: #ffffff;
+  --card-foreground: #1e1e24;
+  --popover: #ffffff;
+  --popover-foreground: #1e1e24;
+  --primary: #d90429;
   --primary-foreground: #ffffff;
-  --secondary: #1a2035;
-  --secondary-foreground: #f1f5f9;
-  --muted: #1a2035;
-  --muted-foreground: #94a3b8;
-  --accent: #1a2035;
-  --accent-foreground: #f1f5f9;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #1e1e24;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #fdf2f4;
+  --accent-foreground: #d90429;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --border: rgba(99, 102, 241, 0.15);
-  --input: rgba(99, 102, 241, 0.2);
-  --ring: #6366f1;
+  --success: #16a34a;
+  --warning: #d97706;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #d90429;
   --radius: 0.75rem;
 
-  /* legacy variables kept so existing inline-style pages still render */
-  --color-bg-base: #0a0d14;
-  --color-bg-surface: #111520;
-  --color-bg-elevated: #1a2035;
-  --color-bg-glass: rgba(26, 32, 53, 0.6);
-  --color-brand-primary: #6366f1;
-  --color-brand-glow: rgba(99, 102, 241, 0.25);
-  --color-brand-hover: #818cf8;
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
-  --color-info: #38bdf8;
-  --color-text-primary: #f1f5f9;
-  --color-text-secondary: #94a3b8;
-  --color-text-muted: #475569;
-  --color-border: rgba(99, 102, 241, 0.15);
-  --color-border-strong: rgba(99, 102, 241, 0.35);
+  /* legacy variables kept so existing inline-style pages render beautifully in white and red */
+  --color-bg-base: #f8f9fa;
+  --color-bg-surface: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-bg-glass: rgba(255, 255, 255, 0.95);
+  --color-brand-primary: #d90429;
+  --color-brand-glow: rgba(217, 4, 41, 0.15);
+  --color-brand-hover: #ef233c;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-info: #0284c7;
+  --color-text-primary: #1e1e24;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748b;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
   --font-sans: 'Inter', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   --font-serif: 'Fraunces', Georgia, serif;
@@ -98,24 +98,89 @@
   .font-800 { font-weight: 800; }
 }
 
-/* ---- legacy component classes (used by not-yet-migrated inline pages) ---- */
-.card { background: var(--color-bg-glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--color-border); border-radius: 16px; padding: 24px; }
-.btn-primary { background: linear-gradient(135deg, var(--color-brand-primary), #7c3aed); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-family: var(--font-sans); cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px var(--color-brand-glow); }
-.btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px var(--color-brand-glow); }
+/* ---- legacy component classes styled for crisp white & red light theme ---- */
+.card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.btn-primary {
+  background: var(--color-brand-primary);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px var(--color-brand-glow);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-brand-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--color-brand-glow);
+}
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-secondary { background: transparent; color: var(--color-text-primary); border: 1px solid var(--color-border-strong); padding: 10px 20px; border-radius: 8px; font-weight: 500; font-family: var(--font-sans); cursor: pointer; transition: all 0.2s; }
-.btn-secondary:hover:not(:disabled) { background: rgba(255,255,255,0.05); }
+
+.btn-secondary {
+  background: #ffffff;
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-strong);
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-secondary:hover:not(:disabled) { background: #f1f5f9; }
 .btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
-.input { width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--color-border); color: var(--color-text-primary); padding: 12px 16px; border-radius: 8px; font-family: var(--font-sans); font-size: 0.95rem; transition: border-color 0.2s, box-shadow 0.2s; outline: none; }
-.input:focus { border-color: var(--color-brand-primary); box-shadow: 0 0 0 2px var(--color-brand-glow); }
-.label { display: block; margin-bottom: 6px; font-size: 0.85rem; font-weight: 500; color: var(--color-text-secondary); }
+
+.input {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+.input:focus {
+  border-color: var(--color-brand-primary);
+  box-shadow: 0 0 0 2px var(--color-brand-glow);
+}
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
 .table { width: 100%; border-collapse: collapse; }
-.table th { text-align: left; padding: 12px 16px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); }
-.table td { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.9rem; }
-.table tr:hover td { background: rgba(255,255,255,0.02); }
+.table th {
+  text-align: left;
+  padding: 12px 16px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+.table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.9rem;
+}
+.table tr:hover td { background: #f8f9fa; }
 .status-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-.status-draft { background: rgba(99,102,241,0.1); color: var(--color-brand-primary); border: 1px solid var(--color-border-strong); }
-.status-published { background: rgba(34,197,94,0.12); color: var(--color-success); border: 1px solid rgba(34,197,94,0.3); }
-.status-archived { background: rgba(71,85,105,0.12); color: var(--color-text-muted); border: 1px solid rgba(71,85,105,0.3); }
+.status-draft { background: rgba(217,4,41,0.1); color: var(--color-brand-primary); border: 1px solid rgba(217,4,41,0.3); }
+.status-published { background: rgba(22,163,74,0.12); color: var(--color-success); border: 1px solid rgba(22,163,74,0.3); }
+.status-archived { background: #f1f5f9; color: var(--color-text-muted); border: 1px solid #cbd5e1; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.spinner { width: 28px; height: 28px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--color-brand-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+.spinner { width: 28px; height: 28px; border: 3px solid rgba(0,0,0,0.1); border-top-color: var(--color-brand-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }

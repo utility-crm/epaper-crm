@@ -11,13 +11,13 @@ const THEMES: Record<string, {
   bg: string; card: string; accent: string; button: string; text: string; subtext: string; border: string;
 }> = {
   modern: {
-    bg: 'bg-[#0f0f13]',
-    card: 'bg-[#18181f] border border-white/10',
-    accent: 'from-violet-500 to-purple-700',
-    button: 'bg-violet-600 hover:bg-violet-500 text-white',
-    text: 'text-white',
-    subtext: 'text-white/50',
-    border: 'border-white/10 bg-white/5 text-white placeholder-white/30 focus:border-violet-500',
+    bg: 'bg-slate-50',
+    card: 'bg-white border border-slate-200 shadow-xl',
+    accent: 'from-red-600 to-rose-700',
+    button: 'bg-red-600 hover:bg-red-500 text-white font-600',
+    text: 'text-slate-900',
+    subtext: 'text-slate-500',
+    border: 'border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:border-red-500',
   },
   classic: {
     bg: 'bg-stone-100',

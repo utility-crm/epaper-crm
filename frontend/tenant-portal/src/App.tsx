@@ -49,9 +49,9 @@ function PortalSidebar({ slug, token, onLogout }: { slug: string; token: string;
   const logoSrc = settings?.logo_url ? portalApi.logoUrl(slug) : null;
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-card/40 px-3 py-6">
+    <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-white px-3 py-6 shadow-sm">
       <div className="mb-9 flex items-center gap-2.5 px-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-violet-600 shadow-lg shadow-primary/30 overflow-hidden flex-shrink-0">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-red-600 to-rose-700 shadow-md shadow-red-500/20 overflow-hidden flex-shrink-0">
           {logoSrc && !imgError ? (
             <img src={logoSrc} alt={displayName} className="h-full w-full object-cover" onError={() => setImgError(true)} />
           ) : (
@@ -65,7 +65,7 @@ function PortalSidebar({ slug, token, onLogout }: { slug: string; token: string;
       </div>
 
       <nav className="flex flex-1 flex-col gap-1">
-        <div className="mb-1 px-3 text-[0.7rem] uppercase tracking-wider text-muted-foreground/70">Workspace</div>
+        <div className="mb-1 px-3 text-[0.7rem] uppercase tracking-wider text-muted-foreground/80 font-600">Workspace</div>
         {NAV.map(({ to, end, label, icon: Icon }) => (
           <NavLink
             key={to}
@@ -74,7 +74,7 @@ function PortalSidebar({ slug, token, onLogout }: { slug: string; token: string;
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+                isActive ? 'bg-red-50 text-red-600 font-600' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               )
             }
           >
@@ -89,7 +89,7 @@ function PortalSidebar({ slug, token, onLogout }: { slug: string; token: string;
           to="/portal/settings"
           className={({ isActive }) =>
             cn('flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-              isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-white/5')
+              isActive ? 'bg-red-50 text-red-600 font-600' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
           }
         >
           <Settings className="h-4 w-4" />
@@ -97,7 +97,7 @@ function PortalSidebar({ slug, token, onLogout }: { slug: string; token: string;
         </NavLink>
         <button
           onClick={onLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-white/5"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:text-red-600 hover:bg-red-50"
         >
           <LogOut className="h-4 w-4" />
           Sign Out

@@ -28,8 +28,8 @@ export function Sidebar() {
               padding: '10px 12px',
               borderRadius: '6px',
               textDecoration: 'none',
-              color: isActive ? 'white' : 'var(--color-text-secondary)',
-              background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+              color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+              background: isActive ? '#fdf2f4' : 'transparent',
               transition: 'background 0.2s',
               fontWeight: 500
             })}>Dashboard</NavLink>
@@ -37,8 +37,8 @@ export function Sidebar() {
               padding: '10px 12px',
               borderRadius: '6px',
               textDecoration: 'none',
-              color: isActive ? 'white' : 'var(--color-text-secondary)',
-              background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+              color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+              background: isActive ? '#fdf2f4' : 'transparent',
               transition: 'background 0.2s',
               fontWeight: 500
             })}>Tenants</NavLink>
@@ -46,8 +46,8 @@ export function Sidebar() {
               padding: '10px 12px',
               borderRadius: '6px',
               textDecoration: 'none',
-              color: isActive ? 'white' : 'var(--color-text-secondary)',
-              background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+              color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+              background: isActive ? '#fdf2f4' : 'transparent',
               transition: 'background 0.2s',
               fontWeight: 500
             })}>Audit Log</NavLink>
@@ -61,8 +61,8 @@ export function Sidebar() {
               padding: '10px 12px',
               borderRadius: '6px',
               textDecoration: 'none',
-              color: isActive ? 'white' : 'var(--color-text-secondary)',
-              background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+              color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+              background: isActive ? '#fdf2f4' : 'transparent',
               transition: 'background 0.2s',
               fontWeight: 500
             })}>Dashboard</NavLink>
@@ -70,8 +70,8 @@ export function Sidebar() {
               padding: '10px 12px',
               borderRadius: '6px',
               textDecoration: 'none',
-              color: isActive ? 'white' : 'var(--color-text-secondary)',
-              background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+              color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+              background: isActive ? '#fdf2f4' : 'transparent',
               transition: 'background 0.2s',
               fontWeight: 500
             })}>Editions</NavLink>
@@ -79,8 +79,8 @@ export function Sidebar() {
               padding: '10px 12px',
               borderRadius: '6px',
               textDecoration: 'none',
-              color: isActive ? 'white' : 'var(--color-text-secondary)',
-              background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+              color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+              background: isActive ? '#fdf2f4' : 'transparent',
               transition: 'background 0.2s',
               fontWeight: 500
             })}>Billing</NavLink>
