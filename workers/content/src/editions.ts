@@ -26,7 +26,8 @@ editionsRouter.get('/:slug/editions', async (c) => {
       pageSize
     }));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    console.error(`Error in editions API (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });
 
@@ -50,7 +51,8 @@ editionsRouter.post('/:slug/editions', async (c) => {
 
     return c.json(ok({ id }), 201);
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    console.error(`Error in editions API (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });
 
@@ -107,7 +109,8 @@ editionsRouter.get('/:slug/editions/:id', async (c) => {
     
     return c.json(ok(edition));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    console.error(`Error in editions API (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });
 
@@ -125,7 +128,8 @@ editionsRouter.delete('/:slug/editions/:id', async (c) => {
 
     return c.json(ok({ deleted: true }));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    console.error(`Error in editions API (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });
 
@@ -148,7 +152,8 @@ editionsRouter.patch('/:slug/editions/:id', async (c) => {
       .bind(title, tier_id, status, id).run();
     return c.json(ok({ updated: true }));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    console.error(`Error in editions API (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });
 
@@ -176,7 +181,8 @@ editionsRouter.patch('/:slug/epapers/:id', async (c) => {
       .bind(title, is_free, freePages, status, id).run();
     return c.json(ok({ updated: true }));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    console.error(`Error in editions API (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });
 
@@ -196,6 +202,7 @@ editionsRouter.patch('/:slug/epapers/:id/default', async (c) => {
     ]);
     return c.json(ok({ updated: true }));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    console.error(`Error in editions API (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });

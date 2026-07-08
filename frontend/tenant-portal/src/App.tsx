@@ -130,11 +130,18 @@ export default function App() {
       setTenantStatus('pending');
       window.location.href = '/';
     };
+    const onUnauthorized = () => {
+      localStorage.removeItem('epaper:orgToken');
+      localStorage.removeItem('epaper:tenantStatus');
+      setToken(null);
+    };
     window.addEventListener('epaper:tenant-suspended', onSuspended);
     window.addEventListener('epaper:tenant-deleted', onDeleted);
+    window.addEventListener('epaper:unauthorized', onUnauthorized);
     return () => {
       window.removeEventListener('epaper:tenant-suspended', onSuspended);
       window.removeEventListener('epaper:tenant-deleted', onDeleted);
+      window.removeEventListener('epaper:unauthorized', onUnauthorized);
     };
   }, []);
 

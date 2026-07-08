@@ -9,8 +9,33 @@ tenantsRouter.patch('/internal/:slug/activate', async (c) => {
   const body = await c.req.json();
   const { d1_id, r2_bucket } = body;
   
-  const tenant = await c.env.CONTROL_DB.prepare('SELECT id FROM tenants WHERE slug = ?').bind(slug).first<{id: string}>();
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, email FROM tenants WHERE slug = ?').bind(slug).first<{id: string, email: string}>();
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+  
+  // Find the pending owner
+  const pendingOwner = await c.env.CONTROL_DB.prepare('SELECT * FROM pending_owners WHERE tenant_id = ?').bind(tenant.id).first<{id: string; name: string; password_hash: string; role: string}>();
+
+  if (pendingOwner) {
+    // Call the content worker to insert the owner into the tenant's new org_users table
+    const migrateRes = await c.env.CONTENT_WORKER.fetch(`http://internal/api/internal/${slug}/migrate-owner`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: pendingOwner.id,
+        email: tenant.email,
+        name: pendingOwner.name,
+        password_hash: pendingOwner.password_hash,
+        role: pendingOwner.role || 'owner'
+      })
+    });
+
+    if (!migrateRes.ok) {
+      console.error(`Failed to migrate pending owner for ${slug}`);
+    } else {
+      // Remove the pending owner since they are now fully migrated
+      await c.env.CONTROL_DB.prepare('DELETE FROM pending_owners WHERE tenant_id = ?').bind(tenant.id).run();
+    }
+  }
   
   await c.env.CONTROL_DB.batch([
     c.env.CONTROL_DB.prepare(

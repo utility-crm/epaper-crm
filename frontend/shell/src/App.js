@@ -3,6 +3,10 @@ import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { useAuth } from './context/AuthContext';
+import LandingPage from './pages/LandingPage';
+import SignupPage from './pages/SignupPage';
+import OrgLoginPage from './pages/OrgLoginPage';
+import AdminLoginPage from './pages/AdminLoginPage';
 // Error Boundary for remotes
 class ErrorBoundary extends React.Component {
     constructor(props) { super(props); this.state = { hasError: false }; }
@@ -21,19 +25,14 @@ const CrmApp = lazy(() => import('crm/App').catch(() => {
 const PortalApp = lazy(() => import('tenantPortal/App').catch(() => {
     return { default: () => _jsx("div", { children: "Failed to load Portal Module" }) };
 }));
-function LoginGate() {
-    const { isAdmin, isOrgUser } = useAuth();
-    if (isAdmin)
-        return _jsx(Navigate, { to: "/crm" });
-    if (isOrgUser)
-        return _jsx(Navigate, { to: "/portal" });
-    // Need to add actual login UI later
-    return (_jsx("div", { style: { display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }, children: _jsxs("div", { className: "card", style: { width: '400px' }, children: [_jsx("h2", { style: { marginBottom: '24px' }, children: "Welcome to ePaper" }), _jsxs("div", { style: { display: 'flex', gap: '12px' }, children: [_jsx("button", { className: "btn-primary", style: { flex: 1 }, children: "Sign in as Tenant" }), _jsx("button", { className: "btn-secondary", style: { flex: 1 }, children: "Sign in as Admin" })] })] }) }));
-}
 function Loader() {
     return (_jsx("div", { style: { display: 'flex', height: '200px', alignItems: 'center', justifyContent: 'center' }, children: _jsx("div", { className: "spinner" }) }));
 }
 export default function App() {
     const { isAdmin, isOrgUser } = useAuth();
-    return (_jsxs(Routes, { children: [_jsx(Route, { path: "/", element: _jsx(LoginGate, {}) }), isAdmin && (_jsx(Route, { path: "/crm/*", element: _jsx(AppShell, { children: _jsx(ErrorBoundary, { children: _jsx(Suspense, { fallback: _jsx(Loader, {}), children: _jsx(CrmApp, {}) }) }) }) })), isOrgUser && (_jsx(Route, { path: "/portal/*", element: _jsx(AppShell, { children: _jsx(ErrorBoundary, { children: _jsx(Suspense, { fallback: _jsx(Loader, {}), children: _jsx(PortalApp, {}) }) }) }) })), _jsx(Route, { path: "*", element: _jsx(Navigate, { to: "/" }) })] }));
+    return (_jsxs(Routes, { children: [_jsx(Route, { path: "/", element: isAdmin ? _jsx(Navigate, { to: "/crm" }) :
+                    isOrgUser ? _jsx(Navigate, { to: "/portal" }) :
+                        _jsx(LandingPage, {}) }), _jsx(Route, { path: "/signup", element: isOrgUser ? _jsx(Navigate, { to: "/portal" }) : _jsx(SignupPage, {}) }), _jsx(Route, { path: "/login", element: isOrgUser ? _jsx(Navigate, { to: "/portal" }) : _jsx(OrgLoginPage, {}) }), _jsx(Route, { path: "/admin-login", element: isAdmin ? _jsx(Navigate, { to: "/crm" }) : _jsx(AdminLoginPage, {}) }), isAdmin && (_jsx(Route, { path: "/crm/*", element: _jsx(AppShell, { children: _jsx(ErrorBoundary, { children: _jsx(Suspense, { fallback: _jsx(Loader, {}), children: _jsx(CrmApp, {}) }) }) }) })), isOrgUser && (_jsx(Route, { path: "/portal/*", element: _jsx(AppShell, { children: _jsx(ErrorBoundary, { children: _jsx(Suspense, { fallback: _jsx(Loader, {}), children: _jsx(PortalApp, {}) }) }) }) })), _jsx(Route, { path: "/publisher-signup", element: _jsx(Navigate, { to: "/signup", replace: true }) }), _jsx(Route, { path: "/client-admin/login", element: _jsx(Navigate, { to: "/login", replace: true }) }), _jsx(Route, { path: "/superadmin/login", element: _jsx(Navigate, { to: "/admin-login", replace: true }) }), _jsx(Route, { path: "*", element: isAdmin ? _jsx(Navigate, { to: "/crm" }) :
+                    isOrgUser ? _jsx(Navigate, { to: "/portal" }) :
+                        _jsx(Navigate, { to: "/" }) })] }));
 }

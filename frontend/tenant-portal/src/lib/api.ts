@@ -11,7 +11,9 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
     const data = await res.json();
     
     if (!data.ok) {
-      if (data.error?.message === 'TENANT_SUSPENDED') {
+      if (res.status === 401) {
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('epaper:unauthorized'));
+      } else if (data.error?.message === 'TENANT_SUSPENDED') {
         if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('epaper:tenant-suspended'));
       } else if (data.error?.message === 'TENANT_DELETED') {
         if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('epaper:tenant-deleted'));

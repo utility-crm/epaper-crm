@@ -12,6 +12,7 @@ statsRouter.get('/:slug/stats', async (c) => {
     if (!stats) return c.json(ok({ disk_usage_bytes: 0, pageviews: 0 }));
     return c.json(ok(stats));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    console.error(`Error in stats API (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });

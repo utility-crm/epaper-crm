@@ -92,7 +92,7 @@ orgAuthRouter.post('/signup', async (c) => {
     tenantSlug: slug,
     role: 'owner',
     userId: ownerId,
-    exp: Math.floor(Date.now() / 1000) + 28800
+    exp: Math.floor(Date.now() / 1000) + 604800
   };
   const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);
   
@@ -153,7 +153,7 @@ orgAuthRouter.post('/org-login', async (c) => {
     tenantSlug: tenant.slug,
     role,
     userId: userId!,
-    exp: Math.floor(Date.now() / 1000) + 28800
+    exp: Math.floor(Date.now() / 1000) + 604800
   };
   const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);
   

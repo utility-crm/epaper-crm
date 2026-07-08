@@ -16,48 +16,48 @@ export function Sidebar() {
                                     padding: '10px 12px',
                                     borderRadius: '6px',
                                     textDecoration: 'none',
-                                    color: isActive ? 'white' : 'var(--color-text-secondary)',
-                                    background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+                                    color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+                                    background: isActive ? '#fdf2f4' : 'transparent',
                                     transition: 'background 0.2s',
                                     fontWeight: 500
                                 }), children: "Dashboard" }), _jsx(NavLink, { to: "/crm/tenants", style: ({ isActive }) => ({
                                     padding: '10px 12px',
                                     borderRadius: '6px',
                                     textDecoration: 'none',
-                                    color: isActive ? 'white' : 'var(--color-text-secondary)',
-                                    background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+                                    color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+                                    background: isActive ? '#fdf2f4' : 'transparent',
                                     transition: 'background 0.2s',
                                     fontWeight: 500
                                 }), children: "Tenants" }), _jsx(NavLink, { to: "/crm/audit", style: ({ isActive }) => ({
                                     padding: '10px 12px',
                                     borderRadius: '6px',
                                     textDecoration: 'none',
-                                    color: isActive ? 'white' : 'var(--color-text-secondary)',
-                                    background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+                                    color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+                                    background: isActive ? '#fdf2f4' : 'transparent',
                                     transition: 'background 0.2s',
                                     fontWeight: 500
                                 }), children: "Audit Log" })] })), isOrgUser && (_jsxs(_Fragment, { children: [_jsx("div", { style: { fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: '8px', marginTop: '16px' }, children: "Tenant Portal" }), _jsx(NavLink, { to: "/portal", end: true, style: ({ isActive }) => ({
                                     padding: '10px 12px',
                                     borderRadius: '6px',
                                     textDecoration: 'none',
-                                    color: isActive ? 'white' : 'var(--color-text-secondary)',
-                                    background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+                                    color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+                                    background: isActive ? '#fdf2f4' : 'transparent',
                                     transition: 'background 0.2s',
                                     fontWeight: 500
                                 }), children: "Dashboard" }), _jsx(NavLink, { to: "/portal/editions", style: ({ isActive }) => ({
                                     padding: '10px 12px',
                                     borderRadius: '6px',
                                     textDecoration: 'none',
-                                    color: isActive ? 'white' : 'var(--color-text-secondary)',
-                                    background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+                                    color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+                                    background: isActive ? '#fdf2f4' : 'transparent',
                                     transition: 'background 0.2s',
                                     fontWeight: 500
                                 }), children: "Editions" }), _jsx(NavLink, { to: "/portal/billing", style: ({ isActive }) => ({
                                     padding: '10px 12px',
                                     borderRadius: '6px',
                                     textDecoration: 'none',
-                                    color: isActive ? 'white' : 'var(--color-text-secondary)',
-                                    background: isActive ? 'var(--color-bg-elevated)' : 'transparent',
+                                    color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+                                    background: isActive ? '#fdf2f4' : 'transparent',
                                     transition: 'background 0.2s',
                                     fontWeight: 500
                                 }), children: "Billing" })] }))] }), _jsx("button", { className: "btn-secondary", onClick: logout, style: { marginTop: 'auto', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }, children: "Sign Out" })] }));
