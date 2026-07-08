@@ -140,9 +140,17 @@ app.post('/api/billing/platform/verify-payment', async (c) => {
   const planName: string = planRes.ok ? ((await planRes.json() as any).item?.name ?? 'paid').toLowerCase() : 'paid';
 
   // Mark tenant as active with the verified subscription.
+  const tenantObj = await c.env.CONTROL_DB.prepare('SELECT id FROM tenants WHERE slug = ?').bind(body.slug).first<{ id: string }>();
   await c.env.CONTROL_DB.prepare(
     'UPDATE tenants SET razorpay_sub_id = ?, razorpay_plan_id = ?, plan = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
   ).bind(body.razorpay_subscription_id, sub.plan_id, planName, body.slug).run();
+
+  if (tenantObj) {
+    const amount = planName === 'starter' ? 117900 : planName === 'growth' ? 589900 : 0;
+    await c.env.CONTROL_DB.prepare(
+      'INSERT INTO platform_billing_events (id, tenant_id, event_type, razorpay_event_id, amount_paise, payload) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(crypto.randomUUID(), tenantObj.id, 'subscription.activated', body.razorpay_payment_id || crypto.randomUUID(), amount, JSON.stringify({ plan: planName })).run();
+  }
 
   return c.json(ok({ verified: true, plan: planName }));
 });

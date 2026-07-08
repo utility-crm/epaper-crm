@@ -51,7 +51,7 @@ export function TenantDetailPage() {
           simultaneous_editions: res.data.custom_simultaneous_editions || 0,
           papers_per_day: res.data.custom_papers_per_day || 0
         });
-        crmApi.getAuditLog(1, res.data.id).then(aRes => { if (aRes.ok) setAuditLogs(aRes.data.data || []); });
+        crmApi.getAuditLog(1, res.data.id).then(aRes => { if (aRes.ok) setAuditLogs(aRes.data.items || []); });
       }
       setLoading(false);
     });

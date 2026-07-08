@@ -34,7 +34,7 @@ export function DashboardPage() {
           pending: pend.data?.total ?? 0,
           suspended: susp.data?.total ?? 0,
         });
-        if (auditRes.ok) setRecentAudit(auditRes.data?.data || []);
+        if (auditRes.ok) setRecentAudit(auditRes.data?.items || []);
       } finally {
         setLoading(false);
       }
