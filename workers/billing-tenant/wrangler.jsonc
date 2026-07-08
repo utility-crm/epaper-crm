@@ -11,6 +11,11 @@
       "binding": "TEST_7E36_DB",
       "database_name": "epaper-test-7e36",
       "database_id": "bdb3f3b3-8f2f-443d-ab81-2936a59d8668"
+    },
+    {
+      "binding": "GUNJ_UTHI_RANBHERI_F453_DB",
+      "database_name": "epaper-gunj-uthi-ranbheri-f453",
+      "database_id": "8a007a8d-f465-4be9-bdc7-e1658fb5aa82"
     }
   ]
 }
