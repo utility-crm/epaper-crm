@@ -16,7 +16,7 @@ const STEPS = [
 ];
 
 // After this many seconds, show the "stuck" UI even if still in provisioning state
-const TIMEOUT_SECONDS = 8 * 60; // 8 minutes
+const TIMEOUT_SECONDS = 3 * 60; // 3 minutes
 
 function randomStep(status: string) {
   if (status === 'pending') return 0;
@@ -88,14 +88,38 @@ export function ProvisioningScreen({ token, onActive }: ProvisioningScreenProps)
     }
   }, [token]);
 
+  const handleVerify = useCallback(async () => {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const res = await portalApi.verifyProvisioning(token);
+      if (res.ok) {
+        setStatus(res.data?.status || 'provisioning');
+        if (res.data?.status === 'active') {
+          onActive();
+        } else if (res.data?.status === 'provision_failed') {
+          // It will fall through to ErrorState
+        } else {
+          setRetryError('Still provisioning. Please wait or retry setup.');
+        }
+      } else {
+        setRetryError(res.error?.message ?? 'Verification failed.');
+      }
+    } catch {
+      setRetryError('Network error during verification.');
+    } finally {
+      setRetrying(false);
+    }
+  }, [token, onActive]);
+
   // --- FAILURE STATE ---
   if (status === 'provision_failed') {
     return <ErrorState retrying={retrying} retryError={retryError} onRetry={handleRetry} />;
   }
 
-  // --- STUCK / TIMEOUT STATE: still provisioning after 8 minutes ---
+  // --- STUCK / TIMEOUT STATE: still provisioning after 3 minutes ---
   if (status !== 'active' && elapsedSeconds >= TIMEOUT_SECONDS) {
-    return <StuckState retrying={retrying} retryError={retryError} onRetry={handleRetry} />;
+    return <StuckState retrying={retrying} retryError={retryError} onRetry={handleRetry} onVerify={handleVerify} />;
   }
 
   // --- NORMAL PROVISIONING STATE ---
@@ -214,7 +238,7 @@ function ErrorState({ retrying, retryError, onRetry }: { retrying: boolean; retr
   );
 }
 
-function StuckState({ retrying, retryError, onRetry }: { retrying: boolean; retryError: string | null; onRetry: () => void }) {
+function StuckState({ retrying, retryError, onRetry, onVerify }: { retrying: boolean; retryError: string | null; onRetry: () => void; onVerify: () => void }) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32,
       background: 'radial-gradient(ellipse at 50% 40%, rgba(245,158,11,0.08) 0%, transparent 70%)' }}>
@@ -229,10 +253,10 @@ function StuckState({ retrying, retryError, onRetry }: { retrying: boolean; retr
 
         <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: 12 }}>Taking Longer Than Expected</h1>
         <p style={{ color: 'var(--color-text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-          Setup has been running for over 8 minutes. The infrastructure job may have stalled.
+          Setup has been running for over 3 minutes. The infrastructure job may have stalled.
         </p>
         <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginBottom: 32, lineHeight: 1.6 }}>
-          You can retry — this will cancel the current job and start fresh. Your account and credentials are safe.
+          You can <strong>Verify Status</strong> to check if it actually completed, or <strong>Restart Setup</strong> to try again. Your account and credentials are safe.
           If this keeps happening, contact{' '}
           <a href="mailto:support@epaper-cms.com" style={{ color: 'var(--color-brand-primary)' }}>support@epaper-cms.com</a>.
         </p>
@@ -244,14 +268,19 @@ function StuckState({ retrying, retryError, onRetry }: { retrying: boolean; retr
           </div>
         )}
 
-        <button className="btn-primary" disabled={retrying} onClick={onRetry}
-          style={{ width: '100%', maxWidth: 280, display: 'inline-flex', alignItems: 'center',
-            justifyContent: 'center', gap: 8, fontSize: '1rem', padding: '12px 24px' }}>
-          {retrying && <span className="spinner" style={{ width: 16, height: 16 }} />}
-          {retrying ? 'Restarting Setup…' : '↻ Restart Setup'}
-        </button>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button className="btn-secondary" disabled={retrying} onClick={onVerify}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: '1rem', padding: '12px 24px', flex: 1, minWidth: 200 }}>
+            {retrying ? <span className="spinner" style={{ width: 16, height: 16 }} /> : '✓ Verify Status'}
+          </button>
+          
+          <button className="btn-primary" disabled={retrying} onClick={onRetry}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: '1rem', padding: '12px 24px', flex: 1, minWidth: 200 }}>
+            {retrying ? <span className="spinner" style={{ width: 16, height: 16 }} /> : '↻ Restart Setup'}
+          </button>
+        </div>
 
-        <p style={{ marginTop: 16, color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+        <p style={{ marginTop: 24, color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
           You can also close this tab and try signing in again later — your account is saved.
         </p>
       </div>

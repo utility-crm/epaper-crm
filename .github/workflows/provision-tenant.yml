@@ -8,6 +8,10 @@ on:
         required: true
         type: string
 
+concurrency: 
+  group: tenant-${{ github.event.inputs.tenant_slug }}
+  cancel-in-progress: true
+
 jobs:
   provision:
     runs-on: ubuntu-latest
@@ -28,6 +32,7 @@ jobs:
         run: chmod +x scripts/provision.sh
         
       - name: Run Provisioning
+        id: provision
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -38,8 +43,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          # 0003 is a legacy transform for DBs created before 0001 was rewritten to the
-          # restructured shape; it errors on a fresh DB, so skip it for new tenants.
           for f in $(ls migrations/tenant/*.sql | sort); do
             case "$f" in
               *0003_*) echo "Skipping legacy migration $f"; continue ;;
@@ -64,10 +67,17 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add workers/content/wrangler.jsonc workers/billing-tenant/wrangler.jsonc
-          git commit -m "chore: inject bindings for ${{ github.event.inputs.tenant_slug }}" || true
-          git pull --rebase origin main || true
-          git push
+          for i in {1..20}; do
+            git fetch origin main
+            git reset --hard origin/main
+            node scripts/inject-binding.js ${{ github.event.inputs.tenant_slug }} ${{ steps.provision.outputs.db_id }}
+            git add workers/content/wrangler.jsonc workers/billing-tenant/wrangler.jsonc
+            git commit -m "chore: inject bindings for ${{ github.event.inputs.tenant_slug }}" || break
+            if git push origin main; then
+              break
+            fi
+            sleep $((RANDOM % 5 + 1))
+          done
 
       # Always runs last — reports success or failure. Uses -f so curl itself fails on HTTP errors.
       - name: Report Success to Provision Worker

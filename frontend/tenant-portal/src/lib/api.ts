@@ -31,6 +31,7 @@ export const portalApi = {
   signup: (body: any) => apiFetch<{ token: string; slug: string }>('/api/auth/signup', { method: 'POST', body: JSON.stringify(body) }),
   orgLogin: (body: any) => apiFetch<{ token: string; slug: string; status: string }>('/api/auth/org-login', { method: 'POST', body: JSON.stringify(body) }),
   provisionStatus: (token: string) => apiFetch<{ status: string; provision_run_id: string | null }>('/api/auth/provision-status', {}, token),
+  verifyProvisioning: (token: string) => apiFetch<{ status: string; recovered?: boolean }>('/api/auth/verify-provisioning', { method: 'POST' }, token),
   retriggerProvisioning: (token: string) => apiFetch<{ reprovisioning: boolean }>('/api/auth/reprovision', { method: 'POST' }, token),
 
   // editions

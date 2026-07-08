@@ -27,4 +27,30 @@ app.notFound((c) => {
 
 export default {
   fetch: app.fetch,
+  async scheduled(event: any, env: Env, ctx: ExecutionContext) {
+    // Deprovisioning queue: sweep for pending_deletion tenants
+    try {
+      const pending = await env.CONTROL_DB.prepare(
+        'SELECT slug FROM tenants WHERE status = ? LIMIT 10'
+      ).bind('pending_deletion').all<{slug: string}>();
+      
+      if (pending.results && pending.results.length > 0) {
+        for (const tenant of pending.results) {
+          // Mark as deleting so we don't trigger it again
+          await env.CONTROL_DB.prepare(
+            'UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
+          ).bind('deleting', tenant.slug).run();
+          
+          // Trigger deprovision workflow
+          await env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/deprovision', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug: tenant.slug })
+          })).catch(e => console.error(`Failed to trigger deprovision for ${tenant.slug}`, e));
+        }
+      }
+    } catch (e) {
+      console.error('Scheduled deprovision sweep failed', e);
+    }
+  }
 };

@@ -201,3 +201,47 @@ orgAuthRouter.post('/reprovision', orgUserAuth, async (c) => {
 
   return c.json(ok({ reprovisioning: true }));
 });
+
+orgAuthRouter.post('/verify-provisioning', orgUserAuth, async (c) => {
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, slug, status, provision_run_id FROM tenants WHERE id = ?').bind(c.var.tenantId).first<{id: string, slug: string, status: string, provision_run_id: string | null}>();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+
+  if (tenant.status !== 'provisioning' && tenant.status !== 'provision_failed') {
+    return c.json(ok({ status: tenant.status }));
+  }
+
+  if (!tenant.provision_run_id) {
+    return c.json(ok({ status: tenant.status }));
+  }
+
+  try {
+    const res = await c.env.PROVISION_WORKER.fetch(`http://provision/api/provision/debug/${tenant.provision_run_id}`);
+    if (!res.ok) return c.json(ok({ status: tenant.status }));
+    
+    const data = await res.json() as any;
+    if (data.data?.status === 'completed') {
+      if (data.data?.conclusion === 'success') {
+        const reqBody = {
+          d1_id: `epaper-${tenant.slug}`,
+          r2_bucket: `epaper-${tenant.slug}`
+        };
+        const activateRes = await c.env.ADMIN_WORKER.fetch(new Request(`http://admin/api/tenants/internal/${tenant.slug}/activate`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqBody)
+        }));
+        
+        if (activateRes.ok) {
+          return c.json(ok({ status: 'active', recovered: true }));
+        }
+      } else {
+        await c.env.CONTROL_DB.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind('provision_failed', tenant.id).run();
+        return c.json(ok({ status: 'provision_failed', recovered: true }));
+      }
+    }
+  } catch (e) {
+    console.error("Verification failed", e);
+  }
+
+  return c.json(ok({ status: tenant.status }));
+});

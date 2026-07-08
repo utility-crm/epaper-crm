@@ -9,8 +9,12 @@ tenantsRouter.patch('/internal/:slug/activate', async (c) => {
   const body = await c.req.json();
   const { d1_id, r2_bucket } = body;
   
-  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, email FROM tenants WHERE slug = ?').bind(slug).first<{id: string, email: string}>();
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, email, status FROM tenants WHERE slug = ?').bind(slug).first<{id: string, email: string, status: string}>();
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+  
+  if (tenant.status === 'pending_deletion') {
+    return c.json(ok({ activated: false, reason: 'Tenant is pending deletion' }));
+  }
   
   // Find the pending owner
   const pendingOwner = await c.env.CONTROL_DB.prepare('SELECT * FROM pending_owners WHERE tenant_id = ?').bind(tenant.id).first<{id: string; name: string; password_hash: string; role: string}>();
@@ -122,20 +126,12 @@ tenantsRouter.delete('/internal/:slug/deprovision', async (c) => {
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
   
   await c.env.CONTROL_DB.batch([
-    c.env.CONTROL_DB.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?').bind('deleting', slug),
+    c.env.CONTROL_DB.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?').bind('pending_deletion', slug),
     c.env.CONTROL_DB.prepare('INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)')
       .bind(crypto.randomUUID(), tenant.id, 'tenant.delete_initiated', 'system_self_serve', '{}')
   ]);
   
-  c.executionCtx.waitUntil(
-    c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/deprovision', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug })
-    })).catch(e => console.error('Deprovision trigger failed', e))
-  );
-  
-  return c.json(ok({ deleting: true }));
+  return c.json(ok({ deleting: true, pending: true }));
 });
 
 tenantsRouter.use('/*', adminAuth);
@@ -238,18 +234,59 @@ tenantsRouter.delete('/:slug', async (c) => {
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
   
   await c.env.CONTROL_DB.batch([
-    c.env.CONTROL_DB.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?').bind('deleting', slug),
+    c.env.CONTROL_DB.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?').bind('pending_deletion', slug),
     c.env.CONTROL_DB.prepare('INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)')
       .bind(crypto.randomUUID(), tenant.id, 'tenant.delete_initiated', c.var.adminId, '{}')
   ]);
   
-  c.executionCtx.waitUntil(
-    c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/deprovision', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug })
-    })).catch(e => console.error('Deprovision trigger failed', e))
-  );
-  
-  return c.json(ok({ deleting: true }));
+  return c.json(ok({ deleting: true, pending: true }));
+});
+
+// Endpoint for frontend to verify stuck provisioning
+tenantsRouter.post('/internal/:slug/verify-provisioning', async (c) => {
+  const slug = c.req.param('slug');
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, status, provision_run_id FROM tenants WHERE slug = ?').bind(slug).first<{id: string, status: string, provision_run_id: string | null}>();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+
+  if (tenant.status !== 'provisioning' && tenant.status !== 'provision_failed') {
+    return c.json(ok({ status: tenant.status }));
+  }
+
+  if (!tenant.provision_run_id) {
+    return c.json(ok({ status: tenant.status }));
+  }
+
+  try {
+    const res = await c.env.PROVISION_WORKER.fetch(`http://provision/api/provision/debug/${tenant.provision_run_id}`);
+    if (!res.ok) return c.json(ok({ status: tenant.status }));
+    
+    const data = await res.json() as any;
+    if (data.data?.status === 'completed') {
+      if (data.data?.conclusion === 'success') {
+        // Manually activate since webhook dropped
+        const reqBody = {
+          d1_id: `epaper-${slug}`,
+          r2_bucket: `epaper-${slug}`
+        };
+        // Reuse the activate logic by self-calling
+        const activateRes = await c.env.ADMIN_WORKER.fetch(new Request(`http://admin/api/tenants/internal/${slug}/activate`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqBody)
+        }));
+        
+        if (activateRes.ok) {
+          return c.json(ok({ status: 'active', recovered: true }));
+        }
+      } else {
+        // Mark as failed
+        await c.env.CONTROL_DB.prepare('UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind('provision_failed', tenant.id).run();
+        return c.json(ok({ status: 'provision_failed', recovered: true }));
+      }
+    }
+  } catch (e) {
+    console.error("Verification failed", e);
+  }
+
+  return c.json(ok({ status: tenant.status }));
 });

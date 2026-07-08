@@ -29,6 +29,9 @@
       "binding": "BILLING_WORKER",
       "service": "epaper-billing-platform"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  }
   // Note: secrets ADMIN_JWT_SECRET and ORG_JWT_SECRET should be set via `wrangler secret put`
 }
