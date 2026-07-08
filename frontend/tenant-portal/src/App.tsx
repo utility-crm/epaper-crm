@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut, Settings } from 'lucide-react';
+import { LandingPage } from './pages/LandingPage';
 import { SignupPage } from './pages/SignupPage';
 import { OrgLoginPage } from './pages/OrgLoginPage';
 import { ProvisioningScreen } from './pages/ProvisioningScreen';
@@ -201,13 +202,17 @@ export default function App() {
     return <ReaderApp />;
   }
 
-  // Public staff routes
+  // Public staff & marketing routes
   if (!token) {
     return (
       <Routes>
+        <Route path="/" element={<LandingPage />} />
         <Route path="/signup" element={<SignupPage onSignup={(t, s) => handleAuth(t, s, 'pending')} />} />
+        <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
+        <Route path="/login" element={<OrgLoginPage onLogin={handleAuth} />} />
         <Route path="/portal/login" element={<OrgLoginPage onLogin={handleAuth} />} />
-        <Route path="*" element={<Navigate to="/signup" />} />
+        <Route path="/client-admin/login" element={<Navigate to="/portal/login" replace />} />
+        <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     );
   }
