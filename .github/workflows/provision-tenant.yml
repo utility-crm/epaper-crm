@@ -73,7 +73,7 @@ jobs:
       - name: Report Success to Provision Worker
         if: success()
         run: |
-          curl -f -s -X POST https://epaper-gateway.satishkumar-link.workers.dev/api/provision/webhook \
+          curl -f -s -X POST https://api.epaperspace.com/api/provision/webhook \
             -H "Content-Type: application/json" \
             -d '{"secret": "${{ secrets.PROVISION_WEBHOOK_SECRET }}", "slug": "${{ github.event.inputs.tenant_slug }}", "isDeprovision": false}'
 
@@ -90,6 +90,6 @@ jobs:
       - name: Report Failure to Provision Worker
         if: failure()
         run: |
-          curl -f -s -X POST https://epaper-gateway.satishkumar-link.workers.dev/api/provision/webhook \
+          curl -f -s -X POST https://api.epaperspace.com/api/provision/webhook \
             -H "Content-Type: application/json" \
             -d '{"secret": "${{ secrets.PROVISION_WEBHOOK_SECRET }}", "slug": "${{ github.event.inputs.tenant_slug }}", "isDeprovision": false, "isFailure": true}'

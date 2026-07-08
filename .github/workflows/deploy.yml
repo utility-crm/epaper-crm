@@ -52,7 +52,7 @@ jobs:
 
       - name: Build Tenant Portal
         env:
-          VITE_API_URL: 'https://epaper-gateway.satishkumar-link.workers.dev'
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
         run: npm run build --workspace=frontend/tenant-portal
 
       - name: Deploy to Cloudflare Pages (epaper-portal)
@@ -77,7 +77,7 @@ jobs:
 
       - name: Build CRM
         env:
-          VITE_API_URL: 'https://epaper-gateway.satishkumar-link.workers.dev'
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
         run: npm run build --workspace=frontend/crm
 
       - name: Deploy to Cloudflare Pages (epaper-crm)
