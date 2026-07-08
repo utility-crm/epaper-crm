@@ -94,6 +94,11 @@ export default function App() {
         } />
       )}
 
+      {/* Legacy path aliases from old static site */}
+      <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
+      <Route path="/client-admin/login" element={<Navigate to="/login" replace />} />
+      <Route path="/superadmin/login" element={<Navigate to="/admin-login" replace />} />
+
       {/* Catch-all: redirect unauthenticated to landing, authenticated to dashboard */}
       <Route
         path="*"
