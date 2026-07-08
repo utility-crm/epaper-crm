@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getTenantDb } from './db';
+import { getTenantDb, getTenantBucket } from './db';
 import { ok, err, ErrorCode } from '@epaper/types';
 
 export const editionsRouter = new Hono<{ Bindings: Record<string, unknown>; Variables: { userId: string } }>();
@@ -114,17 +114,86 @@ editionsRouter.get('/:slug/editions/:id', async (c) => {
   }
 });
 
+editionsRouter.delete('/:slug/epapers/:id', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+
+  try {
+    const db = getTenantDb(c.env, slug);
+    const bucket = getTenantBucket(c.env, slug);
+    
+    const epaper = await db.prepare('SELECT id, cover_key FROM epapers WHERE id = ?').bind(id).first<{id: string, cover_key: string | null}>();
+    if (!epaper) return c.json(err(ErrorCode.NOT_FOUND, 'Epaper not found'), 404);
+
+    const pages = await db.prepare('SELECT r2_key FROM epaper_pages WHERE epaper_id = ?').bind(id).all<{r2_key: string}>();
+    
+    // Delete files from R2
+    const keysToDelete: string[] = (pages.results ?? []).map(p => p.r2_key);
+    if (epaper.cover_key) keysToDelete.push(epaper.cover_key);
+    
+    await Promise.all(keysToDelete.map(k => bucket.delete(k)));
+
+    // Delete DB records
+    await db.batch([
+      db.prepare('DELETE FROM epaper_pages WHERE epaper_id = ?').bind(id),
+      db.prepare('DELETE FROM epapers WHERE id = ?').bind(id)
+    ]);
+
+    return c.json(ok({ deleted: true }));
+  } catch (e) {
+    console.error(`Error in epapers DELETE (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
+  }
+});
+
 editionsRouter.delete('/:slug/editions/:id', async (c) => {
   const slug = c.req.param('slug');
   const id = c.req.param('id');
 
   try {
     const db = getTenantDb(c.env, slug);
+    const bucket = getTenantBucket(c.env, slug);
+    
     const edition = await db.prepare('SELECT id FROM editions WHERE id = ?').bind(id).first();
-
     if (!edition) return c.json(err(ErrorCode.NOT_FOUND, 'Edition not found'), 404);
 
-    await db.prepare('UPDATE editions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind('archived', id).run();
+    // Fetch all epapers for this edition
+    const epapers = await db.prepare('SELECT id, cover_key FROM epapers WHERE edition_id = ?').bind(id).all<{id: string, cover_key: string | null}>();
+    
+    const keysToDelete: string[] = [];
+    const epaperIds = (epapers.results ?? []).map(e => e.id);
+    
+    if (epaperIds.length > 0) {
+      // Collect cover keys
+      for (const e of (epapers.results ?? [])) {
+        if (e.cover_key) keysToDelete.push(e.cover_key);
+      }
+      
+      // We can't use WHERE IN easily with D1 arrays in bindings unless we build the query
+      // but since number of papers per edition is likely small, we can just do individual queries,
+      // or build a simple IN clause string
+      const placeholders = epaperIds.map(() => '?').join(',');
+      const pagesQuery = `SELECT r2_key FROM epaper_pages WHERE epaper_id IN (${placeholders})`;
+      
+      const pagesRes = await db.prepare(pagesQuery).bind(...epaperIds).all<{r2_key: string}>();
+      keysToDelete.push(...(pagesRes.results ?? []).map(p => p.r2_key));
+    }
+
+    // Delete all from R2
+    if (keysToDelete.length > 0) {
+      await Promise.all(keysToDelete.map(k => bucket.delete(k)));
+    }
+
+    // Delete DB records
+    const batchStmts = [];
+    if (epaperIds.length > 0) {
+      const placeholders = epaperIds.map(() => '?').join(',');
+      batchStmts.push(db.prepare(`DELETE FROM epaper_pages WHERE epaper_id IN (${placeholders})`).bind(...epaperIds));
+      batchStmts.push(db.prepare(`DELETE FROM epapers WHERE edition_id = ?`).bind(id));
+    }
+    batchStmts.push(db.prepare('DELETE FROM editions WHERE id = ?').bind(id));
+    
+    await db.batch(batchStmts);
 
     return c.json(ok({ deleted: true }));
   } catch (e) {

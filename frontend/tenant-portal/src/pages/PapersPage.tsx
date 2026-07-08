@@ -232,6 +232,15 @@ function EditEditionSheet({ slug, token, tiers, edition, onSaved }: { slug: stri
     onSaved();
   };
 
+  const deleteEdition = async () => {
+    if (!confirm('Are you sure you want to delete this edition? All papers inside it will be permanently deleted. This action cannot be undone.')) return;
+    setBusy(true); setError('');
+    const res = await portalApi.deleteEdition(slug, edition.id, token);
+    setBusy(false);
+    if (!res.ok) { setError(res.error?.message ?? 'Failed to delete'); return; }
+    onSaved();
+  };
+
   return (
     <form onSubmit={save} className="flex flex-col h-full gap-6">
       <SheetHeader>
@@ -268,7 +277,8 @@ function EditEditionSheet({ slug, token, tiers, edition, onSaved }: { slug: stri
         {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
       </div>
 
-      <SheetFooter>
+      <SheetFooter className="flex-row sm:justify-between items-center w-full">
+        <Button type="button" variant="destructive" onClick={deleteEdition} disabled={busy}>Delete Edition</Button>
         <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save Changes'}</Button>
       </SheetFooter>
     </form>
@@ -284,6 +294,26 @@ function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  const [files, setFiles] = useState<File[]>([]);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [step, setStep] = useState<'form' | 'uploading' | 'done'>('form');
+  const [progressMsg, setProgressMsg] = useState('');
+
+  const isPdf = files.length === 1 && files[0].type === 'application/pdf';
+
+  const onFilesChange = (picked: FileList | null) => {
+    if (!picked) return;
+    const arr = Array.from(picked);
+    const pdfs = arr.filter(f => f.type === 'application/pdf');
+    if (pdfs.length > 0) { setFiles([pdfs[0]]); return; }
+    const imgs = arr.filter(f => f.type.startsWith('image/'));
+    if (imgs.length > 0) setFiles(imgs.sort((a, b) => a.name.localeCompare(b.name)));
+  };
+
+  const onCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) setCoverFile(e.target.files[0]);
+  };
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setError('');
@@ -293,10 +323,88 @@ function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: 
       free_page_count: isFree ? 0 : freePages,
       status,
     }, token);
+    
+    if (!res.ok) { setError(res.error?.message ?? 'Failed'); setBusy(false); return; }
+
+    if (files.length > 0) {
+      setStep('uploading');
+      let finalFiles = files;
+      let finalCover = coverFile;
+      
+      if (isPdf) {
+        if (!finalCover) {
+          setProgressMsg('Generating thumbnail...');
+          try {
+            finalCover = await extractPdfThumbnail(files[0]);
+          } catch (e) {
+            console.warn('Failed to generate thumbnail', e);
+          }
+        }
+        
+        setProgressMsg('Loading PDF...');
+        const worker = new PdfWorker();
+        try {
+          finalFiles = await new Promise<File[]>((resolve, reject) => {
+            worker.onmessage = (ev) => {
+              const data = ev.data;
+              if (data.type === 'progress') setProgressMsg(data.message);
+              else if (data.type === 'error') reject(new Error(data.error));
+              else if (data.type === 'done') {
+                resolve(data.pages.map((bytes: Uint8Array, i: number) => 
+                  new File([bytes as any], `page-${i + 1}.pdf`, { type: 'application/pdf' })
+                ));
+              }
+            };
+            files[0].arrayBuffer().then(buf => worker.postMessage({ fileData: buf }));
+          });
+          setProgressMsg('Uploading pages...');
+        } catch (err: any) {
+          setError('PDF processing failed: ' + err.message);
+          setBusy(false); setStep('form'); return;
+        } finally {
+          worker.terminate();
+        }
+      }
+
+      const uploadRes = await portalApi.uploadPages(slug, paper.id, finalFiles, token, finalCover ?? undefined);
+      if (!uploadRes.ok) {
+        setError('Paper updated but file upload failed: ' + (uploadRes.error?.message ?? 'unknown error'));
+        setBusy(false); setStep('form'); return;
+      }
+      setStep('done');
+      setTimeout(() => { setBusy(false); onSaved(); }, 1200);
+      return;
+    }
+
     setBusy(false);
-    if (!res.ok) { setError(res.error?.message ?? 'Failed'); return; }
     onSaved();
   };
+
+  const deletePaper = async () => {
+    if (!confirm('Are you sure you want to delete this paper? This action cannot be undone.')) return;
+    setBusy(true); setError('');
+    const res = await portalApi.deleteEpaper(slug, paper.id, token);
+    setBusy(false);
+    if (!res.ok) { setError(res.error?.message ?? 'Failed to delete'); return; }
+    onSaved();
+  };
+
+  if (step === 'done') return (
+    <div className="flex flex-col h-full items-center justify-center py-16 text-center">
+      <CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-green-400" />
+      <div className="text-lg font-semibold">Changes saved & files uploaded!</div>
+    </div>
+  );
+
+  if (step === 'uploading') return (
+    <div className="flex flex-col h-full items-center justify-center py-16 text-center">
+      <div className="spinner mx-auto mb-4" />
+      <div className="text-lg font-semibold">{isPdf ? 'Processing PDF…' : 'Uploading images…'}</div>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {isPdf ? progressMsg : `Storing ${files.length} image${files.length > 1 ? 's' : ''}…`}
+      </p>
+    </div>
+  );
 
   return (
     <form onSubmit={save} className="flex flex-col h-full gap-6">
@@ -366,11 +474,46 @@ function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: 
           </Select>
         </div>
 
+        <div className="space-y-1.5">
+          <Label>Upload file <span className="text-muted-foreground text-xs">(optional — replace existing)</span></Label>
+          <div
+            className="group relative flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/20 px-6 py-12 transition-colors hover:border-primary/50 hover:bg-muted/50"
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); onFilesChange(e.dataTransfer.files); }}
+          >
+            <input type="file" multiple accept=".pdf,image/png,image/jpeg,image/webp" onChange={e => onFilesChange(e.target.files)} className="absolute inset-0 cursor-pointer opacity-0" />
+            <div className="pointer-events-none flex flex-col items-center space-y-2">
+              <FileText className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
+              {files.length === 0 ? (
+                <div className="text-sm text-muted-foreground text-center">
+                  Drag &amp; drop a <strong>PDF</strong> or <strong>multiple images</strong>, or click to browse
+                </div>
+              ) : isPdf ? (
+                <div className="text-sm font-medium">{files[0].name} <span className="text-muted-foreground">({(files[0].size / 1024 / 1024).toFixed(1)} MB)</span></div>
+              ) : (
+                <div className="text-sm font-medium">{files.length} image{files.length > 1 ? 's' : ''} selected</div>
+              )}
+            </div>
+          </div>
+          {files.length > 0 && (
+            <div className="flex justify-between items-center px-1">
+              <button type="button" onClick={() => setFiles([])} className="text-xs text-muted-foreground hover:text-foreground">✕ Remove file(s)</button>
+              
+              <label className="text-xs text-primary hover:underline cursor-pointer flex items-center gap-1">
+                <ImageIcon className="w-3 h-3" />
+                {coverFile ? coverFile.name : 'Upload Custom Thumbnail'}
+                <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onCoverChange} className="hidden" />
+              </label>
+            </div>
+          )}
+        </div>
+
         {error && <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div>}
       </div>
 
-      <SheetFooter>
-        <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save Changes'}</Button>
+      <SheetFooter className="flex-row sm:justify-between items-center w-full">
+        <Button type="button" variant="destructive" onClick={deletePaper} disabled={busy}>Delete Paper</Button>
+        <Button type="submit" disabled={busy}>{busy ? 'Saving…' : (files.length > 0 ? 'Save & Upload' : 'Save Changes')}</Button>
       </SheetFooter>
     </form>
   );
