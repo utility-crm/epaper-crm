@@ -2,7 +2,10 @@ import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { useAuth } from './context/AuthContext';
-import { api } from './lib/api';
+import LandingPage from './pages/LandingPage';
+import SignupPage from './pages/SignupPage';
+import OrgLoginPage from './pages/OrgLoginPage';
+import AdminLoginPage from './pages/AdminLoginPage';
 
 // Error Boundary for remotes
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean}> {
@@ -30,26 +33,6 @@ const PortalApp = lazy(() => import('tenantPortal/App').catch(() => {
   return { default: () => <div>Failed to load Portal Module</div> };
 }));
 
-function LoginGate() {
-  const { isAdmin, isOrgUser } = useAuth();
-  
-  if (isAdmin) return <Navigate to="/crm" />;
-  if (isOrgUser) return <Navigate to="/portal" />;
-  
-  // Need to add actual login UI later
-  return (
-    <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="card" style={{ width: '400px' }}>
-        <h2 style={{ marginBottom: '24px' }}>Welcome to ePaper</h2>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-primary" style={{ flex: 1 }}>Sign in as Tenant</button>
-          <button className="btn-secondary" style={{ flex: 1 }}>Sign in as Admin</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function Loader() {
   return (
     <div style={{ display: 'flex', height: '200px', alignItems: 'center', justifyContent: 'center' }}>
@@ -60,11 +43,32 @@ function Loader() {
 
 export default function App() {
   const { isAdmin, isOrgUser } = useAuth();
-  
+
   return (
     <Routes>
-      <Route path="/" element={<LoginGate />} />
-      
+      {/* Public marketing & auth pages */}
+      <Route
+        path="/"
+        element={
+          isAdmin ? <Navigate to="/crm" /> :
+          isOrgUser ? <Navigate to="/portal" /> :
+          <LandingPage />
+        }
+      />
+      <Route
+        path="/signup"
+        element={isOrgUser ? <Navigate to="/portal" /> : <SignupPage />}
+      />
+      <Route
+        path="/login"
+        element={isOrgUser ? <Navigate to="/portal" /> : <OrgLoginPage />}
+      />
+      <Route
+        path="/admin-login"
+        element={isAdmin ? <Navigate to="/crm" /> : <AdminLoginPage />}
+      />
+
+      {/* Protected: CRM (admin only) */}
       {isAdmin && (
         <Route path="/crm/*" element={
           <AppShell>
@@ -76,7 +80,8 @@ export default function App() {
           </AppShell>
         } />
       )}
-      
+
+      {/* Protected: Tenant portal (org users only) */}
       {isOrgUser && (
         <Route path="/portal/*" element={
           <AppShell>
@@ -88,8 +93,16 @@ export default function App() {
           </AppShell>
         } />
       )}
-      
-      <Route path="*" element={<Navigate to="/" />} />
+
+      {/* Catch-all: redirect unauthenticated to landing, authenticated to dashboard */}
+      <Route
+        path="*"
+        element={
+          isAdmin ? <Navigate to="/crm" /> :
+          isOrgUser ? <Navigate to="/portal" /> :
+          <Navigate to="/" />
+        }
+      />
     </Routes>
   );
 }

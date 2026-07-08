@@ -1,0 +1,313 @@
+/* ============================================================
+   LandingPage.css — ePaperSpace public marketing site styles
+   Colors, fonts and layout faithful to epaperspace.com
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@700;800&display=swap');
+
+/* ---------- Tokens ---------- */
+.landing {
+  --brand-charcoal: #1e1e24;
+  --brand-white:    #ffffff;
+  --brand-accent:   #d90429;
+  --brand-accent-h: #ef233c;
+  --brand-gray:     #f8f9fa;
+  --brand-border:   #eaeaea;
+
+  font-family: 'Inter', sans-serif;
+  color: var(--brand-charcoal);
+  background: var(--brand-white);
+}
+
+.landing h1,
+.landing h2,
+.landing h3,
+.landing h4,
+.landing h5 {
+  font-family: 'Playfair Display', serif;
+  font-weight: 800;
+}
+
+/* ---------- Container ---------- */
+.landing-container {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ---------- Shared Buttons ---------- */
+.landing-btn {
+  display: inline-block;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.5rem 1.5rem;
+  border-radius: 4px;
+  text-decoration: none;
+  border: 2px solid transparent;
+  transition: background 0.25s, color 0.25s, transform 0.2s, border-color 0.25s;
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.landing-btn--primary {
+  background: var(--brand-accent);
+  color: #fff !important;
+  border-color: var(--brand-accent);
+}
+.landing-btn--primary:hover {
+  background: var(--brand-accent-h);
+  border-color: var(--brand-accent-h);
+  transform: translateY(-2px);
+}
+
+.landing-btn--outline {
+  background: transparent;
+  color: var(--brand-charcoal) !important;
+  border-color: var(--brand-charcoal);
+}
+.landing-btn--outline:hover {
+  background: var(--brand-charcoal);
+  color: #fff !important;
+}
+
+.landing-btn--lg {
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+}
+
+/* ---------- Navbar ---------- */
+.landing-nav {
+  background: var(--brand-white);
+  border-bottom: 1px solid var(--brand-border);
+  padding: 1rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.landing-nav__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.landing-nav__brand {
+  font-family: 'Playfair Display', serif;
+  font-weight: 800;
+  font-size: 1.5rem;
+  color: var(--brand-charcoal) !important;
+  text-decoration: none;
+}
+.landing-nav__brand span { color: var(--brand-accent); }
+
+.landing-nav__links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.landing-nav__link {
+  font-weight: 500;
+  color: var(--brand-charcoal);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.landing-nav__link:hover { color: var(--brand-accent); }
+
+/* ---------- Hero ---------- */
+.landing-hero {
+  padding: 6rem 0;
+  background: var(--brand-gray);
+  border-bottom: 1px solid var(--brand-border);
+}
+
+.landing-hero__inner {
+  display: flex;
+  align-items: center;
+  gap: 48px;
+}
+
+.landing-hero__text { flex: 1; }
+
+.landing-hero__title {
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 1.15;
+  margin-bottom: 1.25rem;
+}
+
+.landing-hero__subtitle {
+  font-size: 1.2rem;
+  color: #555;
+  margin-bottom: 2rem;
+  line-height: 1.6;
+}
+
+.landing-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.landing-hero__image { flex: 1; }
+
+.landing-hero__img {
+  width: 100%;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.12);
+  display: block;
+}
+
+/* ---------- Features ---------- */
+.landing-features {
+  padding: 5rem 0;
+}
+
+.landing-features__header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.landing-features__title {
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  margin-bottom: 0.75rem;
+}
+
+.landing-features__subtitle {
+  color: #666;
+  font-size: 1.1rem;
+}
+
+.landing-features__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+}
+
+.landing-feature-card {
+  padding: 2rem;
+  background: var(--brand-white);
+  border: 1px solid var(--brand-border);
+  border-radius: 8px;
+  transition: box-shadow 0.3s, transform 0.3s;
+}
+.landing-feature-card:hover {
+  box-shadow: 0 12px 36px rgba(0,0,0,0.06);
+  transform: translateY(-5px);
+}
+
+.landing-feature-card__icon {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.landing-feature-card__title {
+  font-size: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.landing-feature-card__desc {
+  color: #666;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ---------- CTA ---------- */
+.landing-cta {
+  background: var(--brand-charcoal);
+  color: #fff;
+  padding: 5rem 0;
+}
+
+.landing-cta__inner {
+  text-align: center;
+}
+
+.landing-cta__title {
+  color: #fff;
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  margin-bottom: 1rem;
+}
+
+.landing-cta__subtitle {
+  color: #aaa;
+  font-size: 1.1rem;
+  margin-bottom: 2rem;
+}
+
+/* ---------- Footer ---------- */
+.landing-footer {
+  background: var(--brand-charcoal);
+  color: #fff;
+  padding: 4rem 0 2rem;
+  border-top: 1px solid #2e2e36;
+}
+
+.landing-footer__grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 32px;
+  margin-bottom: 2rem;
+}
+
+.landing-footer__brand {
+  font-family: 'Playfair Display', serif;
+  font-weight: 800;
+  font-size: 1.5rem;
+  margin-bottom: 0.75rem;
+  display: block;
+}
+.landing-footer__brand span { color: var(--brand-accent); }
+
+.landing-footer__brand-desc {
+  color: #aaa;
+  font-size: 0.9rem;
+  max-width: 280px;
+  line-height: 1.6;
+}
+
+.landing-footer__col-title {
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+  color: #fff;
+}
+
+.landing-footer__link-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.landing-footer__link-list li { margin-bottom: 8px; }
+.landing-footer__link-list a {
+  color: #aaa;
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: color 0.2s;
+}
+.landing-footer__link-list a:hover { color: #fff; }
+
+.landing-footer__bottom {
+  border-top: 1px solid #2e2e36;
+  padding-top: 1.5rem;
+  color: #aaa;
+  font-size: 0.85rem;
+}
+.landing-footer__bottom p { margin: 0; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 768px) {
+  .landing-hero__inner {
+    flex-direction: column;
+  }
+  .landing-hero__image { width: 100%; }
+
+  .landing-footer__grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .landing-nav__links {
+    gap: 12px;
+  }
+}
