@@ -144,7 +144,7 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20, marginBottom: 20 }}>
               {plans.map((plan) => {
                 const isCurrentPlan = status?.has_subscription && status?.razorpay_status === 'active' && status?.plan?.toLowerCase() === plan.item.name.toLowerCase();
-                const isLoading = paying === plan.id;
+                const isLoading = Boolean(paying) && paying === plan.id;
                 const amount = plan.item.unit_amount ?? plan.item.amount;
 
                 return (
