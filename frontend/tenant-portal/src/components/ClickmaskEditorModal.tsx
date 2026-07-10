@@ -104,8 +104,16 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
     setLoading(true);
     try {
       const res = await portalApi.getClickmasks(slug, epaper.id, token);
-      if (res.data && res.data.masks) {
-        setMasksByPage(res.data.masks);
+      // API returns: { data: { items: [{ page_no, clickmasks: [] }] } }
+      const items = res?.data?.items;
+      if (Array.isArray(items)) {
+        const byPage: Record<number, ClickmaskItem[]> = {};
+        for (const item of items) {
+          if (item.page_no && Array.isArray(item.clickmasks)) {
+            byPage[item.page_no] = item.clickmasks;
+          }
+        }
+        setMasksByPage(byPage);
       }
     } catch (e) {
       console.error('Failed loading clickmasks', e);
@@ -697,7 +705,7 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
 
           {/* Right Panel: Article Inspector, Resize Nudge & Reorder List */}
           <div className="w-88 border-l bg-background flex flex-col h-full overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            <div className="flex-1 overflow-y-auto p-4 space-y-5 no-scrollbar">
               {/* Selected Article Precision Controls */}
               {selectedMask ? (
                 <div className="border rounded-xl p-3.5 space-y-3.5 bg-muted/20 shadow-sm">
