@@ -555,61 +555,57 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
         <div className="flex-1 flex overflow-hidden">
           {/* Left / Center: Interactive Canvas */}
           <div
-            className={`flex-1 bg-neutral-900/95 overflow-auto select-none relative p-8 ${
-              zoom === 100 ? 'flex items-center justify-center' : 'flex items-start justify-center'
-            }`}
+            className="flex-1 bg-neutral-900 overflow-y-auto overflow-x-hidden relative"
+            style={{ scrollBehavior: 'smooth' }}
             onWheel={(e) => {
               if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 if (e.deltaY < 0) setZoom(z => Math.min(300, z + 25));
-                else setZoom(z => Math.max(75, z - 25));
+                else setZoom(z => Math.max(50, z - 25));
               }
             }}
           >
-            {/* Floating Quick Zoom Pill Overlay */}
-            <div className="sticky top-2 left-2 z-30 inline-flex items-center gap-1 bg-neutral-900/85 border border-neutral-700 backdrop-blur-md rounded-full px-3 py-1 text-neutral-200 shadow-xl mb-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 rounded-full hover:bg-neutral-800 text-neutral-300"
-                onClick={() => setZoom(Math.max(75, zoom - 25))}
+            {/* Fixed Zoom Pill — anchored to top-right of the scroll pane */}
+            <div className="absolute top-3 right-3 z-40 flex items-center gap-0.5 bg-neutral-950/90 border border-neutral-700 backdrop-blur-sm rounded-full px-2 py-1 shadow-2xl">
+              <button
+                onClick={() => setZoom(z => Math.max(50, z - 25))}
+                className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-neutral-700 text-neutral-300 transition-colors"
               >
                 <ZoomOut className="w-3.5 h-3.5" />
-              </Button>
-              <span className="text-[11px] font-mono font-semibold px-1.5 text-primary">
+              </button>
+              <span className="text-[11px] font-mono font-bold px-1.5 text-emerald-400 min-w-[44px] text-center">
                 {zoom}%
               </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 rounded-full hover:bg-neutral-800 text-neutral-300"
-                onClick={() => setZoom(Math.min(300, zoom + 25))}
+              <button
+                onClick={() => setZoom(z => Math.min(300, z + 25))}
+                className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-neutral-700 text-neutral-300 transition-colors"
               >
                 <ZoomIn className="w-3.5 h-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-[10px] rounded-full hover:bg-neutral-800 text-neutral-300"
+              </button>
+              <span className="w-px h-4 bg-neutral-700 mx-1" />
+              <button
                 onClick={() => setZoom(100)}
+                className={`text-[10px] px-2 h-6 rounded-full font-medium transition-colors ${
+                  zoom === 100 ? 'bg-emerald-600 text-white' : 'hover:bg-neutral-700 text-neutral-400'
+                }`}
               >
                 Fit
-              </Button>
+              </button>
             </div>
 
-            <div
-              ref={containerRef}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              className="relative aspect-[1/1.4] bg-white shadow-2xl overflow-hidden cursor-crosshair flex-shrink-0 transition-all duration-150"
-              style={{
-                height: zoom === 100 ? '100%' : `${(zoom / 100) * 880}px`,
-                width: zoom === 100 ? 'auto' : `${(zoom / 100) * 628}px`,
-                maxHeight: zoom === 100 ? '100%' : 'none',
-                maxWidth: zoom === 100 ? '100%' : 'none'
-              }}
-            >
+            {/* The paper canvas — fills width, scales by zoom, scrolls vertically */}
+            <div className="p-4 pt-4 pb-12">
+              <div
+                ref={containerRef}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                className="relative bg-white shadow-2xl overflow-hidden cursor-crosshair mx-auto"
+                style={{
+                  width: `${zoom}%`,
+                  aspectRatio: '1 / 1.414',
+                }}
+              >
               {imageLoading ? (
                 <div className="w-full h-full flex items-center justify-center bg-neutral-800 text-neutral-400 text-sm">
                   Loading page...
@@ -624,7 +620,7 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
                 <img
                   src={pageImageUrl || readerApi.pageUrl(slug, epaper.id, currentPage)}
                   alt={`Page ${currentPage}`}
-                  className="w-full h-full object-contain pointer-events-none block"
+                  className="w-full h-full object-fill pointer-events-none block"
                 />
               )}
 
@@ -655,38 +651,14 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
                     {/* 8 Resize Handles when selected */}
                     {isSelected && (
                       <>
-                        <div
-                          onMouseDown={(e) => startTransform(e, 'nw', mask)}
-                          className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-primary border border-white cursor-nwse-resize z-30"
-                        />
-                        <div
-                          onMouseDown={(e) => startTransform(e, 'n', mask)}
-                          className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary border border-white cursor-ns-resize z-30"
-                        />
-                        <div
-                          onMouseDown={(e) => startTransform(e, 'ne', mask)}
-                          className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-primary border border-white cursor-nesw-resize z-30"
-                        />
-                        <div
-                          onMouseDown={(e) => startTransform(e, 'e', mask)}
-                          className="absolute top-1/2 -right-1.5 -translate-y-1/2 w-3 h-3 bg-primary border border-white cursor-ew-resize z-30"
-                        />
-                        <div
-                          onMouseDown={(e) => startTransform(e, 'se', mask)}
-                          className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-primary border border-white cursor-nwse-resize z-30"
-                        />
-                        <div
-                          onMouseDown={(e) => startTransform(e, 's', mask)}
-                          className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary border border-white cursor-ns-resize z-30"
-                        />
-                        <div
-                          onMouseDown={(e) => startTransform(e, 'sw', mask)}
-                          className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-primary border border-white cursor-nesw-resize z-30"
-                        />
-                        <div
-                          onMouseDown={(e) => startTransform(e, 'w', mask)}
-                          className="absolute top-1/2 -left-1.5 -translate-y-1/2 w-3 h-3 bg-primary border border-white cursor-ew-resize z-30"
-                        />
+                        <div onMouseDown={(e) => startTransform(e, 'nw', mask)} className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-primary border border-white cursor-nwse-resize z-30" />
+                        <div onMouseDown={(e) => startTransform(e, 'n', mask)} className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary border border-white cursor-ns-resize z-30" />
+                        <div onMouseDown={(e) => startTransform(e, 'ne', mask)} className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-primary border border-white cursor-nesw-resize z-30" />
+                        <div onMouseDown={(e) => startTransform(e, 'e', mask)} className="absolute top-1/2 -right-1.5 -translate-y-1/2 w-3 h-3 bg-primary border border-white cursor-ew-resize z-30" />
+                        <div onMouseDown={(e) => startTransform(e, 'se', mask)} className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-primary border border-white cursor-nwse-resize z-30" />
+                        <div onMouseDown={(e) => startTransform(e, 's', mask)} className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary border border-white cursor-ns-resize z-30" />
+                        <div onMouseDown={(e) => startTransform(e, 'sw', mask)} className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-primary border border-white cursor-nesw-resize z-30" />
+                        <div onMouseDown={(e) => startTransform(e, 'w', mask)} className="absolute top-1/2 -left-1.5 -translate-y-1/2 w-3 h-3 bg-primary border border-white cursor-ew-resize z-30" />
                       </>
                     )}
                   </div>
@@ -706,6 +678,7 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
                 />
               )}
             </div>
+          </div>
           </div>
 
           {/* Right Panel: Article Inspector, Resize Nudge & Reorder List */}
