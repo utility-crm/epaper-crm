@@ -7,7 +7,7 @@ import { portalApi, readerApi } from '../lib/api';
 import {
   Plus, Trash2, Save, Layers, ChevronLeft, ChevronRight, Check,
   ArrowUp, ArrowDown, Copy, Wand2, ArrowLeft, ArrowRight, Move,
-  Maximize2, Minimize2
+  Maximize2, Minimize2, ZoomIn, ZoomOut, RotateCcw
 } from 'lucide-react';
 
 export interface ClickmaskItem {
@@ -34,6 +34,7 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [zoom, setZoom] = useState<number>(100);
 
   // Drag-to-draw state
   const containerRef = useRef<HTMLDivElement>(null);
@@ -407,7 +408,56 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {/* Zoom Controls */}
+              <div className="flex items-center border rounded-md overflow-hidden bg-background">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2"
+                  onClick={() => setZoom(Math.max(75, zoom - 25))}
+                  title="Zoom Out"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </Button>
+                <span className="text-xs font-mono font-semibold px-2.5 min-w-[56px] text-center">
+                  {zoom}%
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2"
+                  onClick={() => setZoom(Math.min(300, zoom + 25))}
+                  title="Zoom In"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant={zoom === 100 ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 px-2.5 text-xs border-l"
+                  onClick={() => setZoom(100)}
+                >
+                  Fit
+                </Button>
+                <Button
+                  variant={zoom === 150 ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 px-2.5 text-xs border-l"
+                  onClick={() => setZoom(150)}
+                >
+                  150%
+                </Button>
+                <Button
+                  variant={zoom === 200 ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 px-2.5 text-xs border-l"
+                  onClick={() => setZoom(200)}
+                >
+                  200%
+                </Button>
+              </div>
+
               <div className="flex items-center border rounded-md overflow-hidden bg-background">
                 <Button
                   variant="ghost"
@@ -504,14 +554,61 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
         {/* Studio Workspace */}
         <div className="flex-1 flex overflow-hidden">
           {/* Left / Center: Interactive Canvas */}
-          <div className="flex-1 bg-neutral-900/90 overflow-auto flex items-center justify-center p-6 select-none relative">
+          <div
+            className={`flex-1 bg-neutral-900/95 overflow-auto select-none relative p-8 ${
+              zoom === 100 ? 'flex items-center justify-center' : 'flex items-start justify-center'
+            }`}
+            onWheel={(e) => {
+              if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                if (e.deltaY < 0) setZoom(z => Math.min(300, z + 25));
+                else setZoom(z => Math.max(75, z - 25));
+              }
+            }}
+          >
+            {/* Floating Quick Zoom Pill Overlay */}
+            <div className="sticky top-2 left-2 z-30 inline-flex items-center gap-1 bg-neutral-900/85 border border-neutral-700 backdrop-blur-md rounded-full px-3 py-1 text-neutral-200 shadow-xl mb-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-full hover:bg-neutral-800 text-neutral-300"
+                onClick={() => setZoom(Math.max(75, zoom - 25))}
+              >
+                <ZoomOut className="w-3.5 h-3.5" />
+              </Button>
+              <span className="text-[11px] font-mono font-semibold px-1.5 text-primary">
+                {zoom}%
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-full hover:bg-neutral-800 text-neutral-300"
+                onClick={() => setZoom(Math.min(300, zoom + 25))}
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[10px] rounded-full hover:bg-neutral-800 text-neutral-300"
+                onClick={() => setZoom(100)}
+              >
+                Fit
+              </Button>
+            </div>
+
             <div
               ref={containerRef}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
-              className="relative max-h-full max-w-full aspect-[1/1.4] bg-white shadow-2xl overflow-hidden cursor-crosshair"
-              style={{ width: 'auto', height: '100%' }}
+              className="relative aspect-[1/1.4] bg-white shadow-2xl overflow-hidden cursor-crosshair flex-shrink-0 transition-all duration-150"
+              style={{
+                height: zoom === 100 ? '100%' : `${(zoom / 100) * 880}px`,
+                width: zoom === 100 ? 'auto' : `${(zoom / 100) * 628}px`,
+                maxHeight: zoom === 100 ? '100%' : 'none',
+                maxWidth: zoom === 100 ? '100%' : 'none'
+              }}
             >
               {imageLoading ? (
                 <div className="w-full h-full flex items-center justify-center bg-neutral-800 text-neutral-400 text-sm">
