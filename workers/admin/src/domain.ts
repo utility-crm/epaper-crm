@@ -32,8 +32,8 @@ domainRouter.get('/', async (c) => {
   return c.json(ok(row ?? { custom_domain: null, domain_verified: 0 }));
 });
 
-// Tenant sets/updates their custom domain. Routing MVP: we store it and hand back the CNAME
-// target; TLS/verification automation is deferred (Cloudflare for SaaS, phase 2).
+// Tenant sets/updates their custom domain. We store it, register it with
+// Cloudflare Pages (epaper-reader project), then return setup instructions.
 domainRouter.post('/', async (c) => {
   const body = await c.req.json<{ domain: string }>();
   const domain = normalizeHost(body.domain ?? '');
@@ -48,13 +48,35 @@ domainRouter.post('/', async (c) => {
     'UPDATE tenants SET custom_domain = ?, domain_verified = 0, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
   ).bind(domain, c.var.tenantSlug).run();
 
+  // Auto-register domain on the Cloudflare Pages reader-redirect project
+  const cfToken = (c.env as any).CF_API_TOKEN;
+  const cfAccount = (c.env as any).CF_ACCOUNT_ID;
+  if (cfToken && cfAccount) {
+    try {
+      await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${cfAccount}/pages/projects/epaper-reader/domains`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${cfToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ name: domain }),
+        }
+      );
+    } catch {
+      // Non-fatal — tenant can still add manually
+    }
+  }
+
   return c.json(ok({
     custom_domain: domain,
     domain_verified: 0,
-    cname_target: 'gateway.epaperspace.com',
-    instructions: `Create a CNAME record: ${domain} -> gateway.epaperspace.com`,
+    cname_target: 'epaper-reader.pages.dev',
+    instructions: `Create a CNAME record: ${domain} → epaper-reader.pages.dev`,
   }));
 });
+
 
 domainRouter.delete('/', async (c) => {
   await c.env.CONTROL_DB.prepare(
