@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { readerApi } from '../lib/api';
 import toast from 'react-hot-toast';
 
-export function TodayRedirect() {
-  const { slug } = useParams();
+export function TodayRedirect({ slug: propSlug, basePath = '' }: { slug?: string; basePath?: string } = {}) {
+  const params = useParams();
+  const slug = propSlug || params.slug;
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -18,17 +19,17 @@ export function TodayRedirect() {
               icon: 'ℹ️',
             });
           }
-          navigate(`/read/${slug}/paper/${res.data.paper_id}`, { replace: true });
+          navigate(`${basePath}/paper/${res.data.paper_id}`, { replace: true });
         } else {
           toast.error('No papers published today. Redirecting to library.');
-          navigate(`/read/${slug}`, { replace: true });
+          navigate(basePath || '/', { replace: true });
         }
       })
       .catch(() => {
         toast.error("Error fetching today's paper.");
-        navigate(`/read/${slug}`, { replace: true });
+        navigate(basePath || '/', { replace: true });
       });
-  }, [slug, navigate]);
+  }, [slug, basePath, navigate]);
 
   return (
     <div className="flex h-[50vh] flex-col items-center justify-center space-y-4">

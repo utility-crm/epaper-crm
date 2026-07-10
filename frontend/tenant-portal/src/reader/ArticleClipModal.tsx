@@ -27,10 +27,8 @@ export function ArticleClipModal({ slug, paper, pageNumber, imageUrl, clip, onCl
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
 
-  const isWorkersDev = window.location.hostname.includes('workers.dev') || window.location.hostname === 'localhost';
-  const shareUrl = isWorkersDev
-    ? `${window.location.protocol}//${window.location.host}/read/${slug}/paper/${paper.id}?page=${pageNumber}`
-    : `${window.location.protocol}//${window.location.host}/paper/${paper.id}?page=${pageNumber}`;
+  const basePrefix = window.location.pathname.startsWith('/read') ? `/read/${slug}` : '';
+  const shareUrl = `${window.location.protocol}//${window.location.host}${basePrefix}/paper/${paper.id}?page=${pageNumber}`;
 
   const shareText = `${clip.title || paper.title || 'E-Paper Article'} — Page ${pageNumber}`;
 

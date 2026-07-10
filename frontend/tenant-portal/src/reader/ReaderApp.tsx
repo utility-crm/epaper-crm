@@ -125,8 +125,8 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
 
       <Routes>
         <Route path="/" element={<ReaderHome slug={slug} basePath={basePath} session={session} orgName={displayName} />} />
-        <Route path="/today" element={<TodayRedirect />} />
-        <Route path="/paper/:id" element={<PaperViewer slug={slug} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
+        <Route path="/today" element={<TodayRedirect slug={slug} basePath={basePath} />} />
+        <Route path="/paper/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
         <Route path="*" element={<Navigate to={basePath || '/'} replace />} />
       </Routes>
 

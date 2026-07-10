@@ -17,6 +17,7 @@ import { ArticleClipModal, ArticleClip } from './ArticleClipModal';
 
 interface Props {
   slug: string;
+  basePath?: string;
   session: ReaderSession | null;
   orgName?: string;
   logoUrl?: string | null;
@@ -25,7 +26,7 @@ interface Props {
 
 const INTERVAL_LABEL: Record<string, string> = { monthly: 'Monthly', '6month': '6 Months', '12month': '12 Months' };
 
-export function PaperViewer({ slug, session, orgName, logoUrl, onRequireAuth }: Props) {
+export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, onRequireAuth }: Props) {
   const { id } = useParams<{ id: string }>();
   const [paper, setPaper] = useState<any>(null);
   const [page, setPage] = useState(1);
@@ -284,7 +285,7 @@ export function PaperViewer({ slug, session, orgName, logoUrl, onRequireAuth }: 
               <Sidebar className="h-5 w-5" />
             </Button>
 
-            <Link to={`/read/${slug}`} className="flex items-center gap-2">
+            <Link to={basePath || '/'} className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-violet-600 overflow-hidden flex-shrink-0">
                 {logoUrl ? (
                   <img src={logoUrl} alt={orgName || slug} className="h-full w-full object-cover" />
@@ -686,7 +687,7 @@ export function PaperViewer({ slug, session, orgName, logoUrl, onRequireAuth }: 
           </SheetHeader>
           <div className="mt-4 flex-1 overflow-y-auto space-y-3">
             <Link
-              to={`/read/${slug}`}
+              to={basePath || '/'}
               onClick={() => setArchiveOpen(false)}
               className="block p-3 rounded-lg border hover:bg-muted/40 transition-colors"
             >
