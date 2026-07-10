@@ -69,6 +69,9 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
   const [activeCropRect, setActiveCropRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
 
+  // Canvas ref used to display PDF pages (avoids iframe coordinate mismatch)
+  const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
+
   // Mobile view mode: 'page' | 'article'
   const [mobileMode, setMobileMode] = useState<'page' | 'article'>('page');
   const [mobileArticleIndex, setMobileArticleIndex] = useState(0);
@@ -114,7 +117,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
     loadPaper();
   }, [loadPaper]);
 
-  // Fetch page image or PDF blob
+  // Fetch page image or PDF blob, then render to a shared canvas/data-url
   useEffect(() => {
     if (!id || !paper) return;
     let revoked: string | null = null;
@@ -146,10 +149,10 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
       setPageUrl(revoked);
       setPageLoading(false);
 
-      // Render page to a flat PNG data URL so ArticleClipModal can crop it reliably.
+      // Render to a flat PNG — the SAME image shown in the viewer and used by the clip modal.
+      // Because both share identical pixel dimensions, % coordinates map exactly.
       try {
         if (isImage) {
-          // For image pages, just draw into a canvas
           const imgEl = new Image();
           imgEl.crossOrigin = 'anonymous';
           await new Promise<void>((resolve, reject) => {
@@ -164,14 +167,16 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
           canvas.getContext('2d')!.drawImage(imgEl, 0, 0);
           if (!cancelled) setPageRenderedDataUrl(canvas.toDataURL('image/png'));
         } else {
-          // For PDF pages, use pdfjs to render at 2.5x for crisp clipping
+          // Render PDF via pdfjs. The same data URL is shown in the viewer (as <img>)
+          // and passed to the clip modal — so positions are guaranteed to match.
           const arrayBuffer = await blob.arrayBuffer();
           if (cancelled) return;
           const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
           if (cancelled) return;
           const pdfPage = await pdf.getPage(1);
           if (cancelled) return;
-          const viewport = pdfPage.getViewport({ scale: 2.5 });
+          // Use scale=2 for a sharp display; clipping % coords will be identical
+          const viewport = pdfPage.getViewport({ scale: 2 });
           const canvas = document.createElement('canvas');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
@@ -527,18 +532,27 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
                   cursor: cropMode ? 'crosshair' : 'default',
                 }}
               >
-                {blobType === 'image' ? (
+                {/* Always render as <img> from pre-rendered data URL.
+                    For PDFs this uses the pdfjs-rendered canvas PNG so that
+                    clickmask % coordinates map to exactly the same pixel space. */}
+                {pageRenderedDataUrl ? (
+                  <img
+                    src={pageRenderedDataUrl}
+                    alt={`Page ${page}`}
+                    className="w-full h-auto block pointer-events-none"
+                  />
+                ) : pageUrl && blobType === 'image' ? (
+                  // Fallback: show raw image while canvas renders (images are fast)
                   <img
                     src={pageUrl}
                     alt={`Page ${page}`}
                     className="w-full h-auto block pointer-events-none"
                   />
                 ) : (
-                  <iframe
-                    title={`Page ${page}`}
-                    src={`${pageUrl}#toolbar=0&navpanes=0`}
-                    className="h-[80vh] w-full block"
-                  />
+                  // PDF still rendering — show spinner placeholder
+                  <div className="h-[80vh] w-full flex items-center justify-center bg-gray-100 dark:bg-gray-800">
+                    <Loader2 className="animate-spin text-muted-foreground" size={32} />
+                  </div>
                 )}
 
                 {/* Interactive Clickmask Polygons / Article Overlays */}
