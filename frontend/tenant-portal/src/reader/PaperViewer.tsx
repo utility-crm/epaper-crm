@@ -1,4 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Point pdfjs at the already-bundled local worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.mjs',
+  import.meta.url
+).toString();
 import { useParams, Link } from 'react-router-dom';
 import { readerApi } from '../lib/api';
 import { formatINR } from '../lib/utils';
@@ -32,6 +39,8 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
   const [page, setPage] = useState(1);
   const [pageUrl, setPageUrl] = useState<string | null>(null);
   const [blobType, setBlobType] = useState<'pdf' | 'image'>('pdf');
+  // Pre-rendered flat image of the current page (always PNG, used by clip modal)
+  const [pageRenderedDataUrl, setPageRenderedDataUrl] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [plans, setPlans] = useState<any[]>([]);
@@ -113,6 +122,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
     setPageLoading(true);
     setLocked(false);
     setPageUrl(null);
+    setPageRenderedDataUrl(null);
 
     (async () => {
       const res = await fetch(readerApi.pageUrl(slug, id, page), {
@@ -130,10 +140,48 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
       }
       const blob = await res.blob();
       if (cancelled) return;
-      setBlobType(blob.type.startsWith('image/') ? 'image' : 'pdf');
+      const isImage = blob.type.startsWith('image/');
+      setBlobType(isImage ? 'image' : 'pdf');
       revoked = URL.createObjectURL(blob);
       setPageUrl(revoked);
       setPageLoading(false);
+
+      // Render page to a flat PNG data URL so ArticleClipModal can crop it reliably.
+      try {
+        if (isImage) {
+          // For image pages, just draw into a canvas
+          const imgEl = new Image();
+          imgEl.crossOrigin = 'anonymous';
+          await new Promise<void>((resolve, reject) => {
+            imgEl.onload = () => resolve();
+            imgEl.onerror = () => reject();
+            imgEl.src = revoked!;
+          });
+          if (cancelled) return;
+          const canvas = document.createElement('canvas');
+          canvas.width = imgEl.naturalWidth;
+          canvas.height = imgEl.naturalHeight;
+          canvas.getContext('2d')!.drawImage(imgEl, 0, 0);
+          if (!cancelled) setPageRenderedDataUrl(canvas.toDataURL('image/png'));
+        } else {
+          // For PDF pages, use pdfjs to render at 2.5x for crisp clipping
+          const arrayBuffer = await blob.arrayBuffer();
+          if (cancelled) return;
+          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          if (cancelled) return;
+          const pdfPage = await pdf.getPage(1);
+          if (cancelled) return;
+          const viewport = pdfPage.getViewport({ scale: 2.5 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d')!;
+          await pdfPage.render({ canvasContext: ctx, viewport, canvas }).promise;
+          if (!cancelled) setPageRenderedDataUrl(canvas.toDataURL('image/png'));
+        }
+      } catch (e) {
+        console.warn('Could not pre-render page for clipping:', e);
+      }
     })();
 
     return () => {
@@ -708,13 +756,12 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
       </Sheet>
 
       {/* ── 6. Article Clip Zoom & Share Modal ────────────────────────── */}
-      {selectedClip && pageUrl && (
+      {selectedClip && pageRenderedDataUrl && (
         <ArticleClipModal
           slug={slug}
           paper={paper}
           pageNumber={page}
-          imageUrl={pageUrl}
-          blobType={blobType}
+          imageUrl={pageRenderedDataUrl}
           clip={selectedClip}
           onClose={() => setSelectedClip(null)}
         />

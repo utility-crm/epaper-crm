@@ -2,9 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Button } from '../components/ui/button';
 import { Download, Share2, Copy, CheckCircle2, MessageCircle, Send, ExternalLink } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.mjs`;
 
 export interface ArticleClip {
   title?: string;
@@ -20,12 +17,11 @@ interface Props {
   paper: any;
   pageNumber: number;
   imageUrl: string;
-  blobType?: 'pdf' | 'image';
   clip: ArticleClip;
   onClose: () => void;
 }
 
-export function ArticleClipModal({ slug, paper, pageNumber, imageUrl, blobType = 'pdf', clip, onClose }: Props) {
+export function ArticleClipModal({ slug, paper, pageNumber, imageUrl, clip, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [copied, setCopied] = useState(false);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
@@ -38,84 +34,38 @@ export function ArticleClipModal({ slug, paper, pageNumber, imageUrl, blobType =
 
   useEffect(() => {
     let cancelled = false;
-
-    async function renderClip() {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (cancelled) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      if (blobType === 'pdf') {
-        try {
-          const pdf = await pdfjsLib.getDocument({ url: imageUrl }).promise;
-          if (cancelled) return;
-          const pdfPage = await pdf.getPage(1);
-          if (cancelled) return;
+      const sx = Math.max(0, (clip.x / 100) * img.naturalWidth);
+      const sy = Math.max(0, (clip.y / 100) * img.naturalHeight);
+      const sw = Math.max(10, (clip.w / 100) * img.naturalWidth);
+      const sh = Math.max(10, (clip.h / 100) * img.naturalHeight);
 
-          const viewport = pdfPage.getViewport({ scale: 2.5 });
-          const offscreenCanvas = document.createElement('canvas');
-          offscreenCanvas.width = viewport.width;
-          offscreenCanvas.height = viewport.height;
-          const offscreenCtx = offscreenCanvas.getContext('2d');
-          if (!offscreenCtx) return;
+      canvas.width = sw;
+      canvas.height = sh;
 
-          await pdfPage.render({
-            canvasContext: offscreenCtx,
-            viewport,
-            canvas: offscreenCanvas,
-          }).promise;
-          if (cancelled) return;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, sw, sh);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
 
-          const sx = Math.max(0, (clip.x / 100) * offscreenCanvas.width);
-          const sy = Math.max(0, (clip.y / 100) * offscreenCanvas.height);
-          const sw = Math.max(10, (clip.w / 100) * offscreenCanvas.width);
-          const sh = Math.max(10, (clip.h / 100) * offscreenCanvas.height);
+      setImageLoaded(true);
+      try {
+        setDataUrl(canvas.toDataURL('image/png'));
+      } catch {}
+    };
+    img.src = imageUrl;
 
-          canvas.width = sw;
-          canvas.height = sh;
-
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, sw, sh);
-          ctx.drawImage(offscreenCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
-
-          setImageLoaded(true);
-          try {
-            setDataUrl(canvas.toDataURL('image/png'));
-          } catch {}
-        } catch (err) {
-          console.error('Error rendering PDF clip:', err);
-        }
-      } else {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          if (cancelled) return;
-          const sx = Math.max(0, (clip.x / 100) * img.naturalWidth);
-          const sy = Math.max(0, (clip.y / 100) * img.naturalHeight);
-          const sw = Math.max(10, (clip.w / 100) * img.naturalWidth);
-          const sh = Math.max(10, (clip.h / 100) * img.naturalHeight);
-
-          canvas.width = sw;
-          canvas.height = sh;
-
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, sw, sh);
-          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-
-          setImageLoaded(true);
-          try {
-            setDataUrl(canvas.toDataURL('image/png'));
-          } catch {}
-        };
-        img.src = imageUrl;
-      }
-    }
-
-    renderClip();
     return () => {
       cancelled = true;
     };
-  }, [imageUrl, clip, blobType]);
+  }, [imageUrl, clip]);
 
   const downloadClip = () => {
     const canvas = canvasRef.current;
