@@ -40,6 +40,7 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
   const totalPages = epaper.page_count || 1;
   const [pageImageUrl, setPageImageUrl] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
+  const [blobType, setBlobType] = useState<'image' | 'pdf'>('pdf');
 
   useEffect(() => {
     loadClickmasks();
@@ -56,13 +57,19 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
         const blob = await portalApi.getPageImage(slug, epaper.id, currentPage, token);
         if (cancelled) return;
         if (blob) {
+          const isPdf = blob.type === 'application/pdf' || blob.type.includes('pdf');
+          setBlobType(isPdf ? 'pdf' : 'image');
           revoked = URL.createObjectURL(blob);
           setPageImageUrl(revoked);
         } else {
+          setBlobType('pdf');
           setPageImageUrl(readerApi.pageUrl(slug, epaper.id, currentPage));
         }
       } catch (err) {
-        if (!cancelled) setPageImageUrl(readerApi.pageUrl(slug, epaper.id, currentPage));
+        if (!cancelled) {
+          setBlobType('pdf');
+          setPageImageUrl(readerApi.pageUrl(slug, epaper.id, currentPage));
+        }
       } finally {
         if (!cancelled) setImageLoading(false);
       }
@@ -250,13 +257,19 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
             >
               {imageLoading ? (
                 <div className="w-full h-full flex items-center justify-center bg-neutral-800 text-neutral-400 text-sm">
-                  Loading page image...
+                  Loading page...
                 </div>
+              ) : blobType === 'pdf' ? (
+                <iframe
+                  title={`Page ${currentPage}`}
+                  src={`${pageImageUrl || readerApi.pageUrl(slug, epaper.id, currentPage)}#toolbar=0&navpanes=0&scrollbar=0`}
+                  className="w-full h-full border-0 pointer-events-none block"
+                />
               ) : (
                 <img
                   src={pageImageUrl || readerApi.pageUrl(slug, epaper.id, currentPage)}
                   alt={`Page ${currentPage}`}
-                  className="w-full h-full object-contain pointer-events-none"
+                  className="w-full h-full object-contain pointer-events-none block"
                 />
               )}
 

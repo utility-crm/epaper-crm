@@ -352,7 +352,8 @@ editionsRouter.get('/:slug/epapers/:id/pages/:n/image', async (c) => {
     const obj = await bucket.get(page.r2_key);
     if (!obj) return c.json(err(ErrorCode.NOT_FOUND, 'Page file missing in storage'), 404);
 
-    const ct = obj.httpMetadata?.contentType ?? 'image/jpeg';
+    const isPdf = page.r2_key.toLowerCase().endsWith('.pdf') || obj.httpMetadata?.contentType?.includes('pdf');
+    const ct = isPdf ? 'application/pdf' : (obj.httpMetadata?.contentType ?? 'image/jpeg');
     return new Response(obj.body, {
       headers: {
         'Content-Type': ct,
