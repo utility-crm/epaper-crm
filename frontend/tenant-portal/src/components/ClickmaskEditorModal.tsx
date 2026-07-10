@@ -5,9 +5,9 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { portalApi, readerApi } from '../lib/api';
 import {
-  Plus, Trash2, Save, Layers, ChevronLeft, ChevronRight, Check,
-  ArrowUp, ArrowDown, Copy, Wand2, ArrowLeft, ArrowRight, Move,
-  Maximize2, Minimize2, ZoomIn, ZoomOut, RotateCcw
+  Trash2, Save, ChevronLeft, ChevronRight, Check,
+  Copy, Wand2, ArrowLeft, ArrowRight,
+  ZoomIn, ZoomOut, GripVertical
 } from 'lucide-react';
 
 export interface ClickmaskItem {
@@ -35,6 +35,8 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [zoom, setZoom] = useState<number>(100);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // Drag-to-draw state
   const containerRef = useRef<HTMLDivElement>(null);
@@ -643,10 +645,10 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
                   <div
                     key={mask.id}
                     onMouseDown={(e) => startTransform(e, 'move', mask)}
-                    className={`absolute border-2 transition-colors flex flex-col justify-between p-1 text-[11px] font-medium cursor-move ${
+                    className={`absolute border-2 flex flex-col justify-between p-1 text-[11px] font-medium cursor-move ${
                       isSelected
-                        ? 'border-primary bg-primary/25 z-20 shadow-lg'
-                        : 'border-blue-500/80 bg-blue-500/15 hover:bg-blue-500/25 z-10'
+                        ? 'border-primary bg-primary/20 z-20 shadow-lg'
+                        : 'border-blue-400/70 bg-transparent hover:bg-blue-400/10 z-10'
                     }`}
                     style={{
                       left: `${mask.x}%`,
@@ -843,48 +845,56 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
                   <h3 className="text-sm font-bold">
                     Articles Order ({currentMasks.length})
                   </h3>
-                  <span className="text-[10px] text-muted-foreground">Reorder reading flow</span>
+                  <span className="text-[10px] text-muted-foreground">Drag ⠿ to reorder</span>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {currentMasks.map((mask, i) => (
                     <div
                       key={mask.id}
+                      draggable
+                      onDragStart={() => setDragIndex(i)}
+                      onDragEnter={() => setDragOverIndex(i)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDragEnd={() => {
+                        if (dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
+                          const updated = [...currentMasks];
+                          const [moved] = updated.splice(dragIndex, 1);
+                          updated.splice(dragOverIndex, 0, moved);
+                          updateCurrentMasks(updated);
+                        }
+                        setDragIndex(null);
+                        setDragOverIndex(null);
+                      }}
                       onClick={() => setSelectedId(mask.id)}
-                      className={`p-2.5 rounded-lg border text-xs cursor-pointer flex items-center justify-between transition-all ${
+                      className={`rounded-lg border text-xs cursor-pointer flex items-center gap-1.5 transition-all select-none ${
                         mask.id === selectedId
                           ? 'border-primary bg-primary/10 shadow-sm font-medium'
                           : 'hover:bg-muted/50 bg-card'
+                      } ${
+                        dragOverIndex === i && dragIndex !== i
+                          ? 'border-dashed border-primary/60 scale-[1.01]'
+                          : ''
+                      } ${
+                        dragIndex === i ? 'opacity-40' : 'opacity-100'
                       }`}
                     >
-                      <div className="truncate pr-2 flex items-center gap-1.5">
-                        <span className="bg-primary/15 text-primary font-bold px-1.5 py-0.5 rounded text-[10px]">
+                      {/* Drag Handle */}
+                      <div
+                        className="pl-2 py-2.5 text-muted-foreground/50 hover:text-muted-foreground cursor-grab active:cursor-grabbing shrink-0"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <GripVertical className="w-3.5 h-3.5" />
+                      </div>
+
+                      <div className="truncate flex-1 flex items-center gap-1.5 py-2">
+                        <span className="bg-primary/15 text-primary font-bold px-1.5 py-0.5 rounded text-[10px] shrink-0">
                           #{i + 1}
                         </span>
                         <span className="truncate">{mask.title || 'Untitled Article'}</span>
                       </div>
 
-                      <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                          disabled={i === 0}
-                          onClick={() => handleMoveArticle(i, 'up')}
-                          title="Move Up"
-                        >
-                          <ArrowUp className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                          disabled={i === currentMasks.length - 1}
-                          onClick={() => handleMoveArticle(i, 'down')}
-                          title="Move Down"
-                        >
-                          <ArrowDown className="w-3.5 h-3.5" />
-                        </Button>
+                      <div className="flex items-center gap-0.5 pr-1.5 shrink-0" onClick={e => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="icon"
