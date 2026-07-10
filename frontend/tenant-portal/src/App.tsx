@@ -205,7 +205,13 @@ export default function App() {
 
   // Public reader experience — served at the tenant's custom domain (or /read/:slug).
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
-  if (path.startsWith('/read')) {
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  const isCustomDomain =
+    host &&
+    !['localhost', '127.0.0.1', 'epaperspace.com', 'www.epaperspace.com'].includes(host) &&
+    !host.endsWith('.epaperspace.com');
+
+  if (path.startsWith('/read') || isCustomDomain) {
     return <ReaderApp />;
   }
 

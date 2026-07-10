@@ -10,11 +10,12 @@ import { Newspaper, Lock } from 'lucide-react';
 
 interface Props {
   slug: string;
+  basePath?: string;
   session: ReaderSession | null;
   orgName?: string | null;
 }
 
-export function ReaderHome({ slug, session, orgName }: Props) {
+export function ReaderHome({ slug, basePath = '', session, orgName }: Props) {
   const [papers, setPapers] = useState<any[]>([]);
   const [editions, setEditions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,7 +111,7 @@ export function ReaderHome({ slug, session, orgName }: Props) {
       ) : (
         <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
           {papers.map(p => (
-            <Link key={p.id} to={`/read/${slug}/paper/${p.id}`}>
+            <Link key={p.id} to={`${basePath}/paper/${p.id}`}>
               <Card className="group h-full overflow-hidden transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10">
                 <div className="relative aspect-[3/4] overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900">
                   {p.cover_key ? (

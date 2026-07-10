@@ -8,6 +8,7 @@ import { ReaderAuthDialog } from './ReaderAuthDialog';
 import { TodayRedirect } from './TodayRedirect';
 import { Button } from '../components/ui/button';
 import { Newspaper, ShieldAlert } from 'lucide-react';
+import { cn } from '../lib/utils';
 
 // Resolves which publication (slug) this reader session is for
 function ReaderShell() {
@@ -36,7 +37,7 @@ function ReaderShell() {
       </div>
     );
   }
-  return <ReaderInner slug={slug} basePath={explicitSlug ? `/read/${slug}` : '/read'} />;
+  return <ReaderInner slug={slug} basePath={explicitSlug ? `/read/${slug}` : ''} />;
 }
 
 function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
@@ -74,22 +75,20 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
 
   if (isSuspended) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-4 text-center bg-muted/20 px-4">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
-          <ShieldAlert className="h-8 w-8 text-destructive" />
-        </div>
-        <div className="space-y-2">
-          <h1 className="font-serif text-2xl font-700">Account Suspended</h1>
-          <p className="text-sm text-muted-foreground">
-            This account has been suspended. Please contact support for help.
-          </p>
-        </div>
+      <div className="flex h-screen flex-col items-center justify-center gap-2 text-center bg-background text-foreground">
+        <ShieldAlert className="h-10 w-10 text-amber-500" />
+        <h1 className="font-serif text-2xl font-700">Publication Unavailable</h1>
+        <p className="text-sm text-muted-foreground">This publication is temporarily unavailable.</p>
       </div>
     );
   }
 
-  const logoUrl = orgSettings?.logo_url ? `/api/content/${slug}/settings/logo` : null;
   const displayName = orgSettings?.org_name || slug;
+  const logoUrl = orgSettings?.logo_url ? readerApi.logoUrl(slug) : null;
+
+  const themeClass = orgSettings?.theme_id === 'theme-classic' ? 'theme-classic' :
+                     orgSettings?.theme_id === 'theme-modern' ? 'theme-modern font-sans' :
+                     orgSettings?.theme_id === 'theme-bold' ? 'theme-bold' : '';
 
   const openAuth = (mode: 'login' | 'signup') => {
     setAuthMode(mode);
@@ -97,11 +96,11 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
   };
 
   return (
-    <div className="min-h-screen bg-background font-sans text-foreground">
-      <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-md">
+    <div className={cn("min-h-screen flex flex-col bg-background text-foreground", themeClass)}>
+      <header className="border-b bg-card">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link to={`${basePath}`} className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-violet-600 overflow-hidden flex-shrink-0">
+          <Link to={basePath || '/'} className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-red-600 to-rose-700 shadow-md overflow-hidden flex-shrink-0">
               {logoUrl && !logoError ? (
                 <img src={logoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setLogoError(true)} />
               ) : (
@@ -125,10 +124,10 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
       </header>
 
       <Routes>
-        <Route path="/" element={<ReaderHome slug={slug} session={session} orgName={displayName} />} />
+        <Route path="/" element={<ReaderHome slug={slug} basePath={basePath} session={session} orgName={displayName} />} />
         <Route path="/today" element={<TodayRedirect />} />
         <Route path="/paper/:id" element={<PaperViewer slug={slug} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
-        <Route path="*" element={<Navigate to={basePath} replace />} />
+        <Route path="*" element={<Navigate to={basePath || '/'} replace />} />
       </Routes>
 
       {authOpen && (
@@ -151,6 +150,7 @@ export function ReaderApp() {
     <Routes>
       <Route path="/read/:slug/*" element={<ReaderShell />} />
       <Route path="/read/*" element={<ReaderShell />} />
+      <Route path="/*" element={<ReaderShell />} />
     </Routes>
   );
 }

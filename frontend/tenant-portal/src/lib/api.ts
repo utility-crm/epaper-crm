@@ -112,6 +112,7 @@ export const portalApi = {
 export const readerApi = {
   resolveDomain: (host: string) => apiFetch<{ slug: string }>(`/api/domain/resolve?host=${encodeURIComponent(host)}`),
   getSettings: (slug: string) => apiFetch<any>(`/api/content/${slug}/settings`),
+  logoUrl: (slug: string) => `${API_BASE}/api/content/${slug}/settings/logo`,
   signup: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/signup`, { method: 'POST', body: JSON.stringify(body) }),
   login: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/login`, { method: 'POST', body: JSON.stringify(body) }),
   me: (slug: string, token: string) => apiFetch<any>(`/api/read/${slug}/me`, {}, token),
