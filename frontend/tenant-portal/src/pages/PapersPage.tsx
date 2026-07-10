@@ -7,10 +7,11 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff, Image as ImageIcon, Share2 } from 'lucide-react';
+import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff, Image as ImageIcon, Share2, Scissors } from 'lucide-react';
 import PdfWorker from '../lib/pdfWorker?worker';
 import { extractPdfThumbnail } from '../lib/pdfThumbnail';
 import { ShareModal } from '../components/ShareModal';
+import { ClickmaskEditorModal } from '../components/ClickmaskEditorModal';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
@@ -30,6 +31,7 @@ export function PapersPage({ slug, token }: Props) {
   const [editEdition, setEditEdition] = useState<any>(null);
   const [editPaper, setEditPaper] = useState<any>(null);
   const [sharePaper, setSharePaper] = useState<any>(null);
+  const [clickmaskPaper, setClickmaskPaper] = useState<any>(null);
 
   const loadEditions = useCallback(async () => {
     const [edRes, tierRes] = await Promise.all([portalApi.getEditions(slug, token), portalApi.getTiers(slug, token)]);
@@ -171,6 +173,7 @@ export function PapersPage({ slug, token }: Props) {
                             <Button variant="ghost" size="sm" onClick={() => setDefault(p)} title="Set as default paper for this date">
                               <span className={p.is_default_for_day ? 'text-amber-500' : 'text-muted-foreground'}>★</span>
                             </Button>
+                            <Button variant="ghost" size="sm" onClick={() => setClickmaskPaper(p)} title="Interactive Article Clickmasks Studio"><Scissors className="h-3.5 w-3.5 text-primary" /></Button>
                             <Button variant="ghost" size="sm" onClick={() => setSharePaper(p)} title="Share"><Share2 className="h-3.5 w-3.5" /></Button>
                             <Button variant="ghost" size="sm" onClick={() => setEditPaper(p)} title="Edit"><Pencil className="h-3.5 w-3.5" /></Button>
                           </div>
@@ -189,6 +192,7 @@ export function PapersPage({ slug, token }: Props) {
       {modal === 'paper' && edition && <PaperModal slug={slug} token={token} editionId={edition.id} onClose={() => { setModal(null); loadPapers(); }} />}
       {upload && <UploadModal slug={slug} token={token} paper={upload} onClose={() => { setUpload(null); loadPapers(); }} />}
       {sharePaper && <ShareModal slug={slug} paper={sharePaper} onClose={() => setSharePaper(null)} />}
+      {clickmaskPaper && <ClickmaskEditorModal slug={slug} epaper={clickmaskPaper} token={token} onClose={() => setClickmaskPaper(null)} />}
 
       <Sheet open={!!editEdition} onOpenChange={o => !o && setEditEdition(null)}>
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">

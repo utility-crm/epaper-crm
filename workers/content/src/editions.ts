@@ -275,3 +275,63 @@ editionsRouter.patch('/:slug/epapers/:id/default', async (c) => {
     return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });
+
+async function ensureClickmasksCol(db: D1Database) {
+  try {
+    await db.prepare('SELECT clickmasks FROM epaper_pages LIMIT 1').first();
+  } catch {
+    try {
+      await db.prepare("ALTER TABLE epaper_pages ADD COLUMN clickmasks TEXT DEFAULT '[]'").run();
+    } catch {}
+  }
+}
+
+editionsRouter.get('/:slug/epapers/:id/clickmasks', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  try {
+    const db = getTenantDb(c.env, slug);
+    await ensureClickmasksCol(db);
+    const pages = await db.prepare(
+      'SELECT page_no, clickmasks FROM epaper_pages WHERE epaper_id = ? ORDER BY page_no ASC'
+    ).bind(id).all<{ page_no: number; clickmasks: string | null }>();
+
+    const items = (pages.results ?? []).map(p => {
+      let masks: any[] = [];
+      try {
+        masks = p.clickmasks ? JSON.parse(p.clickmasks) : [];
+      } catch {
+        masks = [];
+      }
+      return { page_no: p.page_no, clickmasks: masks };
+    });
+
+    return c.json(ok({ items }));
+  } catch (e) {
+    console.error(`Error in clickmasks GET (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
+  }
+});
+
+editionsRouter.put('/:slug/epapers/:id/pages/:n/clickmasks', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  const n = parseInt(c.req.param('n'), 10);
+  if (!Number.isInteger(n) || n < 1) return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid page number'), 400);
+
+  const body = await c.req.json();
+  const clickmasks = Array.isArray(body.clickmasks) ? body.clickmasks : [];
+
+  try {
+    const db = getTenantDb(c.env, slug);
+    await ensureClickmasksCol(db);
+    await db.prepare(
+      'UPDATE epaper_pages SET clickmasks = ? WHERE epaper_id = ? AND page_no = ?'
+    ).bind(JSON.stringify(clickmasks), id, n).run();
+
+    return c.json(ok({ updated: true, page_no: n }));
+  } catch (e) {
+    console.error(`Error in clickmasks PUT (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
+  }
+});

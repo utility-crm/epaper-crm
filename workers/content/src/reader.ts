@@ -176,6 +176,16 @@ readerRouter.get('/:slug/today', async (c) => {
   }
 });
 
+async function ensureClickmasksColReader(db: D1Database) {
+  try {
+    await db.prepare('SELECT clickmasks FROM epaper_pages LIMIT 1').first();
+  } catch {
+    try {
+      await db.prepare("ALTER TABLE epaper_pages ADD COLUMN clickmasks TEXT DEFAULT '[]'").run();
+    } catch {}
+  }
+}
+
 // Single paper metadata + whether the current viewer can access premium pages.
 readerRouter.get('/:slug/papers/:id', async (c) => {
   const slug = c.req.param('slug');
@@ -191,7 +201,49 @@ readerRouter.get('/:slug/papers/:id', async (c) => {
 
     const reader = await getReader(c, slug);
     const unlocked = !!paper.is_free || (reader ? await hasActiveSub(db, reader.sub, paper.tier_id) : false);
-    return c.json(ok({ ...paper, unlocked, signed_in: !!reader }));
+
+    await ensureClickmasksColReader(db);
+    const pageRows = await db.prepare(
+      'SELECT page_no, clickmasks FROM epaper_pages WHERE epaper_id = ? ORDER BY page_no ASC'
+    ).bind(id).all<{ page_no: number; clickmasks: string | null }>();
+
+    const pages = (pageRows.results ?? []).map(p => {
+      let masks: any[] = [];
+      try {
+        masks = p.clickmasks ? JSON.parse(p.clickmasks) : [];
+      } catch {
+        masks = [];
+      }
+      return { page_no: p.page_no, clickmasks: masks };
+    });
+
+    return c.json(ok({ ...paper, unlocked, signed_in: !!reader, pages }));
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+readerRouter.get('/:slug/papers/:id/clickmasks', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  try {
+    const db = getTenantDb(c.env, slug);
+    await ensureClickmasksColReader(db);
+    const pages = await db.prepare(
+      'SELECT page_no, clickmasks FROM epaper_pages WHERE epaper_id = ? ORDER BY page_no ASC'
+    ).bind(id).all<{ page_no: number; clickmasks: string | null }>();
+
+    const items = (pages.results ?? []).map(p => {
+      let masks: any[] = [];
+      try {
+        masks = p.clickmasks ? JSON.parse(p.clickmasks) : [];
+      } catch {
+        masks = [];
+      }
+      return { page_no: p.page_no, clickmasks: masks };
+    });
+
+    return c.json(ok({ items }));
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }

@@ -45,6 +45,9 @@ export const portalApi = {
   updateEpaper: (slug: string, id: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/epapers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }, token),
   deleteEpaper: (slug: string, id: string, token: string) => apiFetch<any>(`/api/content/${slug}/epapers/${id}`, { method: 'DELETE' }, token),
   setDefaultPaper: (slug: string, id: string, token: string) => apiFetch<any>(`/api/content/${slug}/epapers/${id}/default`, { method: 'PATCH' }, token),
+  getClickmasks: (slug: string, id: string, token: string) => apiFetch<any>(`/api/content/${slug}/epapers/${id}/clickmasks`, {}, token),
+  saveClickmasks: (slug: string, id: string, pageNo: number, clickmasks: any[], token: string) =>
+    apiFetch<any>(`/api/content/${slug}/epapers/${id}/pages/${pageNo}/clickmasks`, { method: 'PUT', body: JSON.stringify({ clickmasks }) }, token),
 
   uploadPages: (slug: string, epaperId: string, files: File[], token: string, cover?: File) => {
     const fd = new FormData();
@@ -120,6 +123,7 @@ export const readerApi = {
   getTodayPaper: (slug: string) => apiFetch<any>(`/api/read/${slug}/today`),
   getPublicEditions: (slug: string) => apiFetch<any>(`/api/read/${slug}/editions`),
   getPaper: (slug: string, id: string, token?: string) => apiFetch<any>(`/api/read/${slug}/papers/${id}`, {}, token),
+  getClickmasks: (slug: string, id: string) => apiFetch<any>(`/api/read/${slug}/papers/${id}/clickmasks`),
   getPlans: (slug: string) => apiFetch<any>(`/api/read/${slug}/plans`),
   pageUrl: (slug: string, id: string, n: number) => `${API_BASE}/api/read/${slug}/papers/${id}/pages/${n}`,
   coverUrl: (slug: string, paperId: string) => `${API_BASE}/api/read/${slug}/papers/${paperId}/cover`,
