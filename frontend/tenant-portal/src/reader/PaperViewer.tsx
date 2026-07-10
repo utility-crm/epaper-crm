@@ -714,6 +714,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
           paper={paper}
           pageNumber={page}
           imageUrl={pageUrl}
+          blobType={blobType}
           clip={selectedClip}
           onClose={() => setSelectedClip(null)}
         />
