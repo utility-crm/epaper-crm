@@ -555,8 +555,12 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
         <div className="flex-1 flex overflow-hidden">
           {/* Left / Center: Interactive Canvas */}
           <div
-            className="flex-1 bg-neutral-900 overflow-y-auto overflow-x-hidden relative"
-            style={{ scrollBehavior: 'smooth' }}
+            className="flex-1 bg-neutral-900 overflow-y-auto overflow-x-hidden relative group no-scrollbar"
+            style={{
+              scrollBehavior: 'smooth',
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
+            }}
             onWheel={(e) => {
               if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
@@ -565,32 +569,40 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
               }
             }}
           >
-            {/* Fixed Zoom Pill — anchored to top-right of the scroll pane */}
-            <div className="absolute top-3 right-3 z-40 flex items-center gap-0.5 bg-neutral-950/90 border border-neutral-700 backdrop-blur-sm rounded-full px-2 py-1 shadow-2xl">
-              <button
-                onClick={() => setZoom(z => Math.max(50, z - 25))}
-                className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-neutral-700 text-neutral-300 transition-colors"
-              >
-                <ZoomOut className="w-3.5 h-3.5" />
-              </button>
-              <span className="text-[11px] font-mono font-bold px-1.5 text-emerald-400 min-w-[44px] text-center">
-                {zoom}%
-              </span>
-              <button
-                onClick={() => setZoom(z => Math.min(300, z + 25))}
-                className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-neutral-700 text-neutral-300 transition-colors"
-              >
-                <ZoomIn className="w-3.5 h-3.5" />
-              </button>
-              <span className="w-px h-4 bg-neutral-700 mx-1" />
-              <button
-                onClick={() => setZoom(100)}
-                className={`text-[10px] px-2 h-6 rounded-full font-medium transition-colors ${
-                  zoom === 100 ? 'bg-emerald-600 text-white' : 'hover:bg-neutral-700 text-neutral-400'
-                }`}
-              >
-                Fit
-              </button>
+            {/* Zoom Pill — centered at bottom, hidden until panel is hovered */}
+            <div className="sticky bottom-4 left-0 right-0 z-40 flex justify-center pointer-events-none">
+              <div className="pointer-events-auto inline-flex items-center gap-0.5 bg-neutral-950/90 border border-neutral-700/80 backdrop-blur-md rounded-full px-2.5 py-1.5 shadow-2xl
+                opacity-0 translate-y-2 transition-all duration-300 ease-out
+                group-hover:opacity-100 group-hover:translate-y-0">
+                <button
+                  onClick={() => setZoom(z => Math.max(50, z - 25))}
+                  className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-neutral-700 text-neutral-300 transition-colors"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-[11px] font-mono font-bold px-1.5 text-emerald-400 min-w-[44px] text-center">
+                  {zoom}%
+                </span>
+                <button
+                  onClick={() => setZoom(z => Math.min(300, z + 25))}
+                  className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-neutral-700 text-neutral-300 transition-colors"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+                <span className="w-px h-3.5 bg-neutral-700 mx-1" />
+                <button
+                  onClick={() => setZoom(100)}
+                  className={`text-[10px] px-2 h-6 rounded-full font-medium transition-colors ${
+                    zoom === 100 ? 'bg-emerald-600 text-white' : 'hover:bg-neutral-700 text-neutral-400'
+                  }`}
+                >
+                  Fit
+                </button>
+                <span className="w-px h-3.5 bg-neutral-700 mx-1" />
+                <span className="text-[10px] text-neutral-500 pr-1 hidden sm:inline">
+                  Ctrl+Scroll
+                </span>
+              </div>
             </div>
 
             {/* The paper canvas — fills width, scales by zoom, scrolls vertically */}

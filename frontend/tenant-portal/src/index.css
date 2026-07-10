@@ -184,3 +184,7 @@
 .status-archived { background: #f1f5f9; color: var(--color-text-muted); border: 1px solid #cbd5e1; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(0,0,0,0.1); border-top-color: var(--color-brand-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+
+/* Hide scrollbar for canvas panel while keeping scroll functionality */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
