@@ -67,24 +67,24 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
       const ext = coverFile.type === 'application/pdf' ? 'pdf' : coverFile.type === 'image/png' ? 'png' : coverFile.type === 'image/webp' ? 'webp' : 'jpg';
       coverKey = `epapers/${id}/cover.${ext}`;
       const bytes = await coverFile.arrayBuffer();
-      const obj = await bucket.put(coverKey, bytes, { httpMetadata: { contentType: coverFile.type } });
+      const obj = await bucket.put(coverKey, bytes, { httpMetadata: { contentType: coverFile.type, cacheControl: 'public, max-age=31536000, immutable' } });
       totalBytes += obj?.size ?? bytes.byteLength;
     }
 
     for (let i = 0; i < pageFiles.length; i++) {
       const f = pageFiles[i];
       const ext = f.type === 'application/pdf' ? 'pdf' : f.type === 'image/png' ? 'png' : f.type === 'image/webp' ? 'webp' : 'jpg';
-      const key = `epapers/${id}/page-${i + 1}.${ext}`;
+      const pageNumStr = String(i + 1).padStart(3, '0');
+      const key = `epapers/${id}/pages/page-${pageNumStr}.${ext}`;
       const bytes = await f.arrayBuffer();
-      const obj = await bucket.put(key, bytes, { httpMetadata: { contentType: f.type } });
+      const obj = await bucket.put(key, bytes, { httpMetadata: { contentType: f.type, cacheControl: 'public, max-age=31536000, immutable' } });
       totalBytes += obj?.size ?? bytes.byteLength;
       pageRows.push({ id: crypto.randomUUID(), page_no: i + 1, r2_key: key });
       
       if (i === 0 && !coverKey) {
         // Fallback: If no explicit cover was uploaded, use the first page.
-        // We store a separate copy so the cover can be served publicly for thumbnails.
         const coverK = `epapers/${id}/cover.${ext}`;
-        await bucket.put(coverK, bytes, { httpMetadata: { contentType: f.type } });
+        await bucket.put(coverK, bytes, { httpMetadata: { contentType: f.type, cacheControl: 'public, max-age=31536000, immutable' } });
         coverKey = coverK;
       }
     }

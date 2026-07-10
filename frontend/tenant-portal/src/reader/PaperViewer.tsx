@@ -1,11 +1,4 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
-
-// Point pdfjs at the already-bundled local worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url
-).toString();
 import { useParams, Link } from 'react-router-dom';
 import { readerApi } from '../lib/api';
 import { formatINR } from '../lib/utils';
@@ -21,6 +14,7 @@ import {
   Crop, Share2, Layers, Newspaper, ExternalLink, Smartphone, Monitor
 } from 'lucide-react';
 import { ArticleClipModal, ArticleClip } from './ArticleClipModal';
+import { MobileArticleCard } from './MobileArticleCard';
 
 interface Props {
   slug: string;
@@ -39,8 +33,6 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
   const [page, setPage] = useState(1);
   const [pageUrl, setPageUrl] = useState<string | null>(null);
   const [blobType, setBlobType] = useState<'pdf' | 'image'>('pdf');
-  // Pre-rendered flat image of the current page (always PNG, used by clip modal)
-  const [pageRenderedDataUrl, setPageRenderedDataUrl] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [plans, setPlans] = useState<any[]>([]);
@@ -48,6 +40,15 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
   // Clickmasks for the current paper
   const [clickmasksByPage, setClickmasksByPage] = useState<Record<number, any[]>>({});
   const [selectedClip, setSelectedClip] = useState<ArticleClip | null>(null);
+
+  // Mobile View state: 'articles' (card-by-card) or 'fullpage'
+  const [mobileViewMode, setMobileViewMode] = useState<'articles' | 'fullpage'>('articles');
+  const [mobileArticleIdx, setMobileArticleIdx] = useState<number>(0);
+
+  useEffect(() => {
+    setMobileArticleIdx(0);
+    setMobileViewMode('articles');
+  }, [page]);
 
   // Theme state: light | dark | sepia
   const [theme, setTheme] = useState<'light' | 'dark' | 'sepia'>('light');
@@ -90,7 +91,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
         res.data.pages.forEach((p: any) => {
           maskMap[p.page_no] = p.clickmasks || [];
         });
-        setClickmasksByPage(maskMap);
+        setClickmasksByPage(prev => ({ ...prev, ...maskMap }));
       }
     }
 
@@ -102,7 +103,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
         masksRes.data.items.forEach((item: any) => {
           maskMap[item.page_no] = item.clickmasks || [];
         });
-        setClickmasksByPage(maskMap);
+        setClickmasksByPage(prev => ({ ...prev, ...maskMap }));
       }
     } catch {}
 
@@ -125,7 +126,6 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
     setPageLoading(true);
     setLocked(false);
     setPageUrl(null);
-    setPageRenderedDataUrl(null);
 
     (async () => {
       const res = await fetch(readerApi.pageUrl(slug, id, page), {
@@ -148,45 +148,6 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
       revoked = URL.createObjectURL(blob);
       setPageUrl(revoked);
       setPageLoading(false);
-
-      // Render to a flat PNG — the SAME image shown in the viewer and used by the clip modal.
-      // Because both share identical pixel dimensions, % coordinates map exactly.
-      try {
-        if (isImage) {
-          const imgEl = new Image();
-          imgEl.crossOrigin = 'anonymous';
-          await new Promise<void>((resolve, reject) => {
-            imgEl.onload = () => resolve();
-            imgEl.onerror = () => reject();
-            imgEl.src = revoked!;
-          });
-          if (cancelled) return;
-          const canvas = document.createElement('canvas');
-          canvas.width = imgEl.naturalWidth;
-          canvas.height = imgEl.naturalHeight;
-          canvas.getContext('2d')!.drawImage(imgEl, 0, 0);
-          if (!cancelled) setPageRenderedDataUrl(canvas.toDataURL('image/png'));
-        } else {
-          // Render PDF via pdfjs. The same data URL is shown in the viewer (as <img>)
-          // and passed to the clip modal — so positions are guaranteed to match.
-          const arrayBuffer = await blob.arrayBuffer();
-          if (cancelled) return;
-          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-          if (cancelled) return;
-          const pdfPage = await pdf.getPage(1);
-          if (cancelled) return;
-          // Use scale=2 for a sharp display; clipping % coords will be identical
-          const viewport = pdfPage.getViewport({ scale: 2 });
-          const canvas = document.createElement('canvas');
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          const ctx = canvas.getContext('2d')!;
-          await pdfPage.render({ canvasContext: ctx, viewport, canvas }).promise;
-          if (!cancelled) setPageRenderedDataUrl(canvas.toDataURL('image/png'));
-        }
-      } catch (e) {
-        console.warn('Could not pre-render page for clipping:', e);
-      }
     })();
 
     return () => {
@@ -398,6 +359,30 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
               </Button>
             </div>
 
+            {/* View Mode Toggle (Article vs Full Page) */}
+            {currentClickmasks.length > 0 && (
+              <div className="flex items-center border rounded-lg p-0.5 bg-muted/30 text-xs">
+                <Button
+                  variant={mobileViewMode === 'articles' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2 text-[11px] gap-1"
+                  onClick={() => setMobileViewMode('articles')}
+                >
+                  <Smartphone className="w-3 h-3" />
+                  Articles ({currentClickmasks.length})
+                </Button>
+                <Button
+                  variant={mobileViewMode === 'fullpage' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2 text-[11px] gap-1"
+                  onClick={() => setMobileViewMode('fullpage')}
+                >
+                  <Monitor className="w-3 h-3" />
+                  Full Page
+                </Button>
+              </div>
+            )}
+
             {/* Crop & Share Tool button */}
             <Button
               variant={cropMode ? 'default' : 'outline'}
@@ -521,39 +506,54 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
                 </CardContent>
               </Card>
             ) : pageUrl ? (
-              <div
-                ref={imageContainerRef}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                className="relative mx-auto transition-transform origin-top select-none shadow-2xl rounded bg-white overflow-hidden"
-                style={{
-                  transform: `scale(${zoomLevel})`,
-                  cursor: cropMode ? 'crosshair' : 'default',
-                }}
-              >
-                {/* Always render as <img> from pre-rendered data URL.
-                    For PDFs this uses the pdfjs-rendered canvas PNG so that
-                    clickmask % coordinates map to exactly the same pixel space. */}
-                {pageRenderedDataUrl ? (
-                  <img
-                    src={pageRenderedDataUrl}
-                    alt={`Page ${page}`}
-                    className="w-full h-auto block pointer-events-none"
-                  />
-                ) : pageUrl && blobType === 'image' ? (
-                  // Fallback: show raw image while canvas renders (images are fast)
-                  <img
-                    src={pageUrl}
-                    alt={`Page ${page}`}
-                    className="w-full h-auto block pointer-events-none"
-                  />
-                ) : (
-                  // PDF still rendering — show spinner placeholder
-                  <div className="h-[80vh] w-full flex items-center justify-center bg-gray-100 dark:bg-gray-800">
-                    <Loader2 className="animate-spin text-muted-foreground" size={32} />
+              <>
+                {/* ── Single-Article Card View ── */}
+                {mobileViewMode === 'articles' && currentClickmasks.length > 0 && (
+                  <div className="w-full">
+                    <MobileArticleCard
+                      pageUrl={pageUrl}
+                      mask={currentClickmasks[mobileArticleIdx] || currentClickmasks[0]}
+                      articleIndex={mobileArticleIdx}
+                      totalArticles={currentClickmasks.length}
+                      onPrev={() => setMobileArticleIdx(i => Math.max(0, i - 1))}
+                      onNext={() => setMobileArticleIdx(i => Math.min(currentClickmasks.length - 1, i + 1))}
+                      onShare={() => {
+                        const mask = currentClickmasks[mobileArticleIdx] || currentClickmasks[0];
+                        if (mask) {
+                          setSelectedClip({
+                            title: mask.title,
+                            content: mask.content,
+                            x: mask.x,
+                            y: mask.y,
+                            w: mask.w,
+                            h: mask.h,
+                          });
+                        }
+                      }}
+                      onViewFullPage={() => setMobileViewMode('fullpage')}
+                    />
                   </div>
                 )}
+
+                {/* ── Full Page Interactive View ── */}
+                <div
+                  ref={imageContainerRef}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  className={`relative mx-auto transition-transform origin-top select-none shadow-2xl rounded bg-white overflow-hidden ${
+                    mobileViewMode === 'articles' && currentClickmasks.length > 0 ? 'hidden' : 'block'
+                  }`}
+                  style={{
+                    transform: `scale(${zoomLevel})`,
+                    cursor: cropMode ? 'crosshair' : 'default',
+                  }}
+                >
+                <img
+                  src={pageUrl}
+                  alt={`Page ${page}`}
+                  className="w-full h-auto block pointer-events-none"
+                />
 
                 {/* Interactive Clickmask Polygons / Article Overlays */}
                 {!cropMode &&
@@ -601,6 +601,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
                   />
                 )}
               </div>
+            </>
             ) : (
               <div className="text-center py-24 text-muted-foreground">Page unavailable</div>
             )}
@@ -770,12 +771,12 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
       </Sheet>
 
       {/* ── 6. Article Clip Zoom & Share Modal ────────────────────────── */}
-      {selectedClip && pageRenderedDataUrl && (
+      {selectedClip && pageUrl && (
         <ArticleClipModal
           slug={slug}
           paper={paper}
           pageNumber={page}
-          imageUrl={pageRenderedDataUrl}
+          imageUrl={pageUrl}
           clip={selectedClip}
           onClose={() => setSelectedClip(null)}
         />

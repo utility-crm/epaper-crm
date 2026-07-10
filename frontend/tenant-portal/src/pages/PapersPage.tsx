@@ -8,7 +8,7 @@ import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff, Image as ImageIcon, Share2, Scissors } from 'lucide-react';
-import PdfWorker from '../lib/pdfWorker?worker';
+import { convertPdfToWebpPages } from '../lib/pdfToImages';
 import { extractPdfThumbnail } from '../lib/pdfThumbnail';
 import { ShareModal } from '../components/ShareModal';
 import { ClickmaskEditorModal } from '../components/ClickmaskEditorModal';
@@ -336,37 +336,15 @@ function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: 
       let finalCover = coverFile;
       
       if (isPdf) {
-        if (!finalCover) {
-          setProgressMsg('Generating thumbnail...');
-          try {
-            finalCover = await extractPdfThumbnail(files[0]);
-          } catch (e) {
-            console.warn('Failed to generate thumbnail', e);
-          }
-        }
-        
-        setProgressMsg('Loading PDF...');
-        const worker = new PdfWorker();
+        setProgressMsg('Converting PDF pages to crisp WebP images...');
         try {
-          finalFiles = await new Promise<File[]>((resolve, reject) => {
-            worker.onmessage = (ev) => {
-              const data = ev.data;
-              if (data.type === 'progress') setProgressMsg(data.message);
-              else if (data.type === 'error') reject(new Error(data.error));
-              else if (data.type === 'done') {
-                resolve(data.pages.map((bytes: Uint8Array, i: number) => 
-                  new File([bytes as any], `page-${i + 1}.pdf`, { type: 'application/pdf' })
-                ));
-              }
-            };
-            files[0].arrayBuffer().then(buf => worker.postMessage({ fileData: buf }));
-          });
+          const { pages, cover } = await convertPdfToWebpPages(files[0], setProgressMsg);
+          finalFiles = pages;
+          if (!finalCover) finalCover = cover;
           setProgressMsg('Uploading pages...');
         } catch (err: any) {
-          setError('PDF processing failed: ' + err.message);
+          setError('PDF conversion failed: ' + err.message);
           setBusy(false); setStep('form'); return;
-        } finally {
-          worker.terminate();
         }
       }
 
@@ -614,38 +592,15 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
       let finalCover = coverFile;
       
       if (isPdf) {
-        if (!finalCover) {
-          setProgressMsg('Generating thumbnail...');
-          try {
-            finalCover = await extractPdfThumbnail(files[0]);
-          } catch (e) {
-            console.warn('Failed to generate thumbnail', e);
-          }
-        }
-        
-        setProgressMsg('Loading PDF...');
-        const worker = new PdfWorker();
+        setProgressMsg('Converting PDF pages to crisp WebP images...');
         try {
-          finalFiles = await new Promise<File[]>((resolve, reject) => {
-            worker.onmessage = (ev) => {
-              const data = ev.data;
-              if (data.type === 'progress') setProgressMsg(data.message);
-              else if (data.type === 'error') reject(new Error(data.error));
-              else if (data.type === 'done') {
-                const arr = data.pages.map((bytes: Uint8Array, i: number) => 
-                  new File([bytes as any], `page-${i + 1}.pdf`, { type: 'application/pdf' })
-                );
-                resolve(arr);
-              }
-            };
-            files[0].arrayBuffer().then(buf => worker.postMessage({ fileData: buf }));
-          });
+          const { pages, cover } = await convertPdfToWebpPages(files[0], setProgressMsg);
+          finalFiles = pages;
+          if (!finalCover) finalCover = cover;
           setProgressMsg('Uploading pages...');
         } catch (err: any) {
-          setError('PDF processing failed: ' + err.message);
+          setError('PDF conversion failed: ' + err.message);
           setBusy(false); setStep('form'); return;
-        } finally {
-          worker.terminate();
         }
       }
 
@@ -781,37 +736,15 @@ function UploadModal({ slug, token, paper, onClose }: { slug: string; token: str
     let finalFiles = files;
     let finalCover = coverFile;
     if (isPdf) {
-      if (!finalCover) {
-        setProgressMsg('Generating thumbnail...');
-        try {
-          finalCover = await extractPdfThumbnail(files[0]);
-        } catch (e) {
-          console.warn('Failed to generate thumbnail', e);
-        }
-      }
-      setProgressMsg('Loading PDF...');
-      const worker = new PdfWorker();
+      setProgressMsg('Converting PDF pages to crisp WebP images...');
       try {
-        finalFiles = await new Promise<File[]>((resolve, reject) => {
-          worker.onmessage = (ev) => {
-            const data = ev.data;
-            if (data.type === 'progress') setProgressMsg(data.message);
-            else if (data.type === 'error') reject(new Error(data.error));
-            else if (data.type === 'done') {
-              const arr = data.pages.map((bytes: Uint8Array, i: number) => 
-                new File([bytes as any], `page-${i + 1}.pdf`, { type: 'application/pdf' })
-              );
-              resolve(arr);
-            }
-          };
-          files[0].arrayBuffer().then(buf => worker.postMessage({ fileData: buf }));
-        });
+        const { pages, cover } = await convertPdfToWebpPages(files[0], setProgressMsg);
+        finalFiles = pages;
+        if (!finalCover) finalCover = cover;
         setProgressMsg('Uploading pages...');
       } catch (err: any) {
-        setError('PDF processing failed: ' + err.message);
+        setError('PDF conversion failed: ' + err.message);
         setStep('form'); return;
-      } finally {
-        worker.terminate();
       }
     }
 

@@ -1,0 +1,16 @@
+# robots.txt for ePaperSpace Portal (2026 SEO Compliance)
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /services
+Allow: /pricing
+Allow: /contact
+Allow: /privacy-policy
+Allow: /terms-and-conditions
+Allow: /refund-policy
+Allow: /disclaimer
+Disallow: /portal/admin/
+Disallow: /api/
+Disallow: /portal/settings/
+
+Sitemap: https://epaperspace.com/sitemap.xml

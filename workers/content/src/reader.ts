@@ -328,7 +328,7 @@ readerRouter.get('/:slug/papers/:id/pages/:n', async (c) => {
     // Use the content-type that was stored when the file was uploaded (pdf or image).
     const ct = obj.httpMetadata?.contentType ?? 'application/pdf';
     return new Response(obj.body, {
-      headers: { 'Content-Type': ct, 'Cache-Control': isFreePage ? 'public, max-age=3600' : 'private, no-store' },
+      headers: { 'Content-Type': ct, 'Cache-Control': isFreePage ? 'public, max-age=31536000, immutable' : 'private, no-store' },
     });
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);

@@ -2,6 +2,16 @@ import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut, Settings } from 'lucide-react';
 import { LandingPage } from './pages/LandingPage';
+import {
+  AboutPage,
+  ServicesInfoPage,
+  PricingInfoPage,
+  ContactInfoPage,
+  PrivacyPolicyPage,
+  TermsConditionsPage,
+  RefundPolicyPage,
+  DisclaimerPage,
+} from './pages/InfoLegalPages';
 import { SignupPage } from './pages/SignupPage';
 import { OrgLoginPage } from './pages/OrgLoginPage';
 import { ProvisioningScreen } from './pages/ProvisioningScreen';
@@ -209,7 +219,8 @@ export default function App() {
   const isCustomDomain =
     host &&
     !['localhost', '127.0.0.1', 'epaperspace.com', 'www.epaperspace.com'].includes(host) &&
-    !host.endsWith('.epaperspace.com');
+    !host.endsWith('.epaperspace.com') &&
+    !host.endsWith('.pages.dev');
 
   if (path.startsWith('/read') || isCustomDomain) {
     return <ReaderApp />;
@@ -220,6 +231,14 @@ export default function App() {
     return (
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/services" element={<ServicesInfoPage />} />
+        <Route path="/pricing" element={<PricingInfoPage />} />
+        <Route path="/contact" element={<ContactInfoPage />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+        <Route path="/terms-and-conditions" element={<TermsConditionsPage />} />
+        <Route path="/refund-policy" element={<RefundPolicyPage />} />
+        <Route path="/disclaimer" element={<DisclaimerPage />} />
         <Route path="/signup" element={<SignupPage onSignup={(t, s) => handleAuth(t, s, 'pending')} />} />
         <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
         <Route path="/login" element={<OrgLoginPage onLogin={handleAuth} />} />
