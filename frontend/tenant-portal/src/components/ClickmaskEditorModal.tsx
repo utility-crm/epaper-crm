@@ -38,10 +38,41 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
   const [currentDrawRect, setCurrentDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
   const totalPages = epaper.page_count || 1;
+  const [pageImageUrl, setPageImageUrl] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
 
   useEffect(() => {
     loadClickmasks();
   }, [slug, epaper.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let revoked: string | null = null;
+    setImageLoading(true);
+    setPageImageUrl(null);
+
+    (async () => {
+      try {
+        const blob = await portalApi.getPageImage(slug, epaper.id, currentPage, token);
+        if (cancelled) return;
+        if (blob) {
+          revoked = URL.createObjectURL(blob);
+          setPageImageUrl(revoked);
+        } else {
+          setPageImageUrl(readerApi.pageUrl(slug, epaper.id, currentPage));
+        }
+      } catch (err) {
+        if (!cancelled) setPageImageUrl(readerApi.pageUrl(slug, epaper.id, currentPage));
+      } finally {
+        if (!cancelled) setImageLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (revoked) URL.revokeObjectURL(revoked);
+    };
+  }, [slug, epaper.id, currentPage, token]);
 
   const loadClickmasks = async () => {
     setLoading(true);
@@ -217,11 +248,17 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
               className="relative max-h-full max-w-full aspect-[1/1.4] bg-white shadow-2xl cursor-crosshair overflow-hidden"
               style={{ width: 'auto', height: '100%' }}
             >
-              <img
-                src={readerApi.pageUrl(slug, epaper.id, currentPage)}
-                alt={`Page ${currentPage}`}
-                className="w-full h-full object-contain pointer-events-none"
-              />
+              {imageLoading ? (
+                <div className="w-full h-full flex items-center justify-center bg-neutral-800 text-neutral-400 text-sm">
+                  Loading page image...
+                </div>
+              ) : (
+                <img
+                  src={pageImageUrl || readerApi.pageUrl(slug, epaper.id, currentPage)}
+                  alt={`Page ${currentPage}`}
+                  className="w-full h-full object-contain pointer-events-none"
+                />
+              )}
 
               {/* Render Existing Clickmasks */}
               {currentMasks.map((mask, i) => {

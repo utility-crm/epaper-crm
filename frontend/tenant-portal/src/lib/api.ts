@@ -97,6 +97,14 @@ export const portalApi = {
   updateSettings: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/settings`, { method: 'PATCH', body: JSON.stringify(body) }, token),
   uploadLogo: (slug: string, file: File, token: string) => apiFetch<any>(`/api/content/${slug}/settings/logo`, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } }, token),
   logoUrl: (slug: string) => `${API_BASE}/api/content/${slug}/settings/logo`,
+  getPageImage: async (slug: string, id: string, n: number, token: string) => {
+    const res = await fetch(`${API_BASE}/api/content/${slug}/epapers/${id}/pages/${n}/image`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return await res.blob();
+  },
+  pageImageUrl: (slug: string, id: string, n: number) => `${API_BASE}/api/content/${slug}/epapers/${id}/pages/${n}/image`,
   deleteOrganization: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/settings`, { method: 'DELETE' }, token),
 };
 

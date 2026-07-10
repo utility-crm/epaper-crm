@@ -335,3 +335,32 @@ editionsRouter.put('/:slug/epapers/:id/pages/:n/clickmasks', async (c) => {
     return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });
+
+editionsRouter.get('/:slug/epapers/:id/pages/:n/image', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  const n = parseInt(c.req.param('n'), 10);
+  if (!Number.isInteger(n) || n < 1) return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid page number'), 400);
+
+  try {
+    const db = getTenantDb(c.env, slug);
+    const page = await db.prepare('SELECT r2_key FROM epaper_pages WHERE epaper_id = ? AND page_no = ?')
+      .bind(id, n).first<{ r2_key: string }>();
+    if (!page) return c.json(err(ErrorCode.NOT_FOUND, 'Page not found'), 404);
+
+    const bucket = getTenantBucket(c.env, slug);
+    const obj = await bucket.get(page.r2_key);
+    if (!obj) return c.json(err(ErrorCode.NOT_FOUND, 'Page file missing in storage'), 404);
+
+    const ct = obj.httpMetadata?.contentType ?? 'image/jpeg';
+    return new Response(obj.body, {
+      headers: {
+        'Content-Type': ct,
+        'Cache-Control': 'no-cache',
+      },
+    });
+  } catch (e) {
+    console.error(`Error viewing epaper page (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Error loading page file'), 500);
+  }
+});
