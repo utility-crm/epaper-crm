@@ -90,6 +90,7 @@ export const portalApi = {
   getTenantStats: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/stats`, {}, token),
   getDomain: (token: string) => apiFetch<any>(`/api/domain`, {}, token),
   setDomain: (domain: string, token: string) => apiFetch<any>(`/api/domain`, { method: 'POST', body: JSON.stringify({ domain }) }, token),
+  verifyDomain: (token: string) => apiFetch<any>(`/api/domain/verify`, { method: 'POST' }, token),
   removeDomain: (token: string) => apiFetch<any>(`/api/domain`, { method: 'DELETE' }, token),
 
   // org settings & branding
