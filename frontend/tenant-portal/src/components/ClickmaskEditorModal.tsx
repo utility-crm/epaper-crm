@@ -127,61 +127,54 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
     updateCurrentMasks(updated);
   };
 
-  // Smart Newspaper Auto-Detect
-  const handleAutoDetectNewspaper = () => {
+  // Smart Newspaper Auto-Detect Presets
+  const handleAutoFrontPage7 = () => {
     const layout: ClickmaskItem[] = [
-      {
-        id: 'auto_lead_' + Date.now(),
-        x: 2, y: 11, w: 96, h: 26,
-        title: 'Main Headline Story',
-        content: ''
-      },
-      {
-        id: 'auto_left_' + Date.now(),
-        x: 2, y: 39, w: 31, h: 37,
-        title: 'Left Column Lead',
-        content: ''
-      },
-      {
-        id: 'auto_center_' + Date.now(),
-        x: 34.5, y: 39, w: 31, h: 37,
-        title: 'Center Story',
-        content: ''
-      },
-      {
-        id: 'auto_right_' + Date.now(),
-        x: 67, y: 39, w: 31, h: 37,
-        title: 'Right Column Feature',
-        content: ''
-      },
-      {
-        id: 'auto_bottom_' + Date.now(),
-        x: 2, y: 78, w: 96, h: 20,
-        title: 'Bottom Banner Article',
-        content: ''
-      }
+      { id: 'lead_' + Date.now(), x: 2, y: 22, w: 96, h: 18, title: 'Lead Headline Story', content: '' },
+      { id: 'left_' + Date.now(), x: 2, y: 41, w: 31, h: 35, title: 'Left Column Story', content: '' },
+      { id: 'mid_' + Date.now(), x: 34.5, y: 41, w: 31, h: 35, title: 'Center Lead Story', content: '' },
+      { id: 'right_' + Date.now(), x: 67, y: 41, w: 31, h: 35, title: 'Right Column Feature', content: '' },
+      { id: 'bot_l_' + Date.now(), x: 2, y: 78, w: 31, h: 20, title: 'Bottom Left Feature', content: '' },
+      { id: 'bot_c_' + Date.now(), x: 34.5, y: 78, w: 31, h: 20, title: 'Bottom Center Feature', content: '' },
+      { id: 'bot_r_' + Date.now(), x: 67, y: 78, w: 31, h: 20, title: 'Bottom Right Feature', content: '' },
     ];
     updateCurrentMasks(layout);
     setSelectedId(layout[0].id);
   };
 
-  const handleAutoGrid = (cols: number, rows: number) => {
-    const gridMasks: ClickmaskItem[] = [];
-    let idx = 1;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        gridMasks.push({
-          id: `mask_grid_${r}_${c}_` + Date.now(),
-          x: Number(((c * 100) / cols).toFixed(2)),
-          y: Number(((r * 100) / rows).toFixed(2)),
-          w: Number((100 / cols).toFixed(2)),
-          h: Number((100 / rows).toFixed(2)),
-          title: `Article Block #${idx++}`,
-          content: ''
-        });
-      }
-    }
-    updateCurrentMasks(gridMasks);
+  const handleAutoFrontPage5 = () => {
+    const layout: ClickmaskItem[] = [
+      { id: 'lead5_' + Date.now(), x: 2, y: 22, w: 96, h: 20, title: 'Lead Headline Story', content: '' },
+      { id: 'up_l_' + Date.now(), x: 2, y: 43.5, w: 47, h: 26, title: 'Upper Left Lead', content: '' },
+      { id: 'up_r_' + Date.now(), x: 51, y: 43.5, w: 47, h: 26, title: 'Upper Right Story', content: '' },
+      { id: 'low_l_' + Date.now(), x: 2, y: 71, w: 47, h: 27, title: 'Lower Left Feature', content: '' },
+      { id: 'low_r_' + Date.now(), x: 51, y: 71, w: 47, h: 27, title: 'Lower Right Feature', content: '' },
+    ];
+    updateCurrentMasks(layout);
+    setSelectedId(layout[0].id);
+  };
+
+  const handleAutoInside3Cols = () => {
+    const layout: ClickmaskItem[] = [
+      { id: 'col1_' + Date.now(), x: 2, y: 9, w: 31, h: 89, title: 'Left Column Article', content: '' },
+      { id: 'col2_' + Date.now(), x: 34.5, y: 9, w: 31, h: 89, title: 'Center Column Article', content: '' },
+      { id: 'col3_' + Date.now(), x: 67, y: 9, w: 31, h: 89, title: 'Right Column Article', content: '' },
+    ];
+    updateCurrentMasks(layout);
+    setSelectedId(layout[0].id);
+  };
+
+  const handleAutoInside6Stories = () => {
+    const layout: ClickmaskItem[] = [
+      { id: 'r1c1_' + Date.now(), x: 2, y: 10, w: 31, h: 43, title: 'Upper Left Story', content: '' },
+      { id: 'r1c2_' + Date.now(), x: 34.5, y: 10, w: 31, h: 43, title: 'Upper Center Story', content: '' },
+      { id: 'r1c3_' + Date.now(), x: 67, y: 10, w: 43, h: 43, title: 'Upper Right Story', content: '' },
+      { id: 'r2c1_' + Date.now(), x: 2, y: 55, w: 31, h: 43, title: 'Lower Left Story', content: '' },
+      { id: 'r2c2_' + Date.now(), x: 34.5, y: 55, w: 31, h: 43, title: 'Lower Center Story', content: '' },
+      { id: 'r2c3_' + Date.now(), x: 67, y: 55, w: 31, h: 43, title: 'Lower Right Story', content: '' },
+    ];
+    updateCurrentMasks(layout);
+    setSelectedId(layout[0].id);
   };
 
   const handleDuplicateMask = (mask: ClickmaskItem) => {
@@ -226,6 +219,29 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
     updated.push(rightMask);
     updateCurrentMasks(updated);
     setSelectedId(leftMask.id);
+  };
+
+  const handleSplit3Cols = (mask: ClickmaskItem) => {
+    const thirdW = Number((mask.w / 3).toFixed(2));
+    const c1: ClickmaskItem = { ...mask, w: thirdW, title: `${mask.title} (Col 1)` };
+    const c2: ClickmaskItem = {
+      ...mask,
+      id: 'mask_' + Date.now() + '_c2',
+      x: Number((mask.x + thirdW).toFixed(2)),
+      w: thirdW,
+      title: `${mask.title} (Col 2)`
+    };
+    const c3: ClickmaskItem = {
+      ...mask,
+      id: 'mask_' + Date.now() + '_c3',
+      x: Number((mask.x + thirdW * 2).toFixed(2)),
+      w: thirdW,
+      title: `${mask.title} (Col 3)`
+    };
+    const updated = currentMasks.map(m => (m.id === mask.id ? c1 : m));
+    updated.push(c2, c3);
+    updateCurrentMasks(updated);
+    setSelectedId(c1.id);
   };
 
   const handleNudgeMask = (maskId: string, delta: { x?: number; y?: number; w?: number; h?: number }) => {
@@ -439,23 +455,23 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
         {/* Top Shortcut Bar */}
         <div className="px-4 py-2 border-b bg-muted/15 flex items-center justify-between gap-2 text-xs flex-wrap">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="font-semibold text-muted-foreground mr-1">Smart Presets:</span>
-            <Button variant="secondary" size="sm" className="h-7 text-xs gap-1" onClick={handleAutoDetectNewspaper}>
+            <span className="font-semibold text-muted-foreground mr-1">Smart Auto-Layouts:</span>
+            <Button variant="secondary" size="sm" className="h-7 text-xs gap-1" onClick={handleAutoFrontPage7} title="Auto-creates 7 story regions below the masthead header">
               <Wand2 className="w-3.5 h-3.5 text-primary" />
-              Auto-Detect Newspaper Layout (5 Stories)
+              Front Page (7 Stories)
             </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleAutoGrid(2, 2)}>
-              4-Grid
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleAutoFrontPage5} title="Auto-creates Lead + 4 Grid below masthead">
+              Front Page (5 Stories)
             </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleAutoGrid(2, 3)}>
-              6-Grid
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleAutoInside3Cols} title="3 full-height columns below page header">
+              Inside Page (3 Columns)
             </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleAutoGrid(3, 1)}>
-              3 Columns
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleAutoInside6Stories} title="3x2 story blocks below page header">
+              Inside Page (6 Stories)
             </Button>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {selectedMask && (
               <>
                 <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => handleDuplicateMask(selectedMask)}>
@@ -466,7 +482,10 @@ export function ClickmaskEditorModal({ slug, epaper, token, onClose }: Props) {
                   Split Top/Bottom
                 </Button>
                 <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleSplitVertical(selectedMask)}>
-                  Split Left/Right
+                  Split 2 Cols
+                </Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleSplit3Cols(selectedMask)}>
+                  Split 3 Cols
                 </Button>
               </>
             )}
