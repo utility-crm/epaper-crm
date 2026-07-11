@@ -4,9 +4,10 @@ import { Lock, Mail, Eye, EyeOff, Newspaper, ArrowLeft, ShieldCheck, Sparkles } 
 
 interface PaperAdminLoginPageProps {
   onLogin: (token: string, slug: string, status: string) => void;
+  expectedSlug?: string | null;
 }
 
-export function PaperAdminLoginPage({ onLogin }: PaperAdminLoginPageProps) {
+export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -15,7 +16,7 @@ export function PaperAdminLoginPage({ onLogin }: PaperAdminLoginPageProps) {
   const [loading, setLoading] = useState(false);
 
   // Publication context resolved from custom domain or URL path
-  const [slug, setSlug] = useState<string | null>(null);
+  const [slug, setSlug] = useState<string | null>(expectedSlug ?? null);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [resolvingContext, setResolvingContext] = useState(true);
@@ -23,26 +24,28 @@ export function PaperAdminLoginPage({ onLogin }: PaperAdminLoginPageProps) {
   useEffect(() => {
     async function resolvePublication() {
       try {
-        let detectedSlug: string | null = null;
+        let detectedSlug: string | null = expectedSlug ?? null;
         const pathname = window.location.pathname;
 
-        // Check explicit /read/:slug/admin pattern
-        const readMatch = pathname.match(/^\/read\/([^/]+)\/(admin|wp-admin|portal)/);
-        if (readMatch && readMatch[1]) {
-          detectedSlug = readMatch[1];
-        } else {
-          // Check custom domain mapping
-          const host = window.location.host;
-          const isCustomHost =
-            host &&
-            !['localhost', '127.0.0.1', 'epaperspace.com', 'www.epaperspace.com'].includes(host.split(':')[0]) &&
-            !host.endsWith('.epaperspace.com') &&
-            !host.endsWith('.pages.dev');
+        if (!detectedSlug) {
+          // Check explicit /read/:slug/admin pattern
+          const readMatch = pathname.match(/^\/read\/([^/]+)\/(admin|wp-admin|portal)/);
+          if (readMatch && readMatch[1]) {
+            detectedSlug = readMatch[1];
+          } else {
+            // Check custom domain mapping
+            const host = window.location.host;
+            const isCustomHost =
+              host &&
+              !['localhost', '127.0.0.1', 'epaperspace.com', 'www.epaperspace.com'].includes(host.split(':')[0]) &&
+              !host.endsWith('.epaperspace.com') &&
+              !host.endsWith('.pages.dev');
 
-          if (isCustomHost) {
-            const res = await readerApi.resolveDomain(host);
-            if (res.ok && res.data?.slug) {
-              detectedSlug = res.data.slug;
+            if (isCustomHost) {
+              const res = await readerApi.resolveDomain(host);
+              if (res.ok && res.data?.slug) {
+                detectedSlug = res.data.slug;
+              }
             }
           }
         }
@@ -67,7 +70,7 @@ export function PaperAdminLoginPage({ onLogin }: PaperAdminLoginPageProps) {
       }
     }
     resolvePublication();
-  }, []);
+  }, [expectedSlug]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,7 +78,16 @@ export function PaperAdminLoginPage({ onLogin }: PaperAdminLoginPageProps) {
     setLoading(true);
     try {
       const res = await portalApi.orgLogin({ email, password });
-      if (res.ok && res.data?.token) {
+      if (res.ok && res.data?.token && res.data?.slug) {
+        // Strict Tenant Isolation: If this login page is bound to a publication slug,
+        // reject credentials belonging to any other publication tenant.
+        if (slug && res.data.slug !== slug) {
+          setError(
+            `Access denied: These credentials belong to a different publication (${res.data.slug}). Only administrators for ${orgName || slug} can log in here.`
+          );
+          setLoading(false);
+          return;
+        }
         onLogin(res.data.token, res.data.slug, res.data.status);
       } else {
         setError(res.error?.message ?? 'Invalid email or password. Please try again.');

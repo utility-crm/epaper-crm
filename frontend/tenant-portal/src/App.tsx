@@ -25,7 +25,7 @@ import { ReaderSubscriptionSetup } from './pages/ReaderSubscriptionSetup';
 import { PlatformBillingPage } from './pages/PlatformBillingPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ReaderApp } from './reader/ReaderApp';
-import { portalApi } from './lib/api';
+import { portalApi, readerApi } from './lib/api';
 import { cn } from './lib/utils';
 import './index.css';
 
@@ -291,6 +291,8 @@ export default function App() {
     setTenantStatus('active');
   }
 
+  const [domainSlug, setDomainSlug] = useState<string | null>(null);
+
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const host = typeof window !== 'undefined' ? window.location.hostname : '';
   const isCustomDomain =
@@ -299,6 +301,16 @@ export default function App() {
     !host.endsWith('.epaperspace.com') &&
     !host.endsWith('.pages.dev');
 
+  useEffect(() => {
+    if (isCustomDomain) {
+      readerApi.resolveDomain(window.location.host).then(res => {
+        if (res.ok && res.data?.slug) {
+          setDomainSlug(res.data.slug);
+        }
+      });
+    }
+  }, [isCustomDomain]);
+
   const isAdminReq = isClientAdminRequest(path);
 
   // Serve public reader experience unless this is explicitly an admin request (/admin, /portal, /wp-admin)
@@ -306,8 +318,23 @@ export default function App() {
     return <ReaderApp />;
   }
 
-  // Public staff & marketing routes
-  if (!token) {
+  const readAdminMatch = path.match(/^\/read\/([^/]+)\/(admin|wp-admin|portal)/);
+  const expectedSlug = readAdminMatch ? readAdminMatch[1] : (isCustomDomain ? domainSlug : null);
+
+  const payload = token ? decodeJwt(token) : null;
+  // STRICT TENANT ISOLATION:
+  // If the user visits an admin path bound to a specific publication (expectedSlug),
+  // but their token belongs to a DIFFERENT publication, do not let them in.
+  const isTokenValidForDomain =
+    !expectedSlug ||
+    !payload ||
+    payload.aud !== 'tenant-portal' ||
+    payload.tenantSlug === expectedSlug;
+
+  const activeToken = isTokenValidForDomain && payload && payload.aud === 'tenant-portal' ? token : null;
+
+  // Public staff & marketing routes (or unauthenticated/mismatched tenant admin requests)
+  if (!activeToken) {
     return (
       <Routes>
         <Route path="/" element={<LandingPage />} />
@@ -322,48 +349,42 @@ export default function App() {
         <Route path="/signup" element={<SignupPage onSignup={(t, s) => handleAuth(t, s, 'pending')} />} />
         <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
         <Route path="/login" element={<OrgLoginPage onLogin={handleAuth} />} />
-        <Route path="/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
-        <Route path="/wp-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
-        <Route path="/client-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
-        <Route path="/portal/login" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
-        <Route path="/portal" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
-        <Route path="/read/:slug/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
-        <Route path="/read/:slug/wp-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
+        <Route path="/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
+        <Route path="/wp-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
+        <Route path="/client-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
+        <Route path="/portal/login" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
+        <Route path="/portal" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
+        <Route path="/read/:slug/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
+        <Route path="/read/:slug/wp-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     );
   }
 
-  const payload = decodeJwt(token);
-  if (!payload || payload.aud !== 'tenant-portal') {
-    handleLogout();
-    return null;
-  }
-
-  const slug: string = payload.tenantSlug;
+  const slug: string = payload!.tenantSlug;
 
   if (tenantStatus === 'suspended') {
     return <SuspendedScreen onLogout={handleLogout} />;
   }
 
   if (tenantStatus !== 'active') {
-    return <ProvisioningScreen token={token} onActive={handleProvisioned} />;
+    return <ProvisioningScreen token={activeToken} onActive={handleProvisioned} />;
   }
 
   const basePrefix = getAdminBasePrefix(path);
 
   return (
     <div className="flex h-screen bg-background font-sans text-foreground">
-      <PortalSidebar slug={slug} token={token} basePrefix={basePrefix} onLogout={handleLogout} />
+      <PortalSidebar slug={slug} token={activeToken} basePrefix={basePrefix} onLogout={handleLogout} />
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl px-8 py-8">
           <Routes>
-            <Route path="/portal/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
-            <Route path="/admin/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
-            <Route path="/wp-admin/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
-            <Route path="/client-admin/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
-            <Route path="/read/:pubSlug/admin/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
-            <Route path="/read/:pubSlug/wp-admin/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
+            <Route path="/portal/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+            <Route path="/admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+            <Route path="/wp-admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+            <Route path="/client-admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+            <Route path="/read/:pubSlug/admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+            <Route path="/read/:pubSlug/wp-admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
             <Route path="*" element={<Navigate to={basePrefix} replace />} />
           </Routes>
         </div>
