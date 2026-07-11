@@ -14,11 +14,14 @@ export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPa
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Publication context resolved from custom domain or URL path
+  const initialSettings =
+    typeof window !== 'undefined' ? (window as any).__EPAPER_INITIAL_SETTINGS__ : null;
+
+  // Publication context resolved instantly from window.__EPAPER_INITIAL_SETTINGS__ or domain/path
   const [slug, setSlug] = useState<string | null>(expectedSlug ?? null);
-  const [orgName, setOrgName] = useState<string | null>(null);
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [resolvingContext, setResolvingContext] = useState(true);
+  const [orgName, setOrgName] = useState<string | null>(initialSettings?.org_name || null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(initialSettings?.logo_url || null);
+  const [resolvingContext, setResolvingContext] = useState(!initialSettings?.org_name);
 
   useEffect(() => {
     async function resolvePublication() {
@@ -51,14 +54,17 @@ export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPa
 
         if (detectedSlug) {
           setSlug(detectedSlug);
-          const settingsRes = await readerApi.getSettings(detectedSlug);
-          if (settingsRes.ok && settingsRes.data) {
-            setOrgName(settingsRes.data.org_name || detectedSlug);
-            if (settingsRes.data.logo_url) {
-              setLogoUrl(readerApi.logoUrl(detectedSlug));
-            }
-            if (settingsRes.data.org_name) {
-              document.title = `${settingsRes.data.org_name} — Admin Panel Login`;
+          // Only fetch public settings (org_name, logo_url) if not already loaded
+          if (!orgName || !logoUrl) {
+            const settingsRes = await readerApi.getSettings(detectedSlug);
+            if (settingsRes.ok && settingsRes.data) {
+              setOrgName(settingsRes.data.org_name || detectedSlug);
+              if (settingsRes.data.logo_url) {
+                setLogoUrl(readerApi.logoUrl(detectedSlug));
+              }
+              if (settingsRes.data.org_name) {
+                document.title = `${settingsRes.data.org_name} — Admin Panel Login`;
+              }
             }
           }
         }
@@ -98,7 +104,13 @@ export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPa
     }
   };
 
-  const displayName = orgName || (slug ? slug.toUpperCase() : 'Client Portal');
+  const formatSlugName = (s: string) =>
+    s
+      .replace(/-[a-f0-9]{4}$/i, '')
+      .replace(/-/g, ' ')
+      .toUpperCase();
+
+  const displayName = orgName || (slug ? formatSlugName(slug) : 'Client Portal');
   const livePaperUrl = slug ? (window.location.pathname.startsWith('/read') ? `/read/${slug}` : '/') : '/';
 
   return (
