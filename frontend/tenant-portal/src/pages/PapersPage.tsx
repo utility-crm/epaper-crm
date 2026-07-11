@@ -7,7 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff, Image as ImageIcon, Share2, Scissors } from 'lucide-react';
+import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff, Image as ImageIcon, Share2, Scissors, Clock } from 'lucide-react';
 import { convertPdfToWebpPages } from '../lib/pdfToImages';
 import { extractPdfThumbnail } from '../lib/pdfThumbnail';
 import { ShareModal } from '../components/ShareModal';
@@ -157,9 +157,11 @@ export function PapersPage({ slug, token }: Props) {
                         </TableCell>
                         <TableCell>
                           <button onClick={() => togglePublish(p)} className="cursor-pointer" title={p.status === 'published' ? 'Click to unpublish' : 'Click to publish'}>
-                            <Badge variant={p.status === 'published' ? 'success' : 'muted'}>
-                              {p.status === 'published' ? <><Globe className="inline h-3 w-3 mr-1" />Published</> : <><EyeOff className="inline h-3 w-3 mr-1" />Draft</>}
-                            </Badge>
+                            {p.status === 'published'
+                              ? <Badge variant="success"><Globe className="inline h-3 w-3 mr-1" />Published</Badge>
+                              : p.publish_type === 'scheduled' && p.scheduled_at
+                                ? <Badge variant="warning"><Clock className="inline h-3 w-3 mr-1" />Scheduled</Badge>
+                                : <Badge variant="muted"><EyeOff className="inline h-3 w-3 mr-1" />Draft</Badge>}
                           </button>
                         </TableCell>
                         <TableCell>

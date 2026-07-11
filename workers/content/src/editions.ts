@@ -83,12 +83,14 @@ editionsRouter.post('/:slug/editions/:id/epapers', async (c) => {
     const id = crypto.randomUUID();
 
     const freePages = Number.isInteger(body.free_page_count) && body.free_page_count >= 0 ? body.free_page_count : 0;
+    const publishType = body.publish_type || 'instant';
+    const initialStatus = publishType === 'instant' ? 'published' : 'draft';
 
     await db.prepare(
       'INSERT INTO epapers (id, edition_id, title, publish_date, is_free, free_page_count, publish_type, scheduled_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(
       id, edition_id, body.title ?? null, body.publish_date, body.is_free ? 1 : 0, freePages,
-      body.publish_type || 'instant', body.scheduled_at || null, 'draft'
+      publishType, body.scheduled_at || null, initialStatus
     ).run();
 
     return c.json(ok({ id }), 201);
