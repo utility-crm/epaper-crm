@@ -213,7 +213,7 @@ export function LandingPage() {
       <header className="landing-nav sticky-header">
         <div className="landing-container landing-nav__inner">
           <Link to="/" className="landing-nav__brand" aria-label="ePaperSpace Home">
-            <span className="brand-icon">📰</span>
+            <img src="/logo.png" alt="ePaperSpace Logo" className="brand-icon-img" style={{ height: '32px', width: 'auto', marginRight: '8px' }} />
             ePaper<span>Space</span>
           </Link>
 
