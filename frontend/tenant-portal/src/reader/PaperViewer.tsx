@@ -226,9 +226,16 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
       );
       for (const targetPage of candidates) {
         if (cancelled) break;
+        
+        // Smart optimization: if we know this target page is premium (targetPage > free_page_count),
+        // and the paper is NOT unlocked for this user, the API WILL return 401 Unauthorized.
+        // We skip prefetching it entirely to prevent the browser from logging 401 network errors.
+        if (targetPage > (paper.free_page_count || 0) && paper.unlocked === false) {
+          break;
+        }
+
         const result = await fetchPageBlobUrl(targetPage);
         // If a page is locked (401/402), subsequent pages are almost certainly locked too
-        // Aborting prevents the browser console from spamming multiple 401 network errors
         if (result.locked) break;
       }
     }, 120);
