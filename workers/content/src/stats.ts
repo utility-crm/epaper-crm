@@ -16,3 +16,28 @@ statsRouter.get('/:slug/stats', async (c) => {
     return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Database error'), 500);
   }
 });
+
+statsRouter.post('/:slug/stats/recalculate', async (c) => {
+  const slug = c.req.param('slug');
+  try {
+    const db = getTenantDb(c.env, slug);
+    const bucket = getTenantBucket(c.env, slug);
+    
+    let totalSize = 0;
+    let cursor: string | undefined = undefined;
+    do {
+      const listed = await bucket.list({ cursor });
+      for (const object of listed.objects) {
+        totalSize += object.size;
+      }
+      cursor = listed.truncated ? listed.cursor : undefined;
+    } while (cursor);
+    
+    await db.prepare('UPDATE tenant_stats SET disk_usage_bytes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1').bind(totalSize).run();
+    
+    return c.json(ok({ disk_usage_bytes: totalSize }));
+  } catch (e) {
+    console.error(`Error in stats recalculate (${slug}):`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Storage/DB error'), 500);
+  }
+});
