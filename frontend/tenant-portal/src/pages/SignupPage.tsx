@@ -43,7 +43,7 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
   };
 
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex bg-slate-50" style={{ fontFamily: "'Inter', sans-serif" }}>
       {/* Left side: Branding / Marketing */}
       <div className="hidden lg:flex flex-1 flex-col justify-center px-16 relative overflow-hidden bg-slate-900 text-white">
         {/* Background Gradients */}
@@ -51,11 +51,8 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
         <div className="absolute -bottom-32 -right-32 w-[40rem] h-[40rem] bg-rose-500/20 rounded-full blur-3xl" />
         
         <div className="relative z-10 max-w-lg">
-          <div className="w-14 h-14 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20 mb-10 shadow-xl">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
-              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
-              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
-            </svg>
+          <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mb-10 shadow-xl overflow-hidden p-2">
+            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
           </div>
           
           <h1 className="text-5xl font-extrabold leading-tight tracking-tight mb-6 text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-400">
@@ -102,11 +99,8 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
         <div className="w-full max-w-[440px]">
           
           <div className="lg:hidden text-center mb-10">
-            <div className="w-14 h-14 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-500/30">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
-                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
-              </svg>
+            <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg p-2">
+              <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
             <h1 className="text-3xl font-extrabold text-slate-900">Get Started</h1>
           </div>
@@ -179,7 +173,7 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
             <button 
               type="submit" 
               disabled={loading} 
-              className="w-full mt-2 py-3.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-all shadow-md active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100 flex items-center justify-center gap-2"
+              className="w-full mt-2 py-3.5 px-4 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-all shadow-md active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100 flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
@@ -190,7 +184,7 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
             </button>
 
             <p className="text-center text-slate-500 text-sm mt-6">
-              Already have an account? <Link to="/portal/login" className="text-indigo-600 font-semibold hover:underline">Sign in instead</Link>
+              Already have an account? <Link to="/login" className="text-red-600 font-semibold hover:underline">Sign in instead</Link>
             </p>
           </form>
         </div>
