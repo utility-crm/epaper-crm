@@ -65,7 +65,7 @@ app.get('/api/billing/platform/plans', async (c) => {
         amount: amountPaise,
         unit_amount: amountPaise,
         currency: 'INR',
-        description: `Storage: ${t.max_storage_mb} MB | Views: ${t.max_views_per_day}/day`
+        description: `Storage: ${t.max_storage_mb >= 1024 ? `${(t.max_storage_mb / 1024).toFixed(1).replace('.0', '')} GB` : `${t.max_storage_mb} MB`} | Views: ${t.max_views_per_day}/day`
       }
     };
   });

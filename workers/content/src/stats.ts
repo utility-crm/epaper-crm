@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getTenantDb } from './db';
+import { getTenantDb, getTenantBucket } from './db';
 import { ok, err, ErrorCode } from '@epaper/types';
 
 export const statsRouter = new Hono();
