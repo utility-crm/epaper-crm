@@ -22,18 +22,19 @@ interface RazorpayPlan {
   };
 }
 
-function formatAmount(inr: number, period: string): string {
-  const formatted = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(inr);
-  return `${formatted}/${period === 'yearly' ? 'yr' : 'mo'}`;
-}
+import { useCurrencyConverter } from '../lib/useCurrencyConverter';
 
 export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: PlatformBillingPageProps) {
   const [status, setStatus]       = useState<any>(null);
   const [tiers, setTiers]         = useState<any[]>([]);
-  const [loading, setLoading]     = useState(true);
+  const [loadingTiers, setLoadingTiers] = useState(true);
   const [paying, setPaying]       = useState<string | null>(null); // plan_id being paid
   const [error, setError]         = useState('');
   const [successMsg, setSuccess]  = useState('');
+  
+  const { formatAmount, loading: loadingCurrency } = useCurrencyConverter();
+  
+  const loading = loadingTiers || loadingCurrency;
 
   // Load billing status + live plans from Razorpay Dashboard in parallel.
   useEffect(() => {
@@ -47,7 +48,7 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
       if (tiersRes.ok && tiersRes.data) {
         setTiers(tiersRes.data);
       }
-      setLoading(false);
+      setLoadingTiers(false);
     });
   }, [slug, token]);
 

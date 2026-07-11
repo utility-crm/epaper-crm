@@ -1,33 +1,38 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut, Settings, ExternalLink } from 'lucide-react';
-import { LandingPage } from './pages/LandingPage';
-import {
-  AboutPage,
-  ServicesInfoPage,
-  PricingInfoPage,
-  ContactInfoPage,
-  PrivacyPolicyPage,
-  TermsConditionsPage,
-  RefundPolicyPage,
-  DisclaimerPage,
-} from './pages/InfoLegalPages';
-import { SignupPage } from './pages/SignupPage';
-import { OrgLoginPage } from './pages/OrgLoginPage';
-import { PaperAdminLoginPage } from './pages/PaperAdminLoginPage';
-import { ProvisioningScreen } from './pages/ProvisioningScreen';
-import { SuspendedScreen } from './pages/SuspendedScreen';
-import { OrgDashboard } from './pages/OrgDashboard';
-import { PapersPage } from './pages/PapersPage';
-import { PlansPage } from './pages/PlansPage';
-import { DomainPage } from './pages/DomainPage';
-import { ReaderSubscriptionSetup } from './pages/ReaderSubscriptionSetup';
-import { PlatformBillingPage } from './pages/PlatformBillingPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { ReaderApp } from './reader/ReaderApp';
+
+const LandingPage = lazy(() => import('./pages/LandingPage').then(m => ({ default: m.LandingPage })));
+const AboutPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ default: m.AboutPage })));
+const ServicesInfoPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ default: m.ServicesInfoPage })));
+const PricingInfoPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ default: m.PricingInfoPage })));
+const ContactInfoPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ default: m.ContactInfoPage })));
+const PrivacyPolicyPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ default: m.PrivacyPolicyPage })));
+const TermsConditionsPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ default: m.TermsConditionsPage })));
+const RefundPolicyPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ default: m.RefundPolicyPage })));
+const DisclaimerPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ default: m.DisclaimerPage })));
+const SignupPage = lazy(() => import('./pages/SignupPage').then(m => ({ default: m.SignupPage })));
+const OrgLoginPage = lazy(() => import('./pages/OrgLoginPage').then(m => ({ default: m.OrgLoginPage })));
+const PaperAdminLoginPage = lazy(() => import('./pages/PaperAdminLoginPage').then(m => ({ default: m.PaperAdminLoginPage })));
+const ProvisioningScreen = lazy(() => import('./pages/ProvisioningScreen').then(m => ({ default: m.ProvisioningScreen })));
+const SuspendedScreen = lazy(() => import('./pages/SuspendedScreen').then(m => ({ default: m.SuspendedScreen })));
+const OrgDashboard = lazy(() => import('./pages/OrgDashboard').then(m => ({ default: m.OrgDashboard })));
+const PapersPage = lazy(() => import('./pages/PapersPage').then(m => ({ default: m.PapersPage })));
+const PlansPage = lazy(() => import('./pages/PlansPage').then(m => ({ default: m.PlansPage })));
+const DomainPage = lazy(() => import('./pages/DomainPage').then(m => ({ default: m.DomainPage })));
+const ReaderSubscriptionSetup = lazy(() => import('./pages/ReaderSubscriptionSetup').then(m => ({ default: m.ReaderSubscriptionSetup })));
+const PlatformBillingPage = lazy(() => import('./pages/PlatformBillingPage').then(m => ({ default: m.PlatformBillingPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const ReaderApp = lazy(() => import('./reader/ReaderApp').then(m => ({ default: m.ReaderApp })));
 import { portalApi, readerApi } from './lib/api';
 import { cn } from './lib/utils';
 import './index.css';
+
+const FallbackLoader = () => (
+  <div className="flex h-screen w-full items-center justify-center bg-slate-50/50">
+    <div className="h-8 w-8 animate-spin rounded-full border-4 border-red-600 border-t-transparent"></div>
+  </div>
+);
 
 function decodeJwt(token: string) {
   try {
@@ -187,19 +192,21 @@ function PortalSidebar({ slug, token, basePrefix, onLogout }: { slug: string; to
 
 function AdminPortalRoutes({ slug, token }: { slug: string; token: string }) {
   return (
-    <Routes>
-      <Route index element={<OrgDashboard slug={slug} token={token} />} />
-      <Route path="papers" element={<PapersPage slug={slug} token={token} />} />
-      <Route path="plans" element={<PlansPage slug={slug} token={token} />} />
-      <Route path="domain" element={<DomainPage slug={slug} token={token} />} />
-      <Route path="reader-setup" element={<ReaderSubscriptionSetup slug={slug} token={token} />} />
-      <Route path="platform-billing" element={<PlatformBillingPage slug={slug} token={token} />} />
-      <Route path="settings" element={<SettingsPage slug={slug} token={token} />} />
-      {/* legacy sub-paths */}
-      <Route path="editions" element={<Navigate to="papers" replace />} />
-      <Route path="epapers" element={<Navigate to="papers" replace />} />
-      <Route path="*" element={<Navigate to="" replace />} />
-    </Routes>
+    <Suspense fallback={<FallbackLoader />}>
+      <Routes>
+        <Route index element={<OrgDashboard slug={slug} token={token} />} />
+        <Route path="papers" element={<PapersPage slug={slug} token={token} />} />
+        <Route path="plans" element={<PlansPage slug={slug} token={token} />} />
+        <Route path="domain" element={<DomainPage slug={slug} token={token} />} />
+        <Route path="reader-setup" element={<ReaderSubscriptionSetup slug={slug} token={token} />} />
+        <Route path="platform-billing" element={<PlatformBillingPage slug={slug} token={token} />} />
+        <Route path="settings" element={<SettingsPage slug={slug} token={token} />} />
+        {/* legacy sub-paths */}
+        <Route path="editions" element={<Navigate to="papers" replace />} />
+        <Route path="epapers" element={<Navigate to="papers" replace />} />
+        <Route path="*" element={<Navigate to="" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 
@@ -315,7 +322,11 @@ export default function App() {
 
   // Serve public reader experience unless this is explicitly an admin request (/admin, /portal, /wp-admin)
   if (!isAdminReq && (path.startsWith('/read') || isCustomDomain)) {
-    return <ReaderApp />;
+    return (
+      <Suspense fallback={<FallbackLoader />}>
+        <ReaderApp />
+      </Suspense>
+    );
   }
 
   const readAdminMatch = path.match(/^\/read\/([^/]+)\/(admin|wp-admin|portal)/);
@@ -336,23 +347,25 @@ export default function App() {
   // Public staff & marketing routes (or unauthenticated/mismatched tenant admin requests)
   if (!activeToken) {
     return (
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/about" element={<AboutPage />} />
-        <Route path="/services" element={<ServicesInfoPage />} />
-        <Route path="/pricing" element={<PricingInfoPage />} />
-        <Route path="/contact" element={<ContactInfoPage />} />
-        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-        <Route path="/terms-and-conditions" element={<TermsConditionsPage />} />
-        <Route path="/refund-policy" element={<RefundPolicyPage />} />
-        <Route path="/disclaimer" element={<DisclaimerPage />} />
-        <Route path="/signup" element={<SignupPage onSignup={(t, s) => handleAuth(t, s, 'pending')} />} />
-        <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
-        <Route path="/login" element={<OrgLoginPage onLogin={handleAuth} />} />
-        <Route path="/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
-        <Route path="/read/:slug/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
+      <Suspense fallback={<FallbackLoader />}>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/services" element={<ServicesInfoPage />} />
+          <Route path="/pricing" element={<PricingInfoPage />} />
+          <Route path="/contact" element={<ContactInfoPage />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms-and-conditions" element={<TermsConditionsPage />} />
+          <Route path="/refund-policy" element={<RefundPolicyPage />} />
+          <Route path="/disclaimer" element={<DisclaimerPage />} />
+          <Route path="/signup" element={<SignupPage onSignup={(t, s) => handleAuth(t, s, 'pending')} />} />
+          <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
+          <Route path="/login" element={<OrgLoginPage onLogin={handleAuth} />} />
+          <Route path="/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
+          <Route path="/read/:slug/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </Suspense>
     );
   }
 
@@ -373,15 +386,17 @@ export default function App() {
       <PortalSidebar slug={slug} token={activeToken} basePrefix={basePrefix} onLogout={handleLogout} />
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl px-8 py-8">
-          <Routes>
-            <Route path="/portal/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
-            <Route path="/admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
-            <Route path="/wp-admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
-            <Route path="/client-admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
-            <Route path="/read/:pubSlug/admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
-            <Route path="/read/:pubSlug/wp-admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
-            <Route path="*" element={<Navigate to={basePrefix} replace />} />
-          </Routes>
+          <Suspense fallback={<FallbackLoader />}>
+            <Routes>
+              <Route path="/portal/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+              <Route path="/admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+              <Route path="/wp-admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+              <Route path="/client-admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+              <Route path="/read/:pubSlug/admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+              <Route path="/read/:pubSlug/wp-admin/*" element={<AdminPortalRoutes slug={slug} token={activeToken} />} />
+              <Route path="*" element={<Navigate to={basePrefix} replace />} />
+            </Routes>
+          </Suspense>
         </div>
       </main>
     </div>

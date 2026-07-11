@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { portalApi } from '../lib/api';
+import { useCurrencyConverter } from '../lib/useCurrencyConverter';
 import './LandingPage.css';
 
 interface PageMetaProps {
@@ -248,21 +249,19 @@ export const ServicesInfoPage: React.FC = () => (
 
 export const PricingInfoPage: React.FC = () => {
   const [tiers, setTiers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingTiers, setLoadingTiers] = useState(true);
+  const { formatAmount, loading: loadingCurrency } = useCurrencyConverter();
 
   useEffect(() => {
     portalApi.getPlatformTiers().then(res => {
       if (res.ok && res.data) {
         setTiers(res.data);
       }
-      setLoading(false);
+      setLoadingTiers(false);
     });
   }, []);
 
-  const formatAmount = (inr: number, period: string): string => {
-    const formatted = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(inr);
-    return `${formatted}/${period === 'yearly' ? 'yr' : 'mo'}`;
-  };
+  const loading = loadingTiers || loadingCurrency;
 
   return (
     <PageLayout
