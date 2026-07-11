@@ -44,6 +44,9 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
   const [pageLoading, setPageLoading] = useState(true);
   const [plans, setPlans] = useState<any[]>([]);
 
+  // Memory cache of preloaded page object URLs for instant snappy transitions
+  const pageCacheRef = useRef<Record<number, string>>({});
+
   // Clickmasks for the current paper
   const [clickmasksByPage, setClickmasksByPage] = useState<Record<number, any[]>>({});
   const [selectedClip, setSelectedClip] = useState<ArticleClip | null>(() => {
@@ -113,6 +116,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
 
   const loadPaper = useCallback(async () => {
     if (!id) return;
+    pageCacheRef.current = {};
     const res = await readerApi.getPaper(slug, id, session?.token);
     if (res.ok && res.data) {
       setPaper(res.data);
@@ -149,43 +153,88 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
     loadPaper();
   }, [loadPaper]);
 
-  // Fetch page image or PDF blob, then render to a shared canvas/data-url
+  // Helper to fetch and cache a single page's blob URL
+  const fetchPageBlobUrl = useCallback(
+    async (pageNo: number): Promise<{ url: string | null; locked: boolean }> => {
+      if (!id) return { url: null, locked: false };
+      if (pageCacheRef.current[pageNo]) {
+        return { url: pageCacheRef.current[pageNo], locked: false };
+      }
+      try {
+        const res = await fetch(readerApi.pageUrl(slug, id, pageNo), {
+          headers: session?.token ? { Authorization: `Bearer ${session.token}` } : {},
+        });
+        if (res.status === 401 || res.status === 402) {
+          return { url: null, locked: true };
+        }
+        if (!res.ok) return { url: null, locked: false };
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        pageCacheRef.current[pageNo] = url;
+        return { url, locked: false };
+      } catch {
+        return { url: null, locked: false };
+      }
+    },
+    [slug, id, session]
+  );
+
+  // Foreground Page Load: Instant if cached, otherwise show newspaper skeleton while loading
   useEffect(() => {
     if (!id || !paper) return;
-    let revoked: string | null = null;
     let cancelled = false;
+
+    // Fast path: if already cached in memory, switch instantly with 0ms delay!
+    if (pageCacheRef.current[page]) {
+      setPageUrl(pageCacheRef.current[page]);
+      setLocked(false);
+      setPageLoading(false);
+      return;
+    }
+
     setPageLoading(true);
     setLocked(false);
-    setPageUrl(null);
 
     (async () => {
-      const res = await fetch(readerApi.pageUrl(slug, id, page), {
-        headers: session?.token ? { Authorization: `Bearer ${session.token}` } : {},
-      });
+      const result = await fetchPageBlobUrl(page);
       if (cancelled) return;
-      if (res.status === 401 || res.status === 402) {
+      if (result.locked) {
         setLocked(true);
         setPageLoading(false);
         return;
       }
-      if (!res.ok) {
-        setPageLoading(false);
-        return;
+      if (result.url) {
+        setPageUrl(result.url);
       }
-      const blob = await res.blob();
-      if (cancelled) return;
-      const isImage = blob.type.startsWith('image/');
-      setBlobType(isImage ? 'image' : 'pdf');
-      revoked = URL.createObjectURL(blob);
-      setPageUrl(revoked);
       setPageLoading(false);
     })();
 
     return () => {
       cancelled = true;
-      if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [slug, id, page, paper, session]);
+  }, [id, page, paper, fetchPageBlobUrl]);
+
+  // Background Preloader: Sequentially preload upcoming pages without blocking foreground rendering
+  useEffect(() => {
+    if (!id || !paper || pageLoading) return;
+    const totalPages = paper?.page_count || 1;
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      const candidates = [page + 1, page - 1, page + 2, page + 3].filter(
+        p => p >= 1 && p <= totalPages && p !== page && !pageCacheRef.current[p]
+      );
+      for (const targetPage of candidates) {
+        if (cancelled) break;
+        await fetchPageBlobUrl(targetPage);
+      }
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [id, page, paper, pageLoading, fetchPageBlobUrl]);
 
   const total = paper?.page_count || 1;
   const currentClickmasks = clickmasksByPage[page] || [];
@@ -558,8 +607,51 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
 
           <div className="w-full max-w-4xl">
             {pageLoading ? (
-              <div className="flex min-h-[70vh] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <div className="w-full aspect-[3/4] max-w-3xl mx-auto rounded-lg border border-border/80 bg-card p-6 md:p-10 shadow-lg flex flex-col justify-between animate-pulse transition-all">
+                {/* Skeleton Masthead */}
+                <div className="border-b border-border/60 pb-5 mb-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="h-4 w-32 rounded bg-muted"></div>
+                    <div className="h-4 w-24 rounded bg-muted"></div>
+                  </div>
+                  <div className="h-8 w-3/4 mx-auto rounded bg-muted/80 mb-2"></div>
+                  <div className="h-3 w-1/2 mx-auto rounded bg-muted/60"></div>
+                </div>
+
+                {/* Skeleton Newspaper Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 flex-1 mb-5">
+                  <div className="md:col-span-8 flex flex-col gap-3">
+                    <div className="h-6 w-5/6 rounded bg-muted/90"></div>
+                    <div className="h-4 w-2/3 rounded bg-muted/70"></div>
+                    <div className="w-full h-48 rounded bg-muted/80 my-2"></div>
+                    <div className="space-y-2">
+                      <div className="h-3 w-full rounded bg-muted/60"></div>
+                      <div className="h-3 w-full rounded bg-muted/60"></div>
+                      <div className="h-3 w-4/5 rounded bg-muted/60"></div>
+                    </div>
+                  </div>
+                  <div className="md:col-span-4 flex flex-col gap-4 border-t md:border-t-0 md:border-l border-border/60 pt-4 md:pt-0 md:pl-5">
+                    <div className="space-y-2">
+                      <div className="h-4 w-full rounded bg-muted/80"></div>
+                      <div className="h-3 w-full rounded bg-muted/60"></div>
+                      <div className="h-3 w-3/4 rounded bg-muted/60"></div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="h-4 w-11/12 rounded bg-muted/80"></div>
+                      <div className="h-20 w-full rounded bg-muted/70 my-1"></div>
+                      <div className="h-3 w-full rounded bg-muted/60"></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Skeleton Footer & Page Status */}
+                <div className="border-t border-border/60 pt-3 flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                    <span className="font-medium">Loading Page {page} of {total}...</span>
+                  </div>
+                  <span>ePaper Space Reader</span>
+                </div>
               </div>
             ) : locked ? (
               <Card className="overflow-hidden">
@@ -658,7 +750,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
                 <img
                   src={pageUrl}
                   alt={`Page ${page}`}
-                  className="w-full h-auto block pointer-events-none"
+                  className="w-full h-auto block pointer-events-none animate-in fade-in duration-300"
                 />
 
                 {/* Interactive Clickmask Polygons / Article Overlays */}
