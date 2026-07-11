@@ -216,7 +216,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
 
   // Background Preloader: Sequentially preload upcoming pages without blocking foreground rendering
   useEffect(() => {
-    if (!id || !paper || pageLoading) return;
+    if (!id || !paper || pageLoading || locked) return;
     const totalPages = paper?.page_count || 1;
     let cancelled = false;
 
@@ -226,7 +226,10 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
       );
       for (const targetPage of candidates) {
         if (cancelled) break;
-        await fetchPageBlobUrl(targetPage);
+        const result = await fetchPageBlobUrl(targetPage);
+        // If a page is locked (401/402), subsequent pages are almost certainly locked too
+        // Aborting prevents the browser console from spamming multiple 401 network errors
+        if (result.locked) break;
       }
     }, 120);
 
