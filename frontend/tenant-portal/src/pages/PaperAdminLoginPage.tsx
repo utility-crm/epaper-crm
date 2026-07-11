@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { portalApi, readerApi } from '../lib/api';
-import { Lock, Mail, Eye, EyeOff, Newspaper, ArrowLeft, ShieldCheck, Sparkles } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff, Newspaper, ArrowLeft, ShieldCheck } from 'lucide-react';
 
 interface PaperAdminLoginPageProps {
   onLogin: (token: string, slug: string, status: string) => void;
@@ -11,7 +11,6 @@ export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPa
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -99,174 +98,165 @@ export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPa
     }
   };
 
-  const displayName = orgName || 'Client Portal';
+  const displayName = orgName || (slug ? slug.toUpperCase() : 'Client Portal');
   const livePaperUrl = slug ? (window.location.pathname.startsWith('/read') ? `/read/${slug}` : '/') : '/';
 
   return (
-    <div className="min-h-screen flex flex-col justify-between bg-slate-950 text-slate-100 selection:bg-red-500/30 selection:text-red-200 relative overflow-hidden">
-      {/* Decorative gradient glow background */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[800px] h-[450px] bg-gradient-to-b from-red-600/15 via-rose-600/10 to-transparent rounded-full blur-3xl opacity-80" />
-        <div className="absolute bottom-0 right-0 w-[500px] h-[300px] bg-indigo-600/10 rounded-full blur-3xl" />
-      </div>
-
-      {/* Top Banner / Breadcrumb */}
-      <div className="relative z-10 w-full max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        background: 'radial-gradient(ellipse at 60% 30%, rgba(217, 4, 41, 0.08) 0%, transparent 65%), var(--background)',
+        color: 'var(--foreground)'
+      }}
+    >
+      {/* Top Banner */}
+      <div style={{ maxWidth: 1100, width: '100%', margin: '0 auto', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <a
           href={livePaperUrl}
-          className="inline-flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-white transition-colors group"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: '0.85rem',
+            color: 'var(--color-text-secondary)',
+            textDecoration: 'none',
+            fontWeight: 500
+          }}
         >
-          <ArrowLeft className="h-4 w-4 text-slate-500 group-hover:-translate-x-0.5 transition-transform" />
-          <span>← Go to <strong className="text-slate-200 font-semibold">{displayName}</strong></span>
+          <ArrowLeft className="h-4 w-4" />
+          <span>Back to <strong style={{ color: 'var(--foreground)' }}>{displayName}</strong></span>
         </a>
 
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/80 border border-slate-800 text-[11px] font-medium text-slate-400">
-          <ShieldCheck className="h-3.5 w-3.5 text-red-500" />
-          <span>Secure Admin Access</span>
+        <div style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '4px 12px',
+          borderRadius: 999,
+          background: 'var(--color-bg-surface)',
+          border: '1px solid var(--border)',
+          fontSize: '0.75rem',
+          fontWeight: 600,
+          color: 'var(--color-text-secondary)'
+        }}>
+          <ShieldCheck className="h-3.5 w-3.5" style={{ color: 'var(--primary)' }} />
+          <span>Tenant Admin Portal</span>
         </div>
       </div>
 
-      {/* Main Login Card (WordPress / wp-admin inspired layout) */}
-      <div className="relative z-10 w-full max-w-[440px] mx-auto px-4 py-8">
-        <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800/80 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
-          {/* Brand Header */}
-          <div className="px-8 pt-9 pb-6 text-center border-b border-slate-800/60 bg-gradient-to-b from-slate-900 to-slate-900/40">
-            <div className="flex justify-center mb-5">
-              {logoUrl ? (
-                <div className="h-14 max-w-[220px] flex items-center justify-center">
-                  <img
-                    src={logoUrl}
-                    alt={displayName}
-                    className="max-h-full max-w-full object-contain filter drop-shadow"
-                  />
-                </div>
-              ) : (
-                <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-red-600 to-rose-700 flex items-center justify-center shadow-lg shadow-red-600/30 border border-red-500/30">
-                  <Newspaper className="h-7 w-7 text-white" />
-                </div>
-              )}
+      {/* Main Login Card matching portal theme exactly */}
+      <div style={{ width: '100%', maxWidth: 440, margin: '0 auto', padding: '16px 20px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          {logoUrl ? (
+            <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+              <img src={logoUrl} alt={displayName} style={{ maxHeight: '100%', maxWidth: 240, objectFit: 'contain' }} />
             </div>
-
-            <h1 className="font-serif text-2xl font-bold tracking-tight text-white">
-              {orgName ? `${orgName}` : 'Client Administration'}
-            </h1>
-            <p className="text-xs uppercase tracking-widest font-semibold text-red-400 mt-1.5">
-              Administration Panel
-            </p>
-          </div>
-
-          {/* Form Section */}
-          <form onSubmit={handleSubmit} className="px-8 py-7 space-y-5">
-            {error && (
-              <div className="rounded-xl bg-red-950/60 border border-red-800/80 px-4 py-3.5 text-xs text-red-200 flex items-start gap-2.5 shadow-inner">
-                <span className="text-red-400 font-bold mt-0.5">!</span>
-                <span className="flex-1 leading-relaxed">{error}</span>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <label htmlFor="admin-email" className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
-                Email Address
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                  <Mail className="h-4 w-4" />
-                </div>
-                <input
-                  id="admin-email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="name@publication.com"
-                  className="w-full rounded-xl bg-slate-950/80 border border-slate-800 pl-10 pr-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label htmlFor="admin-password" className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
-                  Password
-                </label>
-              </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                  <Lock className="h-4 w-4" />
-                </div>
-                <input
-                  id="admin-password"
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  className="w-full rounded-xl bg-slate-950/80 border border-slate-800 pl-10 pr-11 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-1">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={e => setRememberMe(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-700 bg-slate-950 text-red-600 focus:ring-red-500/30"
-                />
-                <span className="text-xs text-slate-400">Remember me on this device</span>
-              </label>
-            </div>
-
-            <button
-              id="admin-login-submit"
-              type="submit"
-              disabled={loading || resolvingContext}
-              className="w-full rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-semibold text-sm py-3.5 px-4 shadow-lg shadow-red-600/25 border border-red-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          ) : (
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                background: 'linear-gradient(135deg, var(--primary), #b91c1c)',
+                borderRadius: 16,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px',
+                boxShadow: '0 0 24px rgba(217, 4, 41, 0.25)',
+                color: '#fff'
+              }}
             >
-              {loading ? (
-                <>
-                  <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  <span>Authenticating…</span>
-                </>
-              ) : (
-                <span>Sign In to Admin Panel</span>
-              )}
-            </button>
-          </form>
-
-          {/* WordPress-style + ePaper Space Co-Branding Footer */}
-          <div className="px-8 py-4 bg-slate-950/60 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
-            <div className="flex items-center gap-1.5">
-              <span className="text-red-500 text-sm font-bold">◈</span>
-              <span className="font-medium text-slate-300">ePaper Space</span>
-              <span className="text-slate-600">•</span>
-              <span>Client Portal</span>
+              <Newspaper className="h-6 w-6" />
             </div>
-            <span className="text-[11px] text-slate-500">v2.4</span>
-          </div>
-        </div>
-
-        {/* Bottom Helper Links */}
-        <div className="mt-6 text-center space-y-2">
-          <p className="text-xs text-slate-500">
-            Protected by ePaper Space Enterprise Auth & Access Logs
+          )}
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--foreground)' }}>
+            {displayName}
+          </h1>
+          <p style={{ color: 'var(--color-text-secondary)', marginTop: 6, fontSize: '0.875rem', fontWeight: 500 }}>
+            ePaper Space • Administration Panel
           </p>
         </div>
+
+        <form onSubmit={handleSubmit} className="card" style={{ padding: 36, display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div>
+            <label className="label" htmlFor="admin-email">Email Address</label>
+            <div style={{ position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: 12, display: 'flex', alignItems: 'center', color: 'var(--color-text-muted)', pointerEvents: 'none' }}>
+                <Mail className="h-4 w-4" />
+              </div>
+              <input
+                className="input"
+                id="admin-email"
+                type="email"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="admin@publication.com"
+                style={{ paddingLeft: 38 }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="admin-password">Password</label>
+            <div style={{ position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: 12, display: 'flex', alignItems: 'center', color: 'var(--color-text-muted)', pointerEvents: 'none' }}>
+                <Lock className="h-4 w-4" />
+              </div>
+              <input
+                className="input"
+                id="admin-password"
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+                style={{ paddingLeft: 38, paddingRight: 40 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{ position: 'absolute', top: 0, bottom: 0, right: 12, display: 'flex', alignItems: 'center', background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer' }}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div
+              style={{
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.28)',
+                borderRadius: 8,
+                padding: '12px 14px',
+                color: 'var(--color-danger)',
+                fontSize: '0.85rem',
+                lineHeight: 1.4
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          <button
+            id="admin-login-submit"
+            className="btn-primary"
+            type="submit"
+            disabled={loading || resolvingContext}
+            style={{ padding: 14, fontSize: '0.95rem', marginTop: 4 }}
+          >
+            {loading ? 'Authenticating…' : 'Sign In to Admin Panel'}
+          </button>
+        </form>
       </div>
 
       {/* Footer */}
-      <footer className="relative z-10 w-full py-6 text-center text-xs text-slate-600">
-        © {new Date().getFullYear()} {orgName || 'ePaper Space'}. All rights reserved.
+      <footer style={{ padding: '24px 16px', textAlign: 'center', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+        © {new Date().getFullYear()} {displayName}. Powered by ePaper Space Portal.
       </footer>
     </div>
   );
