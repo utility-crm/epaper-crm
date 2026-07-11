@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { portalApi } from '../lib/api';
 import './LandingPage.css';
 
 interface PageMetaProps {
@@ -59,7 +60,7 @@ const PageLayout: React.FC<{
       <header className="landing-nav sticky-header">
         <div className="landing-container landing-nav__inner">
           <Link to="/" className="landing-nav__brand" aria-label="ePaperSpace Home">
-            <span className="brand-icon">📰</span>
+            <img src="/logo.png" alt="ePaperSpace Logo" className="brand-icon-img" style={{ height: '32px', width: 'auto', marginRight: '8px' }} />
             ePaper<span>Space</span>
           </Link>
 
@@ -72,7 +73,7 @@ const PageLayout: React.FC<{
           </nav>
 
           <div className="landing-nav__actions">
-            <Link to="/portal/login" className="landing-btn landing-btn--outline">Publisher Login</Link>
+            <Link to="/login" className="landing-btn landing-btn--outline">Publisher Login</Link>
             <Link to="/signup" className="landing-btn landing-btn--primary">Get Started</Link>
           </div>
         </div>
@@ -116,7 +117,8 @@ const PageLayout: React.FC<{
           <div className="landing-footer__grid">
             {/* Brand & Social Media */}
             <div className="landing-footer__col">
-              <Link to="/" className="landing-footer__brand">
+              <Link to="/" className="landing-footer__brand" style={{ display: 'flex', alignItems: 'center' }}>
+                <img src="/logo.png" alt="ePaperSpace Logo" className="brand-icon-img" style={{ height: '32px', width: 'auto', marginRight: '8px' }} />
                 ePaper<span>Space</span>
               </Link>
               <p className="landing-footer__desc">
@@ -138,7 +140,7 @@ const PageLayout: React.FC<{
                 <li><Link to="/contact">Contact Us</Link></li>
                 <li><Link to="/services">Services & Editor Suite</Link></li>
                 <li><Link to="/pricing">Pricing Plans</Link></li>
-                <li><Link to="/portal/login">Publisher Login</Link></li>
+                <li><Link to="/login">Publisher Login</Link></li>
               </ul>
             </div>
 
@@ -244,33 +246,133 @@ export const ServicesInfoPage: React.FC = () => (
   </PageLayout>
 );
 
-export const PricingInfoPage: React.FC = () => (
-  <PageLayout
-    title="Transparent Publisher Pricing"
-    subtitle="Plans that include both our Interactive Editor Suite and our White-Label Publishing Platform."
-    currentPage="Pricing"
-    meta={{
-      title: 'ePaper SaaS Pricing | Editor Section & Platform Plans',
-      description: 'Transparent pricing plans including full access to the ePaper Clickmask Editor Studio, Custom Domain Platform, Paywall, and Unlimited Readers.',
-      path: '/pricing',
-    }}
-  >
-    <div className="landing-legal-doc">
-      <h2>All Plans Include Both Editor Section & Platform</h2>
-      <p>
-        Unlike legacy vendors that charge separately for clipping tools and hosting, ePaperSpace bundles the entire workflow into transparent tiers:
-      </p>
-      <ul>
-        <li><strong>Starter Plan:</strong> Ideal for weekly regional newspapers. Includes full PDF-to-ePaper conversion, the visual Clickmask Editor suite, up to 50,000 monthly readers, and custom domain mapping.</li>
-        <li><strong>Professional Plan:</strong> Built for daily newspapers. Includes multi-edition management, metered paywalls, automated article clipping, priority CDN hosting, and up to 250,000 monthly readers.</li>
-        <li><strong>Enterprise Plan:</strong> For large newspaper groups. Includes custom API integrations, dedicated ad management servers, white-label iOS & Android apps, SLA uptime guarantees, and unlimited readership.</li>
-      </ul>
-      <p>
-        Contact our publisher sales team at <strong>sales@epaperspace.com</strong> for a tailored quote based on your daily edition volume.
-      </p>
-    </div>
-  </PageLayout>
-);
+export const PricingInfoPage: React.FC = () => {
+  const [tiers, setTiers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    portalApi.getPlatformTiers().then(res => {
+      if (res.ok && res.data) {
+        setTiers(res.data);
+      }
+      setLoading(false);
+    });
+  }, []);
+
+  const formatAmount = (inr: number, period: string): string => {
+    const formatted = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(inr);
+    return `${formatted}/${period === 'yearly' ? 'yr' : 'mo'}`;
+  };
+
+  return (
+    <PageLayout
+      title="Transparent Publisher Pricing"
+      subtitle="Plans that include both our Interactive Editor Suite and our White-Label Publishing Platform."
+      currentPage="Pricing"
+      meta={{
+        title: 'ePaper SaaS Pricing | Editor Section & Platform Plans',
+        description: 'Transparent pricing plans including full access to the ePaper Clickmask Editor Studio, Custom Domain Platform, Paywall, and Unlimited Readers.',
+        path: '/pricing',
+      }}
+    >
+      <div className="landing-legal-doc" style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <h2 style={{ textAlign: 'center', marginBottom: 40, borderBottom: 'none', paddingBottom: 0 }}>Choose the Right Edition for Your Readership</h2>
+        
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><div className="spinner" /></div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, marginBottom: 60 }}>
+            {tiers.map(tier => {
+              const amount = tier.price_inr; // In paise
+              return (
+                <div key={tier.id} className="card" style={{ display: 'flex', flexDirection: 'column', padding: '32px 24px', border: '1px solid var(--color-border)', borderRadius: 12 }}>
+                  <h3 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 8, color: 'var(--color-brand-primary)', textTransform: 'capitalize' }}>
+                    {tier.name}
+                  </h3>
+                  
+                  <div style={{ fontSize: '2rem', fontWeight: 700, marginBottom: 8 }}>
+                    {amount > 0 ? formatAmount(amount, tier.billing_cycle || 'monthly') : 'Free'}
+                  </div>
+                  
+                  {tier.tax_percentage > 0 && (
+                    <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 24 }}>
+                      + {tier.tax_percentage}% tax (calculated at checkout)
+                    </div>
+                  )}
+                  {tier.tax_percentage === 0 && amount > 0 && (
+                    <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 24 }}>
+                      Inclusive of taxes
+                    </div>
+                  )}
+                  {amount === 0 && (
+                    <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 24 }}>
+                      No credit card required
+                    </div>
+                  )}
+
+                  <ul style={{ margin: '0 0 24px 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                      <span style={{ color: 'var(--color-success)' }}>✓</span> <strong>{tier.max_storage_mb >= 1024 ? `${(tier.max_storage_mb / 1024).toFixed(1)} GB` : `${tier.max_storage_mb} MB`}</strong> Storage
+                    </li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                      <span style={{ color: 'var(--color-success)' }}>✓</span> <strong>{tier.max_views_per_day.toLocaleString()}</strong> Views / Day
+                    </li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                      <span style={{ color: 'var(--color-success)' }}>✓</span> Up to <strong>{tier.max_papers_per_day}</strong> Papers / Day
+                    </li>
+                    
+                    {tier.features && tier.features.map((f: string, i: number) => (
+                      <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.95rem' }}>
+                        <span style={{ color: 'var(--color-brand-primary)' }}>✦</span> {f}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <Link to="/signup" className="landing-btn landing-btn--primary" style={{ width: '100%', textAlign: 'center' }}>
+                    {amount === 0 ? 'Start for Free' : 'Get Started'}
+                  </Link>
+                </div>
+              );
+            })}
+
+            {/* Enterprise Tier Static Card */}
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '32px 24px', border: '1px solid var(--color-text-primary)', borderRadius: 12, background: 'var(--color-bg-alt)' }}>
+              <h3 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 8, color: 'var(--color-text-primary)' }}>
+                Global Syndicate
+              </h3>
+              
+              <div style={{ fontSize: '2rem', fontWeight: 700, marginBottom: 8 }}>
+                Custom
+              </div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 24 }}>
+                Tailored limits & SLA
+              </div>
+
+              <ul style={{ margin: '0 0 24px 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Custom Storage Capacity
+                </li>
+                <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Unlimited Readership
+                </li>
+                <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Dedicated Account Manager
+                </li>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.95rem' }}>
+                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Custom Integrations & APIs
+                </li>
+              </ul>
+
+              <Link to="/contact" className="landing-btn landing-btn--outline" style={{ width: '100%', textAlign: 'center' }}>
+                Contact Sales
+              </Link>
+            </div>
+          </div>
+        )}
+      </div>
+    </PageLayout>
+  );
+};
 
 export const ContactInfoPage: React.FC = () => (
   <PageLayout

@@ -22,15 +22,14 @@ interface RazorpayPlan {
   };
 }
 
-function formatAmount(paise: number, period: string): string {
-  const inr = paise / 100;
+function formatAmount(inr: number, period: string): string {
   const formatted = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(inr);
   return `${formatted}/${period === 'yearly' ? 'yr' : 'mo'}`;
 }
 
 export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: PlatformBillingPageProps) {
   const [status, setStatus]       = useState<any>(null);
-  const [plans, setPlans]         = useState<RazorpayPlan[]>([]);
+  const [tiers, setTiers]         = useState<any[]>([]);
   const [loading, setLoading]     = useState(true);
   const [paying, setPaying]       = useState<string | null>(null); // plan_id being paid
   const [error, setError]         = useState('');
@@ -40,15 +39,13 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
   useEffect(() => {
     Promise.all([
       portalApi.getPlatformBillingStatus(slug, token),
-      portalApi.getPlatformPlans(token),
-    ]).then(([statusRes, plansRes]) => {
+      portalApi.getPlatformTiers(),
+    ]).then(([statusRes, tiersRes]) => {
       if (statusRes.ok && statusRes.data) setStatus(statusRes.data);
       else setError(statusRes.error?.message || 'Failed to load billing status');
 
-      if (plansRes.ok && plansRes.data) {
-        // Razorpay /v1/plans returns { entity: 'collection', items: [...] }
-        const items: RazorpayPlan[] = plansRes.data.items ?? [];
-        setPlans(items);
+      if (tiersRes.ok && tiersRes.data) {
+        setTiers(tiersRes.data);
       }
       setLoading(false);
     });
@@ -79,11 +76,12 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
     onError: handleError,
   });
 
-  const handleSubscribe = useCallback(async (plan: RazorpayPlan) => {
+  const handleSubscribe = useCallback(async (tier: any) => {
+    if (!tier.razorpay_plan_id) return;
     setError('');
     setSuccess('');
-    setPaying(plan.id);
-    await openCheckout(plan.id, plan.item.name);
+    setPaying(tier.razorpay_plan_id);
+    await openCheckout(tier.razorpay_plan_id, tier.name);
   }, [openCheckout]);
 
   return (
@@ -134,53 +132,78 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
 
           <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 16 }}>Available Plans</h2>
 
-          {plans.length === 0 ? (
+          {tiers.length === 0 ? (
             <div style={{ background: 'rgba(99,102,241,0.05)', border: '1px dashed var(--color-border)',
               borderRadius: 12, padding: '32px 24px', textAlign: 'center', color: 'var(--color-text-secondary)', marginBottom: 20 }}>
               <p style={{ marginBottom: 8 }}>No plans have been configured yet.</p>
-              <p style={{ fontSize: '0.85rem' }}>A superadmin needs to create subscription plans in the Razorpay Dashboard first.</p>
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20, marginBottom: 20 }}>
-              {plans.map((plan) => {
-                const isCurrentPlan = status?.has_subscription && status?.razorpay_status === 'active' && status?.plan?.toLowerCase() === plan.item.name.toLowerCase();
-                const isLoading = Boolean(paying) && paying === plan.id;
-                const amount = plan.item.unit_amount ?? plan.item.amount;
+              {tiers.map((tier) => {
+                const isCurrentPlan = status?.has_subscription && status?.razorpay_status === 'active' && status?.plan?.toLowerCase() === tier.name.toLowerCase();
+                const isManualFree = !status?.has_subscription && tier.price_inr === 0;
+                const isCurrent = isCurrentPlan || (isManualFree && !status?.has_subscription); // approximate
+                const isLoading = Boolean(paying) && paying === tier.razorpay_plan_id;
+                const amount = tier.price_inr;
 
                 return (
                   <div
-                    key={plan.id}
+                    key={tier.id}
                     className="card"
                     style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px',
-                      border: isCurrentPlan ? '1px solid var(--color-brand-primary)' : undefined }}
+                      border: isCurrent ? '1px solid var(--color-brand-primary)' : undefined }}
                   >
                     <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 8,
-                      color: isCurrentPlan ? 'var(--color-brand-primary)' : undefined }}>
-                      {plan.item.name}
+                      color: isCurrent ? 'var(--color-brand-primary)' : undefined, textTransform: 'capitalize' }}>
+                      {tier.name}
                     </h3>
 
                     <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 4 }}>
-                      {formatAmount(amount, plan.period)}
+                      {amount > 0 ? formatAmount(amount, tier.billing_cycle || 'monthly') : 'Free'}
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 16, textTransform: 'capitalize' }}>
-                      Billed {plan.period} · auto-debit via mandate
-                    </div>
-
-                    {plan.item.description && (
-                      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 20, flex: 1 }}>
-                        {plan.item.description}
-                      </p>
+                    {amount > 0 ? (
+                      <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 16, textTransform: 'capitalize' }}>
+                        Billed {tier.billing_cycle || 'monthly'} · auto-debit via mandate
+                        {tier.tax_percentage > 0 && <span style={{display: 'block', marginTop: 4, fontWeight: 500}}>+ {tier.tax_percentage}% tax (calculated at checkout)</span>}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 16 }}>
+                        No credit card required
+                      </div>
                     )}
 
-                    <button
-                      className={isCurrentPlan ? 'btn-secondary' : 'btn-primary'}
-                      disabled={isCurrentPlan || !!paying}
-                      onClick={() => handleSubscribe(plan)}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-                    >
-                      {isLoading && <span className="spinner" style={{ width: 14, height: 14 }} />}
-                      {isCurrentPlan ? 'Current Plan' : isLoading ? 'Opening…' : 'Subscribe'}
-                    </button>
+                    <ul style={{ margin: '0 0 24px 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+                      <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--color-success)' }}>✓</span> <strong>{tier.max_storage_mb >= 1024 ? `${(tier.max_storage_mb / 1024).toFixed(1)} GB` : `${tier.max_storage_mb} MB`}</strong> Storage
+                      </li>
+                      <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--color-success)' }}>✓</span> <strong>{tier.max_views_per_day.toLocaleString()}</strong> Views / Day
+                      </li>
+                      <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--color-success)' }}>✓</span> Up to <strong>{tier.max_papers_per_day}</strong> Papers / Day
+                      </li>
+                      {tier.features && tier.features.map((f: string, i: number) => (
+                        <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.85rem' }}>
+                          <span style={{ color: 'var(--color-brand-primary)' }}>✦</span> {f}
+                        </li>
+                      ))}
+                    </ul>
+
+                    {amount > 0 && tier.razorpay_plan_id ? (
+                      <button
+                        className={isCurrent ? 'btn-secondary' : 'btn-primary'}
+                        disabled={isCurrent || !!paying}
+                        onClick={() => handleSubscribe(tier)}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                      >
+                        {isLoading && <span className="spinner" style={{ width: 14, height: 14 }} />}
+                        {isCurrent ? 'Current Plan' : isLoading ? 'Opening…' : 'Subscribe'}
+                      </button>
+                    ) : (
+                      <button className="btn-secondary" disabled style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                        {isCurrent ? 'Current Plan' : 'Free Tier'}
+                      </button>
+                    )}
                   </div>
                 );
               })}

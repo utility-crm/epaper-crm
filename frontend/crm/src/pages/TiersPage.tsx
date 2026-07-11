@@ -14,6 +14,7 @@ export function TiersPage() {
   const [taxPercentage, setTaxPercentage] = useState(0);
   const [includeTax, setIncludeTax] = useState(false);
   const [billingCycle, setBillingCycle] = useState('monthly');
+  const [features, setFeatures] = useState<string[]>([]);
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -42,6 +43,7 @@ export function TiersPage() {
     setTaxPercentage(tier.tax_percentage || 0);
     setIncludeTax((tier.tax_percentage || 0) > 0);
     setBillingCycle(tier.billing_cycle || 'monthly');
+    setFeatures(tier.features || []);
     setError('');
   };
 
@@ -56,6 +58,7 @@ export function TiersPage() {
     setTaxPercentage(0);
     setIncludeTax(false);
     setBillingCycle('monthly');
+    setFeatures([]);
     setError('');
   };
 
@@ -73,6 +76,7 @@ export function TiersPage() {
       price_inr: priceInr,
       tax_percentage: includeTax ? taxPercentage : 0,
       billing_cycle: billingCycle,
+      features,
     };
     
     let res;
@@ -136,6 +140,14 @@ export function TiersPage() {
                     <div>Simultaneous: <strong>{t.max_simultaneous_editions}</strong></div>
                     <div>Papers/Day: <strong>{t.max_papers_per_day}</strong></div>
                   </div>
+                  {t.features && t.features.length > 0 && (
+                    <div style={{ marginTop: 12, fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
+                      <strong>Features:</strong>
+                      <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                        {t.features.map((f: string, i: number) => <li key={i}>{f}</li>)}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ))}
               {tiers.length === 0 && <div style={{ color: 'var(--color-text-muted)' }}>No tiers found</div>}
@@ -196,6 +208,26 @@ export function TiersPage() {
                 <input type="number" required className="input" value={maxPapersPerDay} onChange={e => setMaxPapersPerDay(parseInt(e.target.value) || 0)} />
               </div>
             </div>
+            
+            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12, marginTop: 4 }}>
+              <label className="label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                Features
+                <button type="button" onClick={() => setFeatures([...features, ''])} style={{ background: 'none', border: 'none', color: 'var(--color-brand-primary)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>+ Add Feature</button>
+              </label>
+              {features.length === 0 ? (
+                <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No features added.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {features.map((f, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8 }}>
+                      <input type="text" className="input" value={f} onChange={e => { const newF = [...features]; newF[i] = e.target.value; setFeatures(newF); }} placeholder="e.g. White Labeling: Yes" />
+                      <button type="button" onClick={() => { const newF = [...features]; newF.splice(i, 1); setFeatures(newF); }} style={{ background: 'none', border: 'none', color: 'var(--color-danger)', cursor: 'pointer', fontSize: '1.25rem', padding: '0 4px' }}>&times;</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
               <button type="submit" className="btn-primary" disabled={creating} style={{ flex: 1 }}>
                 {creating ? 'Saving...' : editingId ? 'Update Tier' : 'Create Tier'}

@@ -33,7 +33,14 @@ tiersRouter.use('*', async (c, next) => {
 
 tiersRouter.get('/', async (c) => {
   const { results } = await c.env.CONTROL_DB.prepare('SELECT * FROM platform_tiers ORDER BY max_storage_mb ASC').all();
-  return c.json(ok(results));
+  
+  // Parse features JSON for each tier
+  const parsedResults = results.map((tier: any) => ({
+    ...tier,
+    features: tier.features ? JSON.parse(tier.features) : []
+  }));
+  
+  return c.json(ok(parsedResults));
 });
 
 tiersRouter.post('/', async (c) => {
@@ -65,21 +72,23 @@ tiersRouter.post('/', async (c) => {
     }
   }
 
+  const featuresJson = JSON.stringify(body.features || []);
+
   try {
     await c.env.CONTROL_DB.prepare(
-      `INSERT INTO platform_tiers (id, name, max_storage_mb, max_views_per_day, max_simultaneous_editions, max_papers_per_day, razorpay_plan_id, price_inr, tax_percentage, billing_cycle)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO platform_tiers (id, name, max_storage_mb, max_views_per_day, max_simultaneous_editions, max_papers_per_day, razorpay_plan_id, price_inr, tax_percentage, billing_cycle, features)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       id, body.name, body.max_storage_mb, body.max_views_per_day,
       body.max_simultaneous_editions, body.max_papers_per_day, razorpayPlanId,
-      priceInr, taxPct, cycle
+      priceInr, taxPct, cycle, featuresJson
     ).run();
   } catch (e: any) {
     if (e.message.includes('UNIQUE')) return c.json(err(ErrorCode.CONFLICT, 'Tier name already exists'), 409);
     throw e;
   }
 
-  return c.json(ok({ id, ...body, razorpay_plan_id: razorpayPlanId, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle }));
+  return c.json(ok({ id, ...body, razorpay_plan_id: razorpayPlanId, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle, features: body.features || [] }));
 });
 
 
@@ -91,6 +100,7 @@ tiersRouter.put('/:id', async (c) => {
   const priceInr = body.price_inr || 0;
   const taxPct = body.tax_percentage || 0;
   const cycle = body.billing_cycle || 'monthly';
+  const featuresJson = JSON.stringify(body.features || []);
 
   // Find existing to see if price changed
   const existing = await c.env.CONTROL_DB.prepare('SELECT price_inr, tax_percentage, billing_cycle, razorpay_plan_id FROM platform_tiers WHERE id = ?').bind(id).first() as any;
@@ -120,14 +130,14 @@ tiersRouter.put('/:id', async (c) => {
   }
 
   await c.env.CONTROL_DB.prepare(
-    `UPDATE platform_tiers SET name = ?, max_storage_mb = ?, max_views_per_day = ?, max_simultaneous_editions = ?, max_papers_per_day = ?, razorpay_plan_id = ?, price_inr = ?, tax_percentage = ?, billing_cycle = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    `UPDATE platform_tiers SET name = ?, max_storage_mb = ?, max_views_per_day = ?, max_simultaneous_editions = ?, max_papers_per_day = ?, razorpay_plan_id = ?, price_inr = ?, tax_percentage = ?, billing_cycle = ?, features = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
   ).bind(
     body.name, body.max_storage_mb, body.max_views_per_day,
     body.max_simultaneous_editions, body.max_papers_per_day, razorpayPlanId,
-    priceInr, taxPct, cycle, id
+    priceInr, taxPct, cycle, featuresJson, id
   ).run();
 
-  return c.json(ok({ id, ...body, razorpay_plan_id: razorpayPlanId, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle }));
+  return c.json(ok({ id, ...body, razorpay_plan_id: razorpayPlanId, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle, features: body.features || [] }));
 });
 
 tiersRouter.delete('/:id', async (c) => {

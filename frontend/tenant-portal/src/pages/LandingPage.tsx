@@ -240,18 +240,15 @@ export function LandingPage() {
           </div>
 
           <nav className="landing-nav__menu" aria-label="Main Navigation">
+            <Link to="/" className="landing-nav__link">Home</Link>
             <a href="#about" className="landing-nav__link">About</a>
-            <a href="#services" className="landing-nav__link">Services</a>
-            <a href="#features" className="landing-nav__link">Features</a>
-            <a href="#portfolio" className="landing-nav__link">Portfolio</a>
-            <a href="#testimonials" className="landing-nav__link">Reviews</a>
-            <a href="#faq" className="landing-nav__link">FAQ</a>
-            <a href="#blog" className="landing-nav__link">Blog</a>
+            <a href="#services" className="landing-nav__link">Services & Editor</a>
+            <Link to="/pricing" className="landing-nav__link">Pricing</Link>
+            <a href="#contact" className="landing-nav__link">Contact</a>
           </nav>
 
           <div className="landing-nav__actions">
-            <Link to="/login" className="landing-nav__link" style={{ fontWeight: 600, marginRight: '8px' }}>Log In</Link>
-            <a href="#contact" className="landing-btn landing-btn--outline">Get Quotes</a>
+            <Link to="/login" className="landing-btn landing-btn--outline">Publisher Login</Link>
             <Link to="/signup" className="landing-btn landing-btn--primary">Get Started</Link>
           </div>
         </div>
@@ -801,7 +798,8 @@ export function LandingPage() {
           <div className="landing-footer__grid">
             {/* Brand & Social Media */}
             <div className="landing-footer__col">
-              <Link to="/" className="landing-footer__brand">
+              <Link to="/" className="landing-footer__brand" style={{ display: 'flex', alignItems: 'center' }}>
+                <img src="/logo.png" alt="ePaperSpace Logo" className="brand-icon-img" style={{ height: '32px', width: 'auto', marginRight: '8px' }} />
                 ePaper<span>Space</span>
               </Link>
               <p className="landing-footer__desc">
@@ -823,7 +821,7 @@ export function LandingPage() {
                 <li><a href="#contact">Contact</a></li>
                 <li><Link to="/services">Services</Link></li>
                 <li><Link to="/pricing">Pricing</Link></li>
-                <li><Link to="/portal/login">Publisher Login</Link></li>
+                <li><Link to="/login">Publisher Login</Link></li>
               </ul>
             </div>
 

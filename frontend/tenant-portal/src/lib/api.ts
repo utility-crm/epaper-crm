@@ -76,6 +76,7 @@ export const portalApi = {
   getReaderSubscriptions: (slug: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/subscriptions`, {}, token),
 
   // platform billing (tenant pays platform)
+  getPlatformTiers: () => apiFetch<any>('/api/tiers'),
   getPlatformPlans: (token: string) => apiFetch<any>('/api/billing/platform/plans', {}, token),
   getPlatformBillingStatus: (slug: string, token: string) => apiFetch<any>(`/api/billing/platform/${slug}/status`, {}, token),
   subscribeToPlatformPlan: (slug: string, plan_id: string, token: string) =>
