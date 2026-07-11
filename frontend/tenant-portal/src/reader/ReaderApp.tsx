@@ -6,6 +6,8 @@ import { ReaderHome } from './ReaderHome';
 import { PaperViewer } from './PaperViewer';
 import { ReaderAuthDialog } from './ReaderAuthDialog';
 import { TodayRedirect } from './TodayRedirect';
+import { ReaderFooter } from './ReaderFooter';
+import { ReaderInfoPage } from './ReaderInfoPage';
 import { Button } from '../components/ui/button';
 import { Newspaper, ShieldAlert } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -44,7 +46,12 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
   const { session, signIn, signOut } = useReaderSession(slug);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
-  const [orgSettings, setOrgSettings] = useState<{ org_name: string | null; logo_url: string | null; theme_id?: string } | null>(null);
+  const [orgSettings, setOrgSettings] = useState<{ org_name: string | null; logo_url: string | null; theme_id?: string } | null>(() => {
+    if (typeof window !== 'undefined' && (window as any).__EPAPER_INITIAL_SETTINGS__) {
+      return (window as any).__EPAPER_INITIAL_SETTINGS__;
+    }
+    return null;
+  });
   const [logoError, setLogoError] = useState(false);
   const [isSuspended, setIsSuspended] = useState(false);
   const [isNotFound, setIsNotFound] = useState(false);
@@ -59,7 +66,22 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
         }
         return;
       }
-      if (res.ok && res.data) setOrgSettings(res.data);
+      if (res.ok && res.data) {
+        setOrgSettings(res.data);
+        if (res.data.org_name) {
+          document.title = res.data.org_name;
+        }
+        if (res.data.favicon_url) {
+          const favUrl = readerApi.faviconUrl(slug) + `?t=${Date.now()}`;
+          let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
+          if (!link) {
+            link = document.createElement('link');
+            link.rel = 'icon';
+            document.head.appendChild(link);
+          }
+          link.href = favUrl;
+        }
+      }
     });
   }, [slug]);
 
@@ -99,15 +121,20 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
     <div className={cn("min-h-screen flex flex-col bg-background text-foreground", themeClass)}>
       <header className="border-b bg-card">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link to={basePath || '/'} className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-red-600 to-rose-700 shadow-md overflow-hidden flex-shrink-0">
-              {logoUrl && !logoError ? (
-                <img src={logoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setLogoError(true)} />
-              ) : (
-                <Newspaper className="h-4 w-4 text-white" />
-              )}
-            </div>
-            <span className="font-serif text-lg font-700">{displayName}</span>
+          <Link to={basePath || '/'} className="flex items-center gap-3">
+            {logoUrl && !logoError ? (
+              <img
+                src={logoUrl}
+                alt={displayName}
+                className="h-10 sm:h-12 w-auto max-w-[220px] object-contain flex-shrink-0"
+                onError={() => setLogoError(true)}
+              />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-red-600 to-rose-700 shadow-md flex-shrink-0">
+                <Newspaper className="h-5 w-5 text-white" />
+              </div>
+            )}
+            <span className="font-serif text-lg font-bold tracking-tight">{displayName}</span>
           </Link>
           {session ? (
             <div className="flex items-center gap-3 text-sm">
@@ -123,12 +150,27 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
         </div>
       </header>
 
-      <Routes>
-        <Route path="/" element={<ReaderHome slug={slug} basePath={basePath} session={session} orgName={displayName} />} />
-        <Route path="/today" element={<TodayRedirect slug={slug} basePath={basePath} />} />
-        <Route path="/paper/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
-        <Route path="*" element={<Navigate to={basePath || '/'} replace />} />
-      </Routes>
+      <main className="flex-1 flex flex-col">
+        <Routes>
+          <Route path="/" element={<ReaderHome slug={slug} basePath={basePath} session={session} orgName={displayName} />} />
+          <Route path="/today" element={<TodayRedirect slug={slug} basePath={basePath} />} />
+          <Route path="/paper/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
+          <Route path="/privacy" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="privacy" />} />
+          <Route path="/disclaimer" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="disclaimer" />} />
+          <Route path="/terms" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="terms" />} />
+          <Route path="/about" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="about" />} />
+          <Route path="/contact" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="contact" />} />
+          <Route path="*" element={<Navigate to={basePath || '/'} replace />} />
+        </Routes>
+      </main>
+
+      <ReaderFooter
+        slug={slug}
+        basePath={basePath}
+        orgName={displayName}
+        logoUrl={logoUrl}
+        orgSettings={orgSettings}
+      />
 
       {authOpen && (
         <ReaderAuthDialog

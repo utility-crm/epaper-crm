@@ -14,6 +14,7 @@ import {
   Crop, Share2, Layers, Newspaper, ExternalLink, Smartphone, Monitor
 } from 'lucide-react';
 import { ArticleClipModal, ArticleClip } from './ArticleClipModal';
+import { DedicatedClipView } from './DedicatedClipView';
 import { MobileArticleCard } from './MobileArticleCard';
 
 interface Props {
@@ -30,7 +31,13 @@ const INTERVAL_LABEL: Record<string, string> = { monthly: 'Monthly', '6month': '
 export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, onRequireAuth }: Props) {
   const { id } = useParams<{ id: string }>();
   const [paper, setPaper] = useState<any>(null);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('page');
+      return p ? Math.max(1, parseInt(p, 10) || 1) : 1;
+    }
+    return 1;
+  });
   const [pageUrl, setPageUrl] = useState<string | null>(null);
   const [blobType, setBlobType] = useState<'pdf' | 'image'>('pdf');
   const [locked, setLocked] = useState(false);
@@ -39,15 +46,39 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
 
   // Clickmasks for the current paper
   const [clickmasksByPage, setClickmasksByPage] = useState<Record<number, any[]>>({});
-  const [selectedClip, setSelectedClip] = useState<ArticleClip | null>(null);
+  const [selectedClip, setSelectedClip] = useState<ArticleClip | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const clipParam = params.get('clip');
+      if (clipParam) {
+        const parts = clipParam.split(',').map(Number);
+        if (parts.length === 4 && parts.every(n => !isNaN(n))) {
+          return {
+            x: parts[0],
+            y: parts[1],
+            w: parts[2],
+            h: parts[3],
+            title: params.get('title') || 'Shared Clip'
+          };
+        }
+      }
+    }
+    return null;
+  });
 
-  // Mobile View state: 'articles' (card-by-card) or 'fullpage'
-  const [mobileViewMode, setMobileViewMode] = useState<'articles' | 'fullpage'>('articles');
+  const [isDedicatedClipView, setIsDedicatedClipView] = useState<boolean>(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('clip')
+  );
+
+  // View state: 'articles' (card-by-card) on mobile (<768px) or 'fullpage' on desktop (>=768px)
+  const [mobileViewMode, setMobileViewMode] = useState<'articles' | 'fullpage'>(() =>
+    typeof window !== 'undefined' && window.innerWidth < 768 ? 'articles' : 'fullpage'
+  );
   const [mobileArticleIdx, setMobileArticleIdx] = useState<number>(0);
 
   useEffect(() => {
     setMobileArticleIdx(0);
-    setMobileViewMode('articles');
+    setMobileViewMode(typeof window !== 'undefined' && window.innerWidth < 768 ? 'articles' : 'fullpage');
   }, [page]);
 
   // Theme state: light | dark | sepia
@@ -213,22 +244,25 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
     rzp.open();
   };
 
-  // Crop drawing mouse handlers
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!cropMode || !imageContainerRef.current) return;
+  const getContainerCoordsPercent = (clientX: number, clientY: number) => {
+    if (!imageContainerRef.current) return { x: 0, y: 0 };
     const rect = imageContainerRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+    const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
+    return { x, y };
+  };
+
+  // Crop drawing mouse & touch handlers
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!cropMode) return;
+    const { x, y } = getContainerCoordsPercent(e.clientX, e.clientY);
     setCropStart({ x, y });
     setActiveCropRect({ x, y, w: 0, h: 0 });
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!cropMode || !cropStart || !imageContainerRef.current) return;
-    const rect = imageContainerRef.current.getBoundingClientRect();
-    const currX = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-    const currY = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
-
+    if (!cropMode || !cropStart) return;
+    const { x: currX, y: currY } = getContainerCoordsPercent(e.clientX, e.clientY);
     const x = Math.min(cropStart.x, currX);
     const y = Math.min(cropStart.y, currY);
     const w = Math.abs(currX - cropStart.x);
@@ -238,7 +272,41 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
 
   const handleMouseUp = () => {
     if (!cropMode || !activeCropRect) return;
-    if (activeCropRect.w > 4 && activeCropRect.h > 4) {
+    if (activeCropRect.w > 2 && activeCropRect.h > 2) {
+      setSelectedClip({
+        title: 'Custom Cropped Clip',
+        content: `Cropped selection from Page ${page} of ${paper?.title}`,
+        ...activeCropRect,
+      });
+      setCropMode(false);
+    }
+    setActiveCropRect(null);
+    setCropStart(null);
+  };
+
+  const handleCropTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!cropMode || e.touches.length !== 1) return;
+    e.stopPropagation();
+    const { x, y } = getContainerCoordsPercent(e.touches[0].clientX, e.touches[0].clientY);
+    setCropStart({ x, y });
+    setActiveCropRect({ x, y, w: 0, h: 0 });
+  };
+
+  const handleCropTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!cropMode || !cropStart || e.touches.length !== 1) return;
+    e.stopPropagation();
+    const { x: currX, y: currY } = getContainerCoordsPercent(e.touches[0].clientX, e.touches[0].clientY);
+    const x = Math.min(cropStart.x, currX);
+    const y = Math.min(cropStart.y, currY);
+    const w = Math.abs(currX - cropStart.x);
+    const h = Math.abs(currY - cropStart.y);
+    setActiveCropRect({ x, y, w, h });
+  };
+
+  const handleCropTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!cropMode) return;
+    e.stopPropagation();
+    if (activeCropRect && activeCropRect.w > 2 && activeCropRect.h > 2) {
       setSelectedClip({
         title: 'Custom Cropped Clip',
         content: `Cropped selection from Page ${page} of ${paper?.title}`,
@@ -252,10 +320,12 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
 
   // Mobile Swipe navigation
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (cropMode) return;
     touchStartX.current = e.touches[0].clientX;
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
+    if (cropMode) return;
     if (touchStartX.current === null) return;
     const deltaX = e.changedTouches[0].clientX - touchStartX.current;
     if (Math.abs(deltaX) > 60) {
@@ -273,6 +343,27 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
       <div className="flex h-screen items-center justify-center">
         <div className="spinner" />
       </div>
+    );
+  }
+
+  if (isDedicatedClipView && selectedClip) {
+    return (
+      <DedicatedClipView
+        slug={slug}
+        paper={paper}
+        pageNumber={page}
+        clip={selectedClip}
+        onReadFullPaper={() => {
+          setIsDedicatedClipView(false);
+          setSelectedClip(null);
+          if (typeof window !== 'undefined') {
+            const u = new URL(window.location.href);
+            u.searchParams.delete('clip');
+            u.searchParams.delete('title');
+            window.history.replaceState(null, '', u.pathname + u.search);
+          }
+        }}
+      />
     );
   }
 
@@ -299,14 +390,18 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
               <Sidebar className="h-5 w-5" />
             </Button>
 
-            <Link to={basePath || '/'} className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-violet-600 overflow-hidden flex-shrink-0">
-                {logoUrl ? (
-                  <img src={logoUrl} alt={orgName || slug} className="h-full w-full object-cover" />
-                ) : (
+            <Link to={basePath || '/'} className="flex items-center gap-2.5">
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt={orgName || slug}
+                  className="h-9 sm:h-10 w-auto max-w-[180px] object-contain flex-shrink-0"
+                />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-violet-600 flex-shrink-0">
                   <Newspaper className="h-4 w-4 text-white" />
-                )}
-              </div>
+                </div>
+              )}
               <div>
                 <div className="font-serif text-sm font-bold leading-tight">
                   {paper.title || paper.edition_title || orgName}
@@ -325,6 +420,14 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
 
           {/* Action Toolbar */}
           <div className="flex items-center gap-2">
+            <Link
+              to={`${basePath || '/'}?archive=true`}
+              className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+              title="All Editions & Past Dates"
+            >
+              📅 Archives
+            </Link>
+
             {/* Zoom / Crop controls */}
             <div className="hidden sm:flex items-center gap-1 border rounded-lg p-0.5 bg-muted/30">
               <Button
@@ -541,6 +644,9 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
+                  onTouchStart={handleCropTouchStart}
+                  onTouchMove={handleCropTouchMove}
+                  onTouchEnd={handleCropTouchEnd}
                   className={`relative mx-auto transition-transform origin-top select-none shadow-2xl rounded bg-white overflow-hidden ${
                     mobileViewMode === 'articles' && currentClickmasks.length > 0 ? 'hidden' : 'block'
                   }`}

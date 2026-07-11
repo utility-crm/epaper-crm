@@ -47,8 +47,24 @@ app.get('/api/content/:slug/settings', async (c) => {
   const slug = c.req.param('slug');
   try {
     const db = getTenantDb(c.env, slug);
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS tenant_settings (
+        id TEXT PRIMARY KEY DEFAULT 'singleton',
+        org_name TEXT,
+        logo_url TEXT,
+        favicon_url TEXT,
+        theme_id TEXT NOT NULL DEFAULT 'modern',
+        footer_links TEXT,
+        social_links TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN footer_links TEXT DEFAULT null').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN social_links TEXT DEFAULT null').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN favicon_url TEXT DEFAULT null').run().catch(() => {});
+
     const row = await db.prepare('SELECT * FROM tenant_settings WHERE id = ?').bind('singleton').first();
-    return c.json(ok(row ?? { id: 'singleton', org_name: null, logo_url: null, theme_id: 'modern' }));
+    return c.json(ok(row ?? { id: 'singleton', org_name: null, logo_url: null, favicon_url: null, theme_id: 'modern', footer_links: null, social_links: null }));
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant not found'), 403);
   }

@@ -334,3 +334,42 @@ readerRouter.get('/:slug/papers/:id/pages/:n', async (c) => {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }
 });
+
+// Upload a cropped clipping PNG image so social media crawlers (Facebook, X, WhatsApp) can preview it
+readerRouter.post('/:slug/clips', async (c) => {
+  const slug = c.req.param('slug');
+  try {
+    const bucket = getTenantBucket(c.env, slug);
+    const blob = await c.req.blob();
+    if (!blob || blob.size === 0 || blob.size > 5 * 1024 * 1024) {
+      return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid clip image'), 400);
+    }
+    const id = crypto.randomUUID();
+    const key = `clips/${id}.png`;
+    await bucket.put(key, blob, {
+      httpMetadata: { contentType: 'image/png' },
+    });
+    return c.json(ok({ id, url: `https://epaper-content.satishkumar-link.workers.dev/api/read/${slug}/clips/${id}.png` }));
+  } catch (e) {
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to save clip'), 500);
+  }
+});
+
+// Serve a cropped clipping PNG image
+readerRouter.get('/:slug/clips/:filename', async (c) => {
+  const slug = c.req.param('slug');
+  const filename = c.req.param('filename');
+  try {
+    const bucket = getTenantBucket(c.env, slug);
+    const obj = await bucket.get(`clips/${filename}`);
+    if (!obj) return c.json(err(ErrorCode.NOT_FOUND, 'Clip not found'), 404);
+    return new Response(obj.body, {
+      headers: {
+        'Content-Type': obj.httpMetadata?.contentType ?? 'image/png',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+    });
+  } catch {
+    return c.json(err(ErrorCode.NOT_FOUND, 'Clip not found'), 404);
+  }
+});

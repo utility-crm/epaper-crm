@@ -98,6 +98,8 @@ export const portalApi = {
   updateSettings: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/settings`, { method: 'PATCH', body: JSON.stringify(body) }, token),
   uploadLogo: (slug: string, file: File, token: string) => apiFetch<any>(`/api/content/${slug}/settings/logo`, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } }, token),
   logoUrl: (slug: string) => `${API_BASE}/api/content/${slug}/settings/logo`,
+  uploadFavicon: (slug: string, file: File, token: string) => apiFetch<any>(`/api/content/${slug}/settings/favicon`, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } }, token),
+  faviconUrl: (slug: string) => `${API_BASE}/api/content/${slug}/settings/favicon`,
   getPageImage: async (slug: string, id: string, n: number, token: string) => {
     const res = await fetch(`${API_BASE}/api/content/${slug}/epapers/${id}/pages/${n}/image`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -114,6 +116,7 @@ export const readerApi = {
   resolveDomain: (host: string) => apiFetch<{ slug: string }>(`/api/domain/resolve?host=${encodeURIComponent(host)}`),
   getSettings: (slug: string) => apiFetch<any>(`/api/content/${slug}/settings`),
   logoUrl: (slug: string) => `${API_BASE}/api/content/${slug}/settings/logo`,
+  faviconUrl: (slug: string) => `${API_BASE}/api/content/${slug}/settings/favicon`,
   signup: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/signup`, { method: 'POST', body: JSON.stringify(body) }),
   login: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/login`, { method: 'POST', body: JSON.stringify(body) }),
   me: (slug: string, token: string) => apiFetch<any>(`/api/read/${slug}/me`, {}, token),

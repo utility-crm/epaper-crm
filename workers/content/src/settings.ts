@@ -9,22 +9,59 @@ settingsRouter.get('/:slug/settings', async (c) => {
   const slug = c.req.param('slug');
   try {
     const db = getTenantDb(c.env, slug);
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS tenant_settings (
+        id TEXT PRIMARY KEY DEFAULT 'singleton',
+        org_name TEXT,
+        logo_url TEXT,
+        favicon_url TEXT,
+        theme_id TEXT NOT NULL DEFAULT 'modern',
+        footer_links TEXT,
+        social_links TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN footer_links TEXT DEFAULT null').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN social_links TEXT DEFAULT null').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN favicon_url TEXT DEFAULT null').run().catch(() => {});
+
     const row = await db.prepare('SELECT * FROM tenant_settings WHERE id = ?').bind('singleton').first();
-    return c.json(ok(row ?? { id: 'singleton', org_name: null, logo_url: null, theme_id: 'modern' }));
+    return c.json(ok(row ?? { id: 'singleton', org_name: null, logo_url: null, favicon_url: null, theme_id: 'modern', footer_links: null, social_links: null }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant not found'), 403);
   }
 });
 
-// Staff-only: update branding settings (text fields only)
+// Staff-only: update branding & footer settings
 settingsRouter.patch('/:slug/settings', async (c) => {
   const slug = c.req.param('slug');
   const body = await c.req.json();
   try {
     const db = getTenantDb(c.env, slug);
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS tenant_settings (
+        id TEXT PRIMARY KEY DEFAULT 'singleton',
+        org_name TEXT,
+        logo_url TEXT,
+        favicon_url TEXT,
+        theme_id TEXT NOT NULL DEFAULT 'modern',
+        footer_links TEXT,
+        social_links TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN footer_links TEXT DEFAULT null').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN social_links TEXT DEFAULT null').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN favicon_url TEXT DEFAULT null').run().catch(() => {});
+
+    await db.prepare("INSERT OR IGNORE INTO tenant_settings (id, theme_id) VALUES ('singleton', 'modern')").run();
+
+    const footerLinksVal = body.footer_links !== undefined ? (typeof body.footer_links === 'string' ? body.footer_links : JSON.stringify(body.footer_links)) : null;
+    const socialLinksVal = body.social_links !== undefined ? (typeof body.social_links === 'string' ? body.social_links : JSON.stringify(body.social_links)) : null;
+
     await db.prepare(
-      'UPDATE tenant_settings SET org_name = COALESCE(?, org_name), theme_id = COALESCE(?, theme_id), updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).bind(body.org_name ?? null, body.theme_id ?? null, 'singleton').run();
+      'UPDATE tenant_settings SET org_name = COALESCE(?, org_name), theme_id = COALESCE(?, theme_id), footer_links = COALESCE(?, footer_links), social_links = COALESCE(?, social_links), favicon_url = COALESCE(?, favicon_url), updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).bind(body.org_name ?? null, body.theme_id ?? null, footerLinksVal, socialLinksVal, body.favicon_url ?? null, 'singleton').run();
     return c.json(ok({ updated: true }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant not found'), 403);
@@ -56,6 +93,47 @@ settingsRouter.get('/:slug/settings/logo', async (c) => {
     const bucket = getTenantBucket(c.env, slug);
     for (const ext of ['png', 'jpg', 'jpeg', 'webp', 'svg']) {
       const obj = await bucket.get(`settings/logo.${ext}`);
+      if (obj) {
+        return new Response(obj.body, {
+          headers: { 'Content-Type': obj.httpMetadata?.contentType ?? `image/${ext}`, 'Cache-Control': 'public, max-age=3600' },
+        });
+      }
+    }
+    return new Response('Not found', { status: 404 });
+  } catch {
+    return new Response('Not found', { status: 404 });
+  }
+});
+
+// Staff-only: upload favicon to R2 and store URL
+settingsRouter.put('/:slug/settings/favicon', async (c) => {
+  const slug = c.req.param('slug');
+  try {
+    const db = getTenantDb(c.env, slug);
+    const bucket = getTenantBucket(c.env, slug);
+    const body = await c.req.arrayBuffer();
+    const contentType = c.req.header('Content-Type') ?? 'image/x-icon';
+    const ext = contentType.includes('png') ? 'png' : contentType.includes('svg') ? 'svg' : 'ico';
+    const key = `settings/favicon.${ext}`;
+    await bucket.put(key, body, { httpMetadata: { contentType } });
+    const favicon_url = `/api/content/${slug}/settings/favicon`;
+    try {
+      await db.prepare('ALTER TABLE tenant_settings ADD COLUMN favicon_url TEXT DEFAULT null').run();
+    } catch (_) {}
+    await db.prepare('UPDATE tenant_settings SET favicon_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(favicon_url, 'singleton').run();
+    return c.json(ok({ favicon_url }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant not found or bucket unavailable'), 403);
+  }
+});
+
+// Public: serve favicon directly from R2
+settingsRouter.get('/:slug/settings/favicon', async (c) => {
+  const slug = c.req.param('slug');
+  try {
+    const bucket = getTenantBucket(c.env, slug);
+    for (const ext of ['ico', 'png', 'svg', 'jpg', 'webp']) {
+      const obj = await bucket.get(`settings/favicon.${ext}`);
       if (obj) {
         return new Response(obj.body, {
           headers: { 'Content-Type': obj.httpMetadata?.contentType ?? `image/${ext}`, 'Cache-Control': 'public, max-age=3600' },

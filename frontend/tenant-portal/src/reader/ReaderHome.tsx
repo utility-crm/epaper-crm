@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { readerApi } from '../lib/api';
 import { ReaderSession } from './lib';
 import { Card, CardContent } from '../components/ui/card';
@@ -16,6 +16,10 @@ interface Props {
 }
 
 export function ReaderHome({ slug, basePath = '', session, orgName }: Props) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isArchiveView = searchParams.get('archive') === 'true' || searchParams.get('archive') === '1';
+
   const [papers, setPapers] = useState<any[]>([]);
   const [editions, setEditions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,14 +60,32 @@ export function ReaderHome({ slug, basePath = '', session, orgName }: Props) {
     });
   }, [slug, session, filterEdition, filterStart, filterEnd, page]);
 
+
+
   if (loading && papers.length === 0) return <div className="flex justify-center py-24"><div className="spinner" /></div>;
 
   const displayName = orgName || slug;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <h1 className="font-serif text-3xl font-700 tracking-tight">{displayName}</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Browse published editions. Free papers open instantly; premium papers show a preview.</p>
+      <h1 className="font-serif text-3xl font-700 tracking-tight">
+        {isArchiveView ? `${displayName} — Archives` : displayName}
+      </h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {isArchiveView
+          ? 'Browsing all past dates and archived papers. Select any edition below.'
+          : 'Browse published editions. Free papers open instantly; premium papers show a preview.'}
+      </p>
+      {isArchiveView && editions.length === 1 && papers.length > 0 && (
+        <div className="mt-3">
+          <Link
+            to={`${basePath}/paper/${papers[0].id}`}
+            className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+          >
+            Read Today's Latest Paper →
+          </Link>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end rounded-lg border bg-card p-4 shadow-sm">

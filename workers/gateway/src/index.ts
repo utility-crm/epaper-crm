@@ -16,28 +16,8 @@ const app = new Hono<{ Bindings: Env }>();
 app.use('/api/*', async (c, next) => {
   const allowedOrigins = (c.env.ALLOWED_ORIGIN || '').split(',').map((o) => o.trim());
   const corsMiddleware = cors({
-    origin: (origin, c) => {
-      const path = new URL(c.req.url).pathname;
-      if (
-        path.startsWith('/api/domain/resolve') ||
-        path.startsWith('/api/read') ||
-        path.startsWith('/api/content')
-      ) {
-        return origin || '*';
-      }
-      if (!origin) return allowedOrigins[0] || '*';
-      if (
-        allowedOrigins.includes(origin) ||
-        origin === 'https://epaperspace.com' ||
-        origin === 'https://www.epaperspace.com' ||
-        origin.endsWith('.epaperspace.com') ||
-        origin.endsWith('.pages.dev') ||
-        origin.endsWith('.workers.dev') ||
-        origin.startsWith('http://localhost:')
-      ) {
-        return origin;
-      }
-      return null;
+    origin: (origin) => {
+      return origin || '*';
     },
     allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     allowMethods: ['POST', 'GET', 'OPTIONS', 'PATCH', 'DELETE', 'PUT'],

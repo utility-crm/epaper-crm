@@ -6,8 +6,9 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useEffect } from 'react';
-import { ImageIcon, Upload, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ImageIcon, Upload, CheckCircle2, AlertTriangle, Crop } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { ImageCropModal } from '../components/ImageCropModal';
 
 interface Props { slug: string; token: string; onSettingsChange?: (s: any) => void; }
 
@@ -23,15 +24,39 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
   const [themeId, setThemeId] = useState('modern');
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [rawLogoFile, setRawLogoFile] = useState<File | null>(null);
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [faviconPreview, setFaviconPreview] = useState<string | null>(null);
+  const [faviconFile, setFaviconFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const faviconRef = useRef<HTMLInputElement>(null);
   
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+
+  const [footerLinks, setFooterLinks] = useState<Array<{ label: string; url: string }>>([
+    { label: 'Privacy Policy', url: '/privacy' },
+    { label: 'Disclaimer', url: '/disclaimer' },
+    { label: 'Terms And Conditions', url: '/terms' },
+  ]);
+  const [socialLinks, setSocialLinks] = useState<{
+    facebook: string;
+    twitter: string;
+    instagram: string;
+    linkedin: string;
+    youtube: string;
+  }>({
+    facebook: '',
+    twitter: '',
+    instagram: '',
+    linkedin: '',
+    youtube: '',
+  });
 
   const load = useCallback(async () => {
     const res = await portalApi.getSettings(slug, token);
@@ -39,14 +64,38 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
       setOrgName(res.data.org_name ?? '');
       setThemeId(res.data.theme_id ?? 'modern');
       if (res.data.logo_url) setLogoPreview(portalApi.logoUrl(slug) + `?t=${Date.now()}`);
+      if (res.data.favicon_url) setFaviconPreview(portalApi.faviconUrl(slug) + `?t=${Date.now()}`);
+      if (res.data.footer_links) {
+        try {
+          const parsed = typeof res.data.footer_links === 'string' ? JSON.parse(res.data.footer_links) : res.data.footer_links;
+          if (Array.isArray(parsed)) setFooterLinks(parsed);
+        } catch (_) {}
+      }
+      if (res.data.social_links) {
+        try {
+          const parsed = typeof res.data.social_links === 'string' ? JSON.parse(res.data.social_links) : res.data.social_links;
+          if (parsed && typeof parsed === 'object') setSocialLinks(prev => ({ ...prev, ...parsed }));
+        } catch (_) {}
+      }
     }
   }, [slug, token]);
 
   useEffect(() => { load(); }, [load]);
 
   const handleLogoFile = (f: File) => {
-    setLogoFile(f);
-    setLogoPreview(URL.createObjectURL(f));
+    setRawLogoFile(f);
+    setCropModalOpen(true);
+  };
+
+  const handleSaveCroppedLogo = (croppedFile: File, previewUrl: string) => {
+    setLogoFile(croppedFile);
+    setLogoPreview(previewUrl);
+    setCropModalOpen(false);
+  };
+
+  const handleFaviconFile = (f: File) => {
+    setFaviconFile(f);
+    setFaviconPreview(URL.createObjectURL(f));
   };
 
   const save = async () => {
@@ -56,8 +105,22 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
       const logoRes = await portalApi.uploadLogo(slug, logoFile, token);
       if (!logoRes.ok) { setError('Logo upload failed'); setBusy(false); return; }
     }
+    // Upload favicon if changed
+    if (faviconFile) {
+      const favRes = await portalApi.uploadFavicon(slug, faviconFile, token);
+      if (!favRes.ok) { setError('Favicon upload failed'); setBusy(false); return; }
+    }
     // Save text settings
-    const res = await portalApi.updateSettings(slug, { org_name: orgName || null, theme_id: themeId }, token);
+    const res = await portalApi.updateSettings(
+      slug,
+      {
+        org_name: orgName || null,
+        theme_id: themeId,
+        footer_links: JSON.stringify(footerLinks),
+        social_links: JSON.stringify(socialLinks),
+      },
+      token
+    );
     setBusy(false);
     if (!res.ok) { setError(res.error?.message ?? 'Failed to save'); return; }
     setSaved(true);
@@ -97,19 +160,55 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
               onClick={() => fileRef.current?.click()}
               onDragOver={e => e.preventDefault()}
               onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f?.type.startsWith('image/')) handleLogoFile(f); }}
-              className="relative flex h-24 w-24 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 transition hover:border-primary/60 overflow-hidden"
+              className="relative flex h-24 min-w-[96px] max-w-[280px] cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 transition hover:border-primary/60 p-2 overflow-hidden"
             >
               {logoPreview ? (
-                <img src={logoPreview} alt="Logo" className="h-full w-full object-cover" />
+                <img src={logoPreview} alt="Logo" className="h-full w-auto object-contain" />
               ) : (
                 <ImageIcon className="h-8 w-8 text-muted-foreground" />
               )}
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleLogoFile(e.target.files[0])} />
             </div>
-            <div className="space-y-1 text-sm text-muted-foreground">
-              <p>Click or drag to upload. PNG, JPG, SVG — recommended 256×256px.</p>
-              <Button variant="secondary" size="sm" onClick={() => fileRef.current?.click()}>
-                <Upload className="h-3.5 w-3.5" /> Upload Logo
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>Click or drag to upload. You can crop & select which part of the image/signature to store.</p>
+              <div className="flex items-center gap-2">
+                <Button variant="secondary" size="sm" onClick={() => fileRef.current?.click()}>
+                  <Upload className="h-3.5 w-3.5 mr-1.5" /> Upload Logo
+                </Button>
+                {rawLogoFile && (
+                  <Button variant="outline" size="sm" onClick={() => setCropModalOpen(true)}>
+                    <Crop className="h-3.5 w-3.5 mr-1.5" /> Crop / Edit Image
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Favicon */}
+      <Card>
+        <CardContent className="p-6 space-y-4">
+          <h2 className="text-base font-semibold">Website Favicon</h2>
+          <p className="text-sm text-muted-foreground">Icon displayed in browser tabs and bookmarks when readers visit your website.</p>
+          <div className="flex items-center gap-6">
+            <div
+              onClick={() => faviconRef.current?.click()}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f?.type.startsWith('image/')) handleFaviconFile(f); }}
+              className="relative flex h-16 w-16 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 transition hover:border-primary/60 p-1.5 overflow-hidden"
+            >
+              {faviconPreview ? (
+                <img src={faviconPreview} alt="Favicon" className="h-full w-full object-contain" />
+              ) : (
+                <ImageIcon className="h-6 w-6 text-muted-foreground" />
+              )}
+              <input ref={faviconRef} type="file" accept="image/*,.ico" className="hidden" onChange={e => e.target.files?.[0] && handleFaviconFile(e.target.files[0])} />
+            </div>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>Click or drag to upload Favicon (.ico, .png, .svg — recommended 32×32 or 64×64px).</p>
+              <Button variant="secondary" size="sm" onClick={() => faviconRef.current?.click()}>
+                <Upload className="h-3.5 w-3.5 mr-1.5" /> Upload Favicon
               </Button>
             </div>
           </div>
@@ -145,6 +244,109 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
                 <div className="text-xs text-muted-foreground mt-0.5">{t.description}</div>
               </button>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Reader Footer & Social Links */}
+      <Card>
+        <CardContent className="p-6 space-y-6">
+          <div>
+            <h2 className="text-base font-semibold">Reader Footer & Social Pages</h2>
+            <p className="text-sm text-muted-foreground">Customize the footer displayed across all reader pages.</p>
+          </div>
+
+          {/* Important Links */}
+          <div className="space-y-3">
+            <Label className="text-sm font-semibold">Important Links</Label>
+            {footerLinks.map((link, i) => (
+              <div key={i} className="flex items-center gap-2 max-w-lg">
+                <Input
+                  value={link.label}
+                  onChange={e => {
+                    setFooterLinks(prev => prev.map((l, idx) => idx === i ? { ...l, label: e.target.value } : l));
+                  }}
+                  placeholder="Link Label"
+                  className="w-1/3 text-xs"
+                />
+                <Input
+                  value={link.url}
+                  onChange={e => {
+                    setFooterLinks(prev => prev.map((l, idx) => idx === i ? { ...l, url: e.target.value } : l));
+                  }}
+                  placeholder="/privacy or https://..."
+                  className="w-2/3 text-xs"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setFooterLinks(footerLinks.filter((_, idx) => idx !== i))}
+                  className="h-8 text-xs text-red-400"
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFooterLinks([...footerLinks, { label: '', url: '' }])}
+              className="text-xs"
+            >
+              + Add Footer Link
+            </Button>
+          </div>
+
+          {/* Social Pages */}
+          <div className="space-y-3 pt-2 border-t">
+            <Label className="text-sm font-semibold">Social Pages URLs</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
+              <div>
+                <Label className="text-xs text-muted-foreground">Facebook URL</Label>
+                <Input
+                  value={socialLinks.facebook}
+                  onChange={e => setSocialLinks({ ...socialLinks, facebook: e.target.value })}
+                  placeholder="https://facebook.com/..."
+                  className="text-xs mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">X (Twitter) URL</Label>
+                <Input
+                  value={socialLinks.twitter}
+                  onChange={e => setSocialLinks({ ...socialLinks, twitter: e.target.value })}
+                  placeholder="https://x.com/..."
+                  className="text-xs mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Instagram URL</Label>
+                <Input
+                  value={socialLinks.instagram}
+                  onChange={e => setSocialLinks({ ...socialLinks, instagram: e.target.value })}
+                  placeholder="https://instagram.com/..."
+                  className="text-xs mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">LinkedIn URL</Label>
+                <Input
+                  value={socialLinks.linkedin}
+                  onChange={e => setSocialLinks({ ...socialLinks, linkedin: e.target.value })}
+                  placeholder="https://linkedin.com/..."
+                  className="text-xs mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">YouTube URL</Label>
+                <Input
+                  value={socialLinks.youtube}
+                  onChange={e => setSocialLinks({ ...socialLinks, youtube: e.target.value })}
+                  placeholder="https://youtube.com/..."
+                  className="text-xs mt-1"
+                />
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -208,6 +410,14 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ImageCropModal
+        open={cropModalOpen}
+        imageFile={rawLogoFile}
+        title="Crop & Select Image Section"
+        onClose={() => setCropModalOpen(false)}
+        onSave={handleSaveCroppedLogo}
+      />
     </div>
   );
 }

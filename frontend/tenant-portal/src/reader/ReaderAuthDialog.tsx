@@ -95,13 +95,18 @@ export function ReaderAuthDialog({ slug, initialMode = 'login', orgName, logoUrl
       <div className={`w-full max-w-md rounded-2xl p-8 ${theme.card}`}>
         {/* Org branding */}
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <div className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${theme.accent} shadow-lg overflow-hidden`}>
-            {logoUrl && !logoError ? (
-              <img src={logoUrl} alt={orgName} className="h-full w-full object-cover" onError={() => setLogoError(true)} />
-            ) : (
+          {logoUrl && !logoError ? (
+            <img
+              src={logoUrl}
+              alt={orgName}
+              className="h-14 w-auto max-w-[220px] object-contain"
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            <div className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${theme.accent} shadow-lg`}>
               <Newspaper className="h-7 w-7 text-white" />
-            )}
-          </div>
+            </div>
+          )}
           <div>
             <h1 className={`font-serif text-xl font-bold ${theme.text}`}>{orgName || slug}</h1>
             <p className={`text-sm mt-0.5 ${theme.subtext}`}>

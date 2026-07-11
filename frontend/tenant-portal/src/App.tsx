@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut, Settings } from 'lucide-react';
+import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut, Settings, ExternalLink } from 'lucide-react';
 import { LandingPage } from './pages/LandingPage';
 import {
   AboutPage,
@@ -14,6 +14,7 @@ import {
 } from './pages/InfoLegalPages';
 import { SignupPage } from './pages/SignupPage';
 import { OrgLoginPage } from './pages/OrgLoginPage';
+import { PaperAdminLoginPage } from './pages/PaperAdminLoginPage';
 import { ProvisioningScreen } from './pages/ProvisioningScreen';
 import { SuspendedScreen } from './pages/SuspendedScreen';
 import { OrgDashboard } from './pages/OrgDashboard';
@@ -34,18 +35,37 @@ function decodeJwt(token: string) {
   } catch { return null; }
 }
 
-const NAV = [
-  { to: '/portal', end: true, label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/portal/papers', label: 'Editions & Papers', icon: Newspaper },
-  { to: '/portal/plans', label: 'Subscriptions', icon: CreditCard },
-  { to: '/portal/reader-setup', label: 'Payment Setup', icon: KeyRound },
-  { to: '/portal/domain', label: 'Custom Domain', icon: Globe },
-  { to: '/portal/platform-billing', label: 'Platform Billing', icon: Building2 },
-];
+function isClientAdminRequest(pathname: string): boolean {
+  if (
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname === '/wp-admin' ||
+    pathname.startsWith('/wp-admin/') ||
+    pathname === '/portal' ||
+    pathname.startsWith('/portal/') ||
+    pathname === '/client-admin' ||
+    pathname.startsWith('/client-admin/')
+  ) {
+    return true;
+  }
+  if (/^\/read\/[^/]+\/(admin|wp-admin|portal)(\/|$)/.test(pathname)) {
+    return true;
+  }
+  return false;
+}
+
+function getAdminBasePrefix(pathname: string): string {
+  if (pathname.startsWith('/wp-admin')) return '/wp-admin';
+  if (pathname.startsWith('/client-admin')) return '/client-admin';
+  const readAdminMatch = pathname.match(/^(\/read\/[^/]+)\/(admin|wp-admin|portal)/);
+  if (readAdminMatch) return `${readAdminMatch[1]}/${readAdminMatch[2]}`;
+  if (pathname.startsWith('/admin')) return '/admin';
+  return '/portal';
+}
 
 interface OrgSettings { org_name: string | null; logo_url: string | null; }
 
-function PortalSidebar({ slug, token, onLogout }: { slug: string; token: string; onLogout: () => void }) {
+function PortalSidebar({ slug, token, basePrefix, onLogout }: { slug: string; token: string; basePrefix: string; onLogout: () => void }) {
   const [settings, setSettings] = useState<OrgSettings | null>(null);
   const [imgError, setImgError] = useState(false);
 
@@ -58,25 +78,73 @@ function PortalSidebar({ slug, token, onLogout }: { slug: string; token: string;
   const displayName = settings?.org_name || slug;
   const logoSrc = settings?.logo_url ? portalApi.logoUrl(slug) : null;
 
+  const navItems = [
+    { to: basePrefix, end: true, label: 'Dashboard', icon: LayoutDashboard },
+    { to: `${basePrefix}/papers`, label: 'Editions & Papers', icon: Newspaper },
+    { to: `${basePrefix}/plans`, label: 'Subscriptions', icon: CreditCard },
+    { to: `${basePrefix}/reader-setup`, label: 'Payment Setup', icon: KeyRound },
+    { to: `${basePrefix}/domain`, label: 'Custom Domain', icon: Globe },
+    { to: `${basePrefix}/platform-billing`, label: 'Platform Billing', icon: Building2 },
+  ];
+
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  const isCustomDomain =
+    host &&
+    !['localhost', '127.0.0.1', 'epaperspace.com', 'www.epaperspace.com'].includes(host) &&
+    !host.endsWith('.epaperspace.com') &&
+    !host.endsWith('.pages.dev');
+
+  const livePaperHref = isCustomDomain ? '/' : `/read/${slug}`;
+
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-white px-3 py-6 shadow-sm">
-      <div className="mb-9 flex items-center gap-2.5 px-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-red-600 to-rose-700 shadow-md shadow-red-500/20 overflow-hidden flex-shrink-0">
-          {logoSrc && !imgError ? (
-            <img src={logoSrc} alt={displayName} className="h-full w-full object-cover" onError={() => setImgError(true)} />
-          ) : (
-            <Newspaper className="h-4 w-4 text-white" />
-          )}
+    <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-white px-3.5 py-6 shadow-sm">
+      <div className="mb-7 px-1.5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white border border-slate-200/90 p-1 shadow-sm overflow-hidden flex-shrink-0">
+            {logoSrc && !imgError ? (
+              <img
+                src={logoSrc}
+                alt={displayName}
+                className="max-h-full max-w-full object-contain"
+                onError={() => setImgError(true)}
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center rounded-lg bg-gradient-to-br from-red-600 to-rose-700">
+                <Newspaper className="h-5 w-5 text-white" />
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div
+              className="font-serif text-sm font-bold text-slate-900 leading-snug line-clamp-2 break-words"
+              title={displayName}
+            >
+              {displayName}
+            </div>
+            <div className="font-mono text-[0.68rem] text-red-600 truncate mt-0.5" title={slug}>
+              {slug}
+            </div>
+          </div>
         </div>
-        <div className="leading-tight min-w-0">
-          <div className="font-serif text-sm font-700 text-foreground truncate">{displayName}</div>
-          <div className="font-mono text-[0.7rem] text-primary truncate">{slug}</div>
-        </div>
+
+        <a
+          href={livePaperHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 flex items-center justify-between w-full rounded-lg bg-slate-50 hover:bg-red-50 border border-slate-200/80 hover:border-red-200 px-3 py-2 text-xs font-medium text-slate-700 hover:text-red-600 transition-all group"
+        >
+          <span className="flex items-center gap-2">
+            <Globe className="h-3.5 w-3.5 text-slate-400 group-hover:text-red-600 transition-colors" />
+            View Live ePaper
+          </span>
+          <ExternalLink className="h-3.5 w-3.5 text-slate-400 group-hover:text-red-600 transition-colors" />
+        </a>
       </div>
 
       <nav className="flex flex-1 flex-col gap-1">
         <div className="mb-1 px-3 text-[0.7rem] uppercase tracking-wider text-muted-foreground/80 font-600">Workspace</div>
-        {NAV.map(({ to, end, label, icon: Icon }) => (
+        {navItems.map(({ to, end, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
@@ -96,7 +164,7 @@ function PortalSidebar({ slug, token, onLogout }: { slug: string; token: string;
 
       <div className="mt-4 border-t border-border pt-4 space-y-1">
         <NavLink
-          to="/portal/settings"
+          to={`${basePrefix}/settings`}
           className={({ isActive }) =>
             cn('flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
               isActive ? 'bg-red-50 text-red-600 font-600' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
@@ -114,6 +182,24 @@ function PortalSidebar({ slug, token, onLogout }: { slug: string; token: string;
         </button>
       </div>
     </aside>
+  );
+}
+
+function AdminPortalRoutes({ slug, token }: { slug: string; token: string }) {
+  return (
+    <Routes>
+      <Route index element={<OrgDashboard slug={slug} token={token} />} />
+      <Route path="papers" element={<PapersPage slug={slug} token={token} />} />
+      <Route path="plans" element={<PlansPage slug={slug} token={token} />} />
+      <Route path="domain" element={<DomainPage slug={slug} token={token} />} />
+      <Route path="reader-setup" element={<ReaderSubscriptionSetup slug={slug} token={token} />} />
+      <Route path="platform-billing" element={<PlatformBillingPage slug={slug} token={token} />} />
+      <Route path="settings" element={<SettingsPage slug={slug} token={token} />} />
+      {/* legacy sub-paths */}
+      <Route path="editions" element={<Navigate to="papers" replace />} />
+      <Route path="epapers" element={<Navigate to="papers" replace />} />
+      <Route path="*" element={<Navigate to="" replace />} />
+    </Routes>
   );
 }
 
@@ -155,20 +241,15 @@ export default function App() {
     };
   }, []);
 
-  // ── Heartbeat: actively checks tenant status every 30s so deleted/suspended
-  //    orgs auto-logout even on idle tabs, without waiting for an API call.
   useEffect(() => {
     if (!token) return;
 
     const checkStatus = async () => {
       try {
         const res = await portalApi.provisionStatus(token);
-        // If the tenant no longer exists at all (404 / any api error that isn't a network issue),
-        // treat it as deleted and force logout
         if (!res.ok) {
           const code = res.error?.code;
           if (code && code !== 'NETWORK_ERROR') {
-            // Server responded but doesn't recognize this tenant — force logout
             window.dispatchEvent(new CustomEvent('epaper:tenant-deleted'));
           }
           return;
@@ -179,17 +260,14 @@ export default function App() {
         } else if (s === 'suspended') {
           window.dispatchEvent(new CustomEvent('epaper:tenant-suspended'));
         } else if (s === 'active') {
-          // Keep local storage in sync
           localStorage.setItem('epaper:tenantStatus', 'active');
         }
       } catch { /* ignore transient network errors */ }
     };
 
-    // Check immediately on mount, then every 30 seconds
     checkStatus();
     const interval = setInterval(checkStatus, 30_000);
 
-    // Also re-check instantly when the user switches back to this tab
     const onVisibility = () => {
       if (document.visibilityState === 'visible') checkStatus();
     };
@@ -213,7 +291,6 @@ export default function App() {
     setTenantStatus('active');
   }
 
-  // Public reader experience — served at the tenant's custom domain (or /read/:slug).
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const host = typeof window !== 'undefined' ? window.location.hostname : '';
   const isCustomDomain =
@@ -222,7 +299,10 @@ export default function App() {
     !host.endsWith('.epaperspace.com') &&
     !host.endsWith('.pages.dev');
 
-  if (path.startsWith('/read') || isCustomDomain) {
+  const isAdminReq = isClientAdminRequest(path);
+
+  // Serve public reader experience unless this is explicitly an admin request (/admin, /portal, /wp-admin)
+  if (!isAdminReq && (path.startsWith('/read') || isCustomDomain)) {
     return <ReaderApp />;
   }
 
@@ -242,8 +322,13 @@ export default function App() {
         <Route path="/signup" element={<SignupPage onSignup={(t, s) => handleAuth(t, s, 'pending')} />} />
         <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
         <Route path="/login" element={<OrgLoginPage onLogin={handleAuth} />} />
-        <Route path="/portal/login" element={<OrgLoginPage onLogin={handleAuth} />} />
-        <Route path="/client-admin/login" element={<Navigate to="/portal/login" replace />} />
+        <Route path="/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
+        <Route path="/wp-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
+        <Route path="/client-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
+        <Route path="/portal/login" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
+        <Route path="/portal" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
+        <Route path="/read/:slug/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
+        <Route path="/read/:slug/wp-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     );
@@ -265,23 +350,21 @@ export default function App() {
     return <ProvisioningScreen token={token} onActive={handleProvisioned} />;
   }
 
+  const basePrefix = getAdminBasePrefix(path);
+
   return (
     <div className="flex h-screen bg-background font-sans text-foreground">
-      <PortalSidebar slug={slug} token={token} onLogout={handleLogout} />
+      <PortalSidebar slug={slug} token={token} basePrefix={basePrefix} onLogout={handleLogout} />
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl px-8 py-8">
           <Routes>
-            <Route path="/portal" element={<OrgDashboard slug={slug} token={token} />} />
-            <Route path="/portal/papers" element={<PapersPage slug={slug} token={token} />} />
-            <Route path="/portal/plans" element={<PlansPage slug={slug} token={token} />} />
-            <Route path="/portal/domain" element={<DomainPage slug={slug} token={token} />} />
-            <Route path="/portal/reader-setup" element={<ReaderSubscriptionSetup slug={slug} token={token} />} />
-            <Route path="/portal/platform-billing" element={<PlatformBillingPage slug={slug} token={token} />} />
-            <Route path="/portal/settings" element={<SettingsPage slug={slug} token={token} />} />
-            {/* legacy paths */}
-            <Route path="/portal/editions" element={<Navigate to="/portal/papers" replace />} />
-            <Route path="/portal/epapers" element={<Navigate to="/portal/papers" replace />} />
-            <Route path="*" element={<Navigate to="/portal" />} />
+            <Route path="/portal/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
+            <Route path="/admin/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
+            <Route path="/wp-admin/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
+            <Route path="/client-admin/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
+            <Route path="/read/:pubSlug/admin/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
+            <Route path="/read/:pubSlug/wp-admin/*" element={<AdminPortalRoutes slug={slug} token={token} />} />
+            <Route path="*" element={<Navigate to={basePrefix} replace />} />
           </Routes>
         </div>
       </main>
