@@ -350,12 +350,7 @@ export default function App() {
         <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
         <Route path="/login" element={<OrgLoginPage onLogin={handleAuth} />} />
         <Route path="/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
-        <Route path="/wp-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
-        <Route path="/client-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
-        <Route path="/portal/login" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
-        <Route path="/portal" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
         <Route path="/read/:slug/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
-        <Route path="/read/:slug/wp-admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     );

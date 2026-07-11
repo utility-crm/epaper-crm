@@ -250,6 +250,7 @@ export function LandingPage() {
           </nav>
 
           <div className="landing-nav__actions">
+            <Link to="/login" className="landing-nav__link" style={{ fontWeight: 600, marginRight: '8px' }}>Log In</Link>
             <a href="#contact" className="landing-btn landing-btn--outline">Get Quotes</a>
             <Link to="/signup" className="landing-btn landing-btn--primary">Get Started</Link>
           </div>
