@@ -105,4 +105,21 @@ app.notFound((c) => {
 
 export default {
   fetch: app.fetch,
+  scheduled: async (event: any, env: Env, ctx: any) => {
+    ctx.waitUntil((async () => {
+      try {
+        const tenants = await env.CONTROL_DB.prepare("SELECT slug FROM tenants WHERE status = 'active'").all<{ slug: string }>();
+        for (const t of tenants.results || []) {
+          try {
+            const db = getTenantDb(env, t.slug);
+            await db.prepare("UPDATE epapers SET status = 'published' WHERE status = 'draft' AND publish_type = 'scheduled' AND scheduled_at <= datetime('now')").run();
+          } catch (e) {
+            console.error(`Failed to run scheduled publish for ${t.slug}`, e);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to run scheduled job', e);
+      }
+    })());
+  }
 };

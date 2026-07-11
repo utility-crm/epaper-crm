@@ -546,6 +546,9 @@ function EditionModal({ slug, token, tiers, onClose }: { slug: string; token: st
 function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: string; editionId: string; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [publishType, setPublishType] = useState<'instant' | 'scheduled'>('instant');
+  const defaultSchedule = new Date(Date.now() + 3600000 - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+  const [scheduledAt, setScheduledAt] = useState(defaultSchedule);
   const [isFree, setIsFree] = useState(false);
   const [freePages, setFreePages] = useState(0);
   const [files, setFiles] = useState<File[]>([]);
@@ -554,6 +557,8 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
   const [step, setStep] = useState<'form' | 'uploading' | 'done'>('form');
   const [progressMsg, setProgressMsg] = useState('');
   const [error, setError] = useState('');
+
+  const defaultTitle = new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
   const isPdf = files.length === 1 && files[0].type === 'application/pdf';
 
@@ -580,8 +585,14 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setError('');
+    const finalTitle = title.trim() || defaultTitle;
     const res = await portalApi.createEpaper(slug, editionId, {
-      title, publish_date: date, is_free: isFree, free_page_count: isFree ? 0 : freePages, publish_type: 'instant',
+      title: finalTitle, 
+      publish_date: date, 
+      is_free: isFree, 
+      free_page_count: isFree ? 0 : freePages, 
+      publish_type: publishType,
+      scheduled_at: publishType === 'scheduled' ? new Date(scheduledAt).toISOString() : null
     }, token);
     if (!res.ok) { setError(res.error?.message ?? 'Failed'); setBusy(false); return; }
     const epaperId = res.data?.id;
@@ -644,8 +655,27 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
       <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>New Paper Issue</DialogTitle></DialogHeader>
         <form onSubmit={submit} className="space-y-4">
-          <div className="space-y-1.5"><Label>Title (optional)</Label><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Morning Edition" /></div>
-          <div className="space-y-1.5"><Label>Publish date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+          <div className="space-y-1.5"><Label>Title (optional)</Label><Input value={title} onChange={e => setTitle(e.target.value)} placeholder={`e.g. ${defaultTitle}`} /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5"><Label>Publish date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+            <div className="space-y-1.5">
+              <Label>Publishing</Label>
+              <Select value={publishType} onValueChange={(v: any) => setPublishType(v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="instant">Publish instantly</SelectItem>
+                  <SelectItem value="scheduled">Schedule for later</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {publishType === 'scheduled' && (
+            <div className="space-y-1.5 p-3 border rounded-lg bg-muted/10">
+              <Label>Scheduled Date & Time (Local)</Label>
+              <Input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} required />
+              <p className="text-xs text-muted-foreground mt-1">This paper will be hidden as a Draft until this time arrives.</p>
+            </div>
+          )}
           <div className="flex items-center justify-between rounded-lg border border-border p-3">
             <div><div className="text-sm font-medium">Free for everyone</div><div className="text-xs text-muted-foreground">No paywall on any page</div></div>
             <Switch checked={isFree} onCheckedChange={setIsFree} />

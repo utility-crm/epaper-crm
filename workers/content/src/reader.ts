@@ -154,11 +154,11 @@ readerRouter.get('/:slug/today', async (c) => {
     const today = new Date().toISOString().split('T')[0];
     
     const { results } = await db.prepare(
-      `SELECT e.id, e.is_default_for_day 
+      `SELECT e.id, e.is_default_for_day, e.publish_date, ed.title as edition_title
        FROM epapers e JOIN editions ed ON ed.id = e.edition_id
        WHERE e.status = 'published' AND ed.status != 'archived' AND e.publish_date = ? 
        ORDER BY e.created_at ASC`
-    ).bind(today).all<{ id: string, is_default_for_day: number }>();
+    ).bind(today).all<{ id: string, is_default_for_day: number, publish_date: string, edition_title: string }>();
     
     if (!results || results.length === 0) {
       return c.json(err(ErrorCode.NOT_FOUND, 'No papers available for today'), 404);
@@ -169,6 +169,8 @@ readerRouter.get('/:slug/today', async (c) => {
     
     return c.json(ok({
       paper_id: paper.id,
+      publish_date: paper.publish_date,
+      edition_title: paper.edition_title,
       multiple_available: results.length > 1 && !defaultPaper
     }));
   } catch {

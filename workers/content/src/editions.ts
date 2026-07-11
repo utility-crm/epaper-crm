@@ -131,12 +131,18 @@ editionsRouter.delete('/:slug/epapers/:id', async (c) => {
     const keysToDelete: string[] = (pages.results ?? []).map(p => p.r2_key);
     if (epaper.cover_key) keysToDelete.push(epaper.cover_key);
     
-    await Promise.all(keysToDelete.map(k => bucket.delete(k)));
+    const deletedSizes = await Promise.all(keysToDelete.map(async k => {
+      const head = await bucket.head(k);
+      await bucket.delete(k);
+      return head?.size || 0;
+    }));
+    const totalDeletedBytes = deletedSizes.reduce((acc, size) => acc + size, 0);
 
     // Delete DB records
     await db.batch([
       db.prepare('DELETE FROM epaper_pages WHERE epaper_id = ?').bind(id),
-      db.prepare('DELETE FROM epapers WHERE id = ?').bind(id)
+      db.prepare('DELETE FROM epapers WHERE id = ?').bind(id),
+      db.prepare('UPDATE tenant_stats SET disk_usage_bytes=MAX(0, disk_usage_bytes - ?), updated_at=CURRENT_TIMESTAMP WHERE id=1').bind(totalDeletedBytes)
     ]);
 
     return c.json(ok({ deleted: true }));
@@ -179,9 +185,14 @@ editionsRouter.delete('/:slug/editions/:id', async (c) => {
       keysToDelete.push(...(pagesRes.results ?? []).map(p => p.r2_key));
     }
 
-    // Delete all from R2
+    let totalDeletedBytes = 0;
     if (keysToDelete.length > 0) {
-      await Promise.all(keysToDelete.map(k => bucket.delete(k)));
+      const deletedSizes = await Promise.all(keysToDelete.map(async k => {
+        const head = await bucket.head(k);
+        await bucket.delete(k);
+        return head?.size || 0;
+      }));
+      totalDeletedBytes = deletedSizes.reduce((acc, size) => acc + size, 0);
     }
 
     // Delete DB records
@@ -192,6 +203,7 @@ editionsRouter.delete('/:slug/editions/:id', async (c) => {
       batchStmts.push(db.prepare(`DELETE FROM epapers WHERE edition_id = ?`).bind(id));
     }
     batchStmts.push(db.prepare('DELETE FROM editions WHERE id = ?').bind(id));
+    batchStmts.push(db.prepare('UPDATE tenant_stats SET disk_usage_bytes=MAX(0, disk_usage_bytes - ?), updated_at=CURRENT_TIMESTAMP WHERE id=1').bind(totalDeletedBytes));
     
     await db.batch(batchStmts);
 

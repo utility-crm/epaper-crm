@@ -29,7 +29,13 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
     const oldCover = await db.prepare('SELECT cover_key FROM epapers WHERE id = ?').bind(id).first<{ cover_key: string | null }>();
     const keysToDelete: string[] = (prev.results ?? []).map(p => p.r2_key);
     if (oldCover?.cover_key) keysToDelete.push(oldCover.cover_key);
-    await Promise.all(keysToDelete.map(k => bucket.delete(k)));
+
+    const deletedSizes = await Promise.all(keysToDelete.map(async k => {
+      const head = await bucket.head(k);
+      await bucket.delete(k);
+      return head?.size || 0;
+    }));
+    const totalDeletedBytes = deletedSizes.reduce((acc, size) => acc + size, 0);
     await db.prepare('DELETE FROM epaper_pages WHERE epaper_id = ?').bind(id).run();
 
     if (!ct.startsWith('multipart/form-data')) {
@@ -97,7 +103,7 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
         .bind(pageFiles.length, pageFiles.length, pageRows[0]?.r2_key ?? null, coverKey, id)
     );
     stmts.push(
-      db.prepare('UPDATE tenant_stats SET disk_usage_bytes=disk_usage_bytes+?, updated_at=CURRENT_TIMESTAMP WHERE id=1').bind(totalBytes)
+      db.prepare('UPDATE tenant_stats SET disk_usage_bytes=MAX(0, disk_usage_bytes - ? + ?), updated_at=CURRENT_TIMESTAMP WHERE id=1').bind(totalDeletedBytes, totalBytes)
     );
     await db.batch(stmts);
 

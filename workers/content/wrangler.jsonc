@@ -33,5 +33,8 @@
       "binding": "BILLING_PLATFORM_WORKER",
       "service": "epaper-billing-platform"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
 }

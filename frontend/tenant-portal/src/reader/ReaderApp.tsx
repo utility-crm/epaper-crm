@@ -155,6 +155,7 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
           <Route path="/" element={<ReaderHome slug={slug} basePath={basePath} session={session} orgName={displayName} />} />
           <Route path="/today" element={<TodayRedirect slug={slug} basePath={basePath} />} />
           <Route path="/paper/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
+          <Route path="/:date/:edition/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
           <Route path="/privacy" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="privacy" />} />
           <Route path="/disclaimer" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="disclaimer" />} />
           <Route path="/terms" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="terms" />} />

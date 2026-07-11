@@ -66,6 +66,13 @@ export function ReaderHome({ slug, basePath = '', session, orgName }: Props) {
 
   const displayName = orgName || slug;
 
+  const getPaperUrl = (p: any) => {
+    const d = new Date(p.publish_date);
+    const dateSlug = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).replace(/\s+/g, '-').toLowerCase();
+    const editionSlug = (p.edition_title || 'edition').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    return `${basePath}/${dateSlug}/${editionSlug}/${p.id}`;
+  };
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <h1 className="font-serif text-3xl font-700 tracking-tight">
@@ -79,7 +86,7 @@ export function ReaderHome({ slug, basePath = '', session, orgName }: Props) {
       {isArchiveView && editions.length === 1 && papers.length > 0 && (
         <div className="mt-3">
           <Link
-            to={`${basePath}/paper/${papers[0].id}`}
+            to={getPaperUrl(papers[0])}
             className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 transition-colors"
           >
             Read Today's Latest Paper →
@@ -133,7 +140,7 @@ export function ReaderHome({ slug, basePath = '', session, orgName }: Props) {
       ) : (
         <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
           {papers.map(p => (
-            <Link key={p.id} to={`${basePath}/paper/${p.id}`}>
+            <Link key={p.id} to={getPaperUrl(p)}>
               <Card className="group h-full overflow-hidden transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10">
                 <div className="relative aspect-[3/4] overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900">
                   {p.cover_key ? (
