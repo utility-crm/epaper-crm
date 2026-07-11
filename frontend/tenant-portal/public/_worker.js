@@ -2,6 +2,12 @@ export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
 
+    // Proxy all /api/ requests directly to backend gateway
+    if (url.pathname.startsWith('/api/')) {
+      const targetUrl = `https://epaper-gateway.satishkumar-link.workers.dev${url.pathname}${url.search}`;
+      return fetch(targetUrl, request);
+    }
+
     // Only inspect GET or HEAD requests that aren't for static assets or files
     if (
       (request.method !== 'GET' && request.method !== 'HEAD') ||

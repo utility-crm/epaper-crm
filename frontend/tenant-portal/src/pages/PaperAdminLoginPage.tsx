@@ -113,6 +113,15 @@ export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPa
   const displayName = orgName || (slug ? formatSlugName(slug) : 'Client Portal');
   const livePaperUrl = slug ? (window.location.pathname.startsWith('/read') ? `/read/${slug}` : '/') : '/';
 
+  const resolveAssetUrl = (url: string | null): string | undefined => {
+    if (!url) return undefined;
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (url.startsWith('/api')) {
+      return `https://epaper-gateway.satishkumar-link.workers.dev${url}`;
+    }
+    return url;
+  };
+
   return (
     <div
       style={{
@@ -164,7 +173,14 @@ export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPa
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           {logoUrl ? (
             <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-              <img src={logoUrl} alt={displayName} style={{ maxHeight: '100%', maxWidth: 240, objectFit: 'contain' }} />
+              <img
+                src={resolveAssetUrl(logoUrl)}
+                alt={displayName}
+                style={{ maxHeight: '100%', maxWidth: 240, objectFit: 'contain' }}
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
             </div>
           ) : (
             <div
