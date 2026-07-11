@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, useParams, Navigate, Link } from 'react-router-dom';
+import { Routes, Route, useParams, Navigate, Link, useNavigate } from 'react-router-dom';
 import { readerApi } from '../lib/api';
 import { useReaderSession } from './lib';
 import { ReaderHome } from './ReaderHome';
@@ -11,6 +11,27 @@ import { ReaderInfoPage } from './ReaderInfoPage';
 import { Button } from '../components/ui/button';
 import { Newspaper, ShieldAlert } from 'lucide-react';
 import { cn } from '../lib/utils';
+
+// Redirects legacy /paper/:id URLs to the new SEO /:date/:edition/:id format
+function PaperRedirect({ slug, basePath }: { slug: string; basePath: string }) {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!id) return;
+    readerApi.getPaper(slug, id).then(res => {
+      if (res.ok && res.data) {
+        const d = new Date(res.data.publish_date);
+        const dateSlug = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).replace(/\s+/g, '-').toLowerCase();
+        const editionSlug = (res.data.edition_title || 'edition').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+        const prefix = basePath ? basePath + '/' : '/';
+        navigate(`${prefix}${dateSlug}/${editionSlug}/${id}`, { replace: true });
+      }
+    });
+  }, [slug, id, basePath, navigate]);
+
+  return <div className="flex h-screen items-center justify-center"><div className="spinner" /></div>;
+}
 
 // Resolves which publication (slug) this reader session is for
 function ReaderShell() {
@@ -154,7 +175,7 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
         <Routes>
           <Route path="/" element={<ReaderHome slug={slug} basePath={basePath} session={session} orgName={displayName} />} />
           <Route path="today" element={<TodayRedirect slug={slug} basePath={basePath} />} />
-          <Route path="paper/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
+          <Route path="paper/:id" element={<PaperRedirect slug={slug} basePath={basePath} />} />
           <Route path=":date/:edition/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
           <Route path="privacy" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="privacy" />} />
           <Route path="disclaimer" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="disclaimer" />} />
