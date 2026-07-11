@@ -545,6 +545,7 @@ function EditionModal({ slug, token, tiers, onClose }: { slug: string; token: st
 /* ── Create Paper Modal (with inline file upload) ───────────────────────── */
 function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: string; editionId: string; onClose: () => void }) {
   const [title, setTitle] = useState('');
+  const [isManualTitle, setIsManualTitle] = useState(false);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [publishType, setPublishType] = useState<'instant' | 'scheduled'>('instant');
   const defaultSchedule = new Date(Date.now() + 3600000 - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
@@ -558,7 +559,15 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
   const [progressMsg, setProgressMsg] = useState('');
   const [error, setError] = useState('');
 
-  const defaultTitle = new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const [y, m, d] = date.split('-');
+  const localDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+  const defaultTitle = localDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  useEffect(() => {
+    if (!isManualTitle) {
+      setTitle(defaultTitle);
+    }
+  }, [defaultTitle, isManualTitle]);
 
   const isPdf = files.length === 1 && files[0].type === 'application/pdf';
 
@@ -655,7 +664,7 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
       <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>New Paper Issue</DialogTitle></DialogHeader>
         <form onSubmit={submit} className="space-y-4">
-          <div className="space-y-1.5"><Label>Title (optional)</Label><Input value={title} onChange={e => setTitle(e.target.value)} placeholder={`e.g. ${defaultTitle}`} /></div>
+          <div className="space-y-1.5"><Label>Title (optional)</Label><Input value={title} onChange={e => { setTitle(e.target.value); setIsManualTitle(true); }} placeholder={`e.g. ${defaultTitle}`} /></div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5"><Label>Publish date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
             <div className="space-y-1.5">

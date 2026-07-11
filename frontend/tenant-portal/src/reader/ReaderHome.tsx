@@ -70,7 +70,8 @@ export function ReaderHome({ slug, basePath = '', session, orgName }: Props) {
     const d = new Date(p.publish_date);
     const dateSlug = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).replace(/\s+/g, '-').toLowerCase();
     const editionSlug = (p.edition_title || 'edition').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-    return `${basePath}/${dateSlug}/${editionSlug}/${p.id}`;
+    const prefix = basePath ? basePath + '/' : '/';
+    return `${prefix}${dateSlug}/${editionSlug}/${p.id}`;
   };
 
   return (

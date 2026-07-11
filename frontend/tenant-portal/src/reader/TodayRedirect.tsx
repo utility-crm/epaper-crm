@@ -22,7 +22,8 @@ export function TodayRedirect({ slug: propSlug, basePath = '' }: { slug?: string
           const d = new Date(res.data.publish_date);
           const dateSlug = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).replace(/\s+/g, '-').toLowerCase();
           const editionSlug = (res.data.edition_title || 'edition').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-          navigate(`${basePath}/${dateSlug}/${editionSlug}/${res.data.paper_id}`, { replace: true });
+          const prefix = basePath ? basePath + '/' : '/';
+          navigate(`${prefix}${dateSlug}/${editionSlug}/${res.data.paper_id}`, { replace: true });
         } else {
           toast.error('No papers published today. Redirecting to library.');
           navigate(basePath || '/', { replace: true });

@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { lazy, Suspense } from 'react';
-import { Newspaper, Eye, HardDrive, CheckCircle2, Copy, Upload, CreditCard, ArrowUpRight } from 'lucide-react';
+import { Newspaper, Eye, HardDrive, CheckCircle2, Copy, Upload, CreditCard, ArrowUpRight, RotateCcw } from 'lucide-react';
 
 interface OrgDashboardProps { slug: string; token: string; }
 
@@ -82,7 +82,7 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
     { label: 'Editions', value: editions.length, icon: Newspaper, tint: 'text-primary' },
     { label: 'Published Papers', value: publishedPapers, icon: CheckCircle2, tint: 'text-green-400' },
     { label: 'Total Views', value: stats.pageviews.toLocaleString(), icon: Eye, tint: 'text-sky-400' },
-    { label: 'Storage Used', value: formatBytes(diskUsed), icon: HardDrive, tint: 'text-amber-400' },
+    { label: 'Storage Used', value: formatBytes(diskUsed), icon: HardDrive, tint: 'text-amber-400', isStorage: true },
   ];
 
   return (
@@ -121,12 +121,30 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {kpis.map(k => (
           <Card key={k.label}>
-            <CardContent className="flex items-center gap-4 p-5">
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/5"><k.icon className={`h-5 w-5 ${k.tint}`} /></div>
-              <div>
-                <div className="text-2xl font-700 leading-none">{k.value}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{k.label}</div>
+            <CardContent className="flex items-center justify-between p-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/5"><k.icon className={`h-5 w-5 ${k.tint}`} /></div>
+                <div>
+                  <div className="text-2xl font-700 leading-none">{k.value}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{k.label}</div>
+                </div>
               </div>
+              {k.isStorage && (
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={async () => {
+                    const res = await portalApi.recalculateStats(slug, token);
+                    if (res.ok && res.data) {
+                      setStats(s => ({ ...s, disk_usage_bytes: res.data.disk_usage_bytes }));
+                    }
+                  }}
+                  title="Recalculate Storage"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              )}
             </CardContent>
           </Card>
         ))}

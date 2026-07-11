@@ -49,7 +49,9 @@ function isClientAdminRequest(pathname: string): boolean {
     pathname === '/portal' ||
     pathname.startsWith('/portal/') ||
     pathname === '/client-admin' ||
-    pathname.startsWith('/client-admin/')
+    pathname.startsWith('/client-admin/') ||
+    pathname === '/login' ||
+    pathname === '/signup'
   ) {
     return true;
   }

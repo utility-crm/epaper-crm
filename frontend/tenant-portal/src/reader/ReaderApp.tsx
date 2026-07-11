@@ -153,14 +153,14 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
       <main className="flex-1 flex flex-col">
         <Routes>
           <Route path="/" element={<ReaderHome slug={slug} basePath={basePath} session={session} orgName={displayName} />} />
-          <Route path="/today" element={<TodayRedirect slug={slug} basePath={basePath} />} />
-          <Route path="/paper/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
-          <Route path="/:date/:edition/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
-          <Route path="/privacy" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="privacy" />} />
-          <Route path="/disclaimer" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="disclaimer" />} />
-          <Route path="/terms" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="terms" />} />
-          <Route path="/about" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="about" />} />
-          <Route path="/contact" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="contact" />} />
+          <Route path="today" element={<TodayRedirect slug={slug} basePath={basePath} />} />
+          <Route path="paper/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
+          <Route path=":date/:edition/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
+          <Route path="privacy" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="privacy" />} />
+          <Route path="disclaimer" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="disclaimer" />} />
+          <Route path="terms" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="terms" />} />
+          <Route path="about" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="about" />} />
+          <Route path="contact" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="contact" />} />
           <Route path="*" element={<Navigate to={basePath || '/'} replace />} />
         </Routes>
       </main>
