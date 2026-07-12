@@ -190,19 +190,17 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
       alert(orderRes.error?.message ?? 'Could not start checkout');
       return;
     }
-    const { order_id, amount, currency, key_id } = orderRes.data;
+    const { subscription_id, key_id } = orderRes.data;
     const rzp = new (window as any).Razorpay({
       key: key_id,
-      amount,
-      currency,
-      order_id,
+      subscription_id,
       name: 'Subscription',
       handler: async (resp: any) => {
         const v = await readerApi.verify(
           slug,
           {
             plan_id: planId,
-            razorpay_order_id: resp.razorpay_order_id,
+            razorpay_subscription_id: resp.razorpay_subscription_id,
             razorpay_payment_id: resp.razorpay_payment_id,
             razorpay_signature: resp.razorpay_signature,
           },

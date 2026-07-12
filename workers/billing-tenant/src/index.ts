@@ -3,7 +3,7 @@ import { ok, err, ErrorCode, ReaderJwtPayload, SubscriptionInterval } from '@epa
 import { getTenantDb } from './db';
 import { encrypt, decrypt } from './crypto';
 import { verifyJwt } from './jwt';
-import { createOrder, verifyPaymentSignature } from './razorpay';
+import { createRazorpayPlan, createSubscription, cancelSubscription, verifySubscriptionSignature } from './razorpay';
 import { hashPassword } from './password';
 
 export interface Env {
@@ -14,6 +14,9 @@ export interface Env {
 const app = new Hono<{ Bindings: Env }>();
 
 const INTERVAL_MONTHS: Record<SubscriptionInterval, number> = { monthly: 1, '6month': 6, '12month': 12 };
+
+// How many recurring cycles a subscription runs before Razorpay stops (max ~10 years).
+const TOTAL_COUNT: Record<SubscriptionInterval, number> = { monthly: 120, '6month': 20, '12month': 10 };
 
 // Resolve the reader from an Authorization: Bearer <reader JWT> header.
 async function getReader(c: any, slug: string): Promise<ReaderJwtPayload | null> {
@@ -63,6 +66,7 @@ function finalPaise(price: number, offerPct: number, taxPct: number): number {
 async function ensureBillingColumns(db: D1Database) {
   await db.prepare('ALTER TABLE razorpay_config ADD COLUMN process_refunds INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
   await db.prepare("ALTER TABLE reader_subscriptions ADD COLUMN cancelled_at DATETIME").run().catch(() => {});
+  await db.prepare('ALTER TABLE plans ADD COLUMN razorpay_plan_id TEXT').run().catch(() => {});
 }
 
 function generateWebhookSecret(): string {
@@ -184,20 +188,49 @@ app.post('/api/billing/tenant/:slug/webhook', async (c) => {
     if (!isValid) return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid signature'), 401);
     
     const event = JSON.parse(payloadStr);
-    
-    // In a real implementation, you'd match this against reader subscriptions
-    // For now, just log the event
-    await db.prepare(
-      'INSERT INTO reader_billing_events (id, subscription_id, event_type, razorpay_event_id, amount_paise, payload) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind(crypto.randomUUID(), 'dummy-sub-id', event.event, event.account_id || event.id, event.payload?.payment?.entity?.amount || 0, payloadStr).run();
-    
-    return c.json(ok({ processed: true }));
+    await ensureBillingColumns(db);
+
+    // Match the event to a local reader subscription by Razorpay subscription id.
+    const subId = event.payload?.subscription?.entity?.id as string | undefined;
+    const row = subId
+      ? await db.prepare('SELECT id, plan_type FROM reader_subscriptions WHERE razorpay_sub_id = ?').bind(subId).first<{ id: string; plan_type: string }>()
+      : null;
+
+    if (row) {
+      switch (event.event) {
+        case 'subscription.charged': {
+          // Renewal succeeded — extend access by one interval.
+          const months = INTERVAL_MONTHS[(row.plan_type as SubscriptionInterval)] ?? 1;
+          const end = new Date(); end.setMonth(end.getMonth() + months);
+          await db.prepare("UPDATE reader_subscriptions SET status='active', current_end=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
+            .bind(end.toISOString(), row.id).run();
+          break;
+        }
+        case 'subscription.cancelled':
+        case 'subscription.completed':
+        case 'subscription.halted':
+          await db.prepare("UPDATE reader_subscriptions SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?")
+            .bind(row.id).run();
+          break;
+      }
+    }
+
+    // Record the event against its subscription (idempotent on razorpay_event_id).
+    // subscription_id is NOT NULL + FK, so only log events we could match to a local sub.
+    if (row) {
+      await db.prepare(
+        'INSERT OR IGNORE INTO reader_billing_events (id, subscription_id, event_type, razorpay_event_id, amount_paise, payload) VALUES (?, ?, ?, ?, ?, ?)'
+      ).bind(crypto.randomUUID(), row.id, event.event, event.id || event.account_id || crypto.randomUUID(), event.payload?.payment?.entity?.amount || 0, payloadStr).run();
+    }
+
+    return c.json(ok({ processed: true, matched: !!row }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
   }
 });
 
-// Reader-facing: create a Razorpay order for a plan, billed to the tenant's own account.
+// Reader-facing: create a recurring Razorpay subscription (e-mandate) for a plan,
+// billed to the tenant's own account. Lazily creates the Razorpay plan on first use.
 app.post('/api/billing/tenant/:slug/reader/subscribe', async (c) => {
   const slug = c.req.param('slug');
   const reader = await getReader(c, slug);
@@ -208,41 +241,50 @@ app.post('/api/billing/tenant/:slug/reader/subscribe', async (c) => {
 
   try {
     const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
     const plan = await db.prepare(
-      'SELECT id, tier_id, name, interval, price_paise, tax_percentage, offer_pct FROM plans WHERE id = ? AND active = 1'
-    ).bind(plan_id).first<{ id: string; tier_id: string; name: string; interval: SubscriptionInterval; price_paise: number; tax_percentage: number; offer_pct: number }>();
+      'SELECT id, tier_id, name, interval, price_paise, tax_percentage, offer_pct, razorpay_plan_id FROM plans WHERE id = ? AND active = 1'
+    ).bind(plan_id).first<{ id: string; tier_id: string; name: string; interval: SubscriptionInterval; price_paise: number; tax_percentage: number; offer_pct: number; razorpay_plan_id: string | null }>();
     if (!plan) return c.json(err(ErrorCode.NOT_FOUND, 'Plan not found'), 404);
 
     const keys = await tenantRazorpayKeys(db, c.env.TENANT_ENCRYPTION_KEY);
     if (!keys) return c.json(err(ErrorCode.BAD_REQUEST, 'Publication has not configured payments yet'), 400);
 
-    const amount = finalPaise(plan.price_paise, plan.offer_pct, plan.tax_percentage);
-    const order = await createOrder(keys.key_id, keys.key_secret, amount, {
+    // Ensure a Razorpay plan exists for this reader plan (create + cache on first subscribe).
+    let razorpayPlanId = plan.razorpay_plan_id;
+    if (!razorpayPlanId) {
+      const amount = finalPaise(plan.price_paise, plan.offer_pct, plan.tax_percentage);
+      razorpayPlanId = await createRazorpayPlan(keys.key_id, keys.key_secret, plan.name, plan.interval, amount);
+      await db.prepare('UPDATE plans SET razorpay_plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(razorpayPlanId, plan.id).run();
+    }
+
+    const sub = await createSubscription(keys.key_id, keys.key_secret, razorpayPlanId, TOTAL_COUNT[plan.interval] ?? 120, {
       plan_id: plan.id, tier_id: plan.tier_id, reader_id: reader.sub,
     });
 
     return c.json(ok({
-      order_id: order.id, amount: order.amount, currency: order.currency,
-      key_id: keys.key_id, plan: { id: plan.id, name: plan.name, interval: plan.interval },
+      subscription_id: sub.id, key_id: keys.key_id,
+      plan: { id: plan.id, name: plan.name, interval: plan.interval },
     }));
   } catch (e) {
     return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Subscribe failed'), 500);
   }
 });
 
-// Reader-facing: verify a completed Razorpay payment and activate the subscription.
+// Reader-facing: verify the subscription checkout callback and activate access.
 app.post('/api/billing/tenant/:slug/reader/verify', async (c) => {
   const slug = c.req.param('slug');
   const reader = await getReader(c, slug);
   if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Sign in to subscribe'), 401);
 
-  const body = await c.req.json<{ plan_id: string; razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }>();
-  if (!body.plan_id || !body.razorpay_order_id || !body.razorpay_payment_id || !body.razorpay_signature) {
+  const body = await c.req.json<{ plan_id: string; razorpay_subscription_id: string; razorpay_payment_id: string; razorpay_signature: string }>();
+  if (!body.plan_id || !body.razorpay_subscription_id || !body.razorpay_payment_id || !body.razorpay_signature) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Missing payment fields'), 400);
   }
 
   try {
     const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
     const plan = await db.prepare('SELECT id, tier_id, interval FROM plans WHERE id = ?')
       .bind(body.plan_id).first<{ id: string; tier_id: string; interval: SubscriptionInterval }>();
     if (!plan) return c.json(err(ErrorCode.NOT_FOUND, 'Plan not found'), 404);
@@ -250,7 +292,7 @@ app.post('/api/billing/tenant/:slug/reader/verify', async (c) => {
     const keys = await tenantRazorpayKeys(db, c.env.TENANT_ENCRYPTION_KEY);
     if (!keys) return c.json(err(ErrorCode.BAD_REQUEST, 'Payments not configured'), 400);
 
-    const valid = await verifyPaymentSignature(body.razorpay_order_id, body.razorpay_payment_id, body.razorpay_signature, keys.key_secret);
+    const valid = await verifySubscriptionSignature(body.razorpay_payment_id, body.razorpay_subscription_id, body.razorpay_signature, keys.key_secret);
     if (!valid) return c.json(err(ErrorCode.UNAUTHORIZED, 'Payment verification failed'), 401);
 
     const months = INTERVAL_MONTHS[plan.interval] ?? 1;
@@ -261,8 +303,10 @@ app.post('/api/billing/tenant/:slug/reader/verify', async (c) => {
     await db.prepare(
       `INSERT INTO reader_subscriptions
          (id, reader_id, razorpay_sub_id, plan_type, tier_id, plan_id, status, current_start, current_end)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`
-    ).bind(id, reader.sub, body.razorpay_payment_id, plan.interval, plan.tier_id, plan.id,
+       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+       ON CONFLICT(razorpay_sub_id) DO UPDATE SET
+         status='active', current_start=excluded.current_start, current_end=excluded.current_end, updated_at=CURRENT_TIMESTAMP`
+    ).bind(id, reader.sub, body.razorpay_subscription_id, plan.interval, plan.tier_id, plan.id,
            now.toISOString(), end.toISOString()).run();
 
     return c.json(ok({ subscription_id: id, tier_id: plan.tier_id, current_end: end.toISOString() }));
@@ -300,12 +344,22 @@ app.get('/api/billing/tenant/:slug/subscriptions', async (c) => {
 app.get('/health', (c) => c.json(ok({ status: 'ok', worker: 'billing-tenant' })));
 
 // Cancel access-loss helper: refund-processing orgs revoke immediately; otherwise the
-// reader keeps access until current_end (they paid for the term).
-async function cancelSubscriptionRow(db: D1Database, id: string, immediate: boolean) {
+// reader keeps access until current_end (they paid for the term). Also cancels the
+// recurring mandate at Razorpay so it stops charging.
+async function cancelSubscriptionRow(
+  db: D1Database,
+  sub: { id: string; razorpay_sub_id: string | null },
+  immediate: boolean,
+  keys: { key_id: string; key_secret: string } | null,
+) {
+  if (keys && sub.razorpay_sub_id) {
+    // Best-effort: stop the mandate. immediate=true cancels now, else at cycle end.
+    await cancelSubscription(keys.key_id, keys.key_secret, sub.razorpay_sub_id, immediate).catch(() => {});
+  }
   if (immediate) {
-    await db.prepare("UPDATE reader_subscriptions SET status='cancelled', current_end=CURRENT_TIMESTAMP, cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+    await db.prepare("UPDATE reader_subscriptions SET status='cancelled', current_end=CURRENT_TIMESTAMP, cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(sub.id).run();
   } else {
-    await db.prepare("UPDATE reader_subscriptions SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+    await db.prepare("UPDATE reader_subscriptions SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(sub.id).run();
   }
 }
 
@@ -320,10 +374,11 @@ app.post('/api/billing/tenant/:slug/reader/subscription/cancel', async (c) => {
     const db = getTenantDb(c.env, slug);
     await ensureBillingColumns(db);
     const immediate = await orgRefundsOnCancel(db);
-    const subs = await db.prepare("SELECT id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active'")
-      .bind(reader.sub).all<{ id: string }>();
+    const keys = await tenantRazorpayKeys(db, c.env.TENANT_ENCRYPTION_KEY);
+    const subs = await db.prepare("SELECT id, razorpay_sub_id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active'")
+      .bind(reader.sub).all<{ id: string; razorpay_sub_id: string | null }>();
     if (!subs.results?.length) return c.json(err(ErrorCode.NOT_FOUND, 'No active subscription to cancel'), 404);
-    for (const s of subs.results) await cancelSubscriptionRow(db, s.id, immediate);
+    for (const s of subs.results) await cancelSubscriptionRow(db, s, immediate, keys);
     return c.json(ok({ cancelled: subs.results.length, access_until: immediate ? 'now' : 'current_period_end' }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
@@ -337,6 +392,16 @@ app.delete('/api/billing/tenant/:slug/reader/account', async (c) => {
   if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Sign in to delete your account'), 401);
   try {
     const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
+    // Stop any recurring mandates at Razorpay before deleting local records.
+    const keys = await tenantRazorpayKeys(db, c.env.TENANT_ENCRYPTION_KEY);
+    if (keys) {
+      const active = await db.prepare("SELECT razorpay_sub_id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active' AND razorpay_sub_id IS NOT NULL")
+        .bind(reader.sub).all<{ razorpay_sub_id: string }>();
+      for (const s of active.results ?? []) {
+        await cancelSubscription(keys.key_id, keys.key_secret, s.razorpay_sub_id, true).catch(() => {});
+      }
+    }
     await db.batch([
       db.prepare("UPDATE reader_subscriptions SET status='cancelled' WHERE reader_id = ? AND status = 'active'").bind(reader.sub),
       db.prepare('DELETE FROM reader_subscriptions WHERE reader_id = ?').bind(reader.sub),
@@ -407,10 +472,11 @@ app.post('/api/billing/tenant/:slug/users/:id/cancel', async (c) => {
     const db = getTenantDb(c.env, slug);
     await ensureBillingColumns(db);
     const immediate = await orgRefundsOnCancel(db);
-    const subs = await db.prepare("SELECT id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active'")
-      .bind(readerId).all<{ id: string }>();
+    const keys = await tenantRazorpayKeys(db, c.env.TENANT_ENCRYPTION_KEY);
+    const subs = await db.prepare("SELECT id, razorpay_sub_id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active'")
+      .bind(readerId).all<{ id: string; razorpay_sub_id: string | null }>();
     if (!subs.results?.length) return c.json(err(ErrorCode.NOT_FOUND, 'No active subscription for this reader'), 404);
-    for (const s of subs.results) await cancelSubscriptionRow(db, s.id, immediate);
+    for (const s of subs.results) await cancelSubscriptionRow(db, s, immediate, keys);
     return c.json(ok({ cancelled: subs.results.length }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
