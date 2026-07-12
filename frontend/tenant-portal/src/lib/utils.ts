@@ -15,5 +15,7 @@ export function formatBytes(bytes: number): string {
   let v = bytes / 1024;
   let i = 0;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
+  // One decimal for small values, none for large; drop a trailing ".0" (10.0 → 10).
+  const str = v.toFixed(v >= 100 ? 0 : 1).replace(/\.0$/, '');
+  return `${str} ${units[i]}`;
 }

@@ -2,9 +2,13 @@ export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
 
-    // Proxy all /api/ requests directly to backend gateway
+    // Single API origin for all backend calls. Configurable via the Pages
+    // environment variable API_BASE_URL; defaults to the production gateway.
+    const API_BASE = (env && env.API_BASE_URL) || 'https://api.epaperspace.com';
+
+    // Proxy all /api/ requests directly to the backend gateway
     if (url.pathname.startsWith('/api/')) {
-      const targetUrl = `https://epaper-gateway.satishkumar-link.workers.dev${url.pathname}${url.search}`;
+      const targetUrl = `${API_BASE}${url.pathname}${url.search}`;
       return fetch(targetUrl, request);
     }
 
@@ -33,7 +37,7 @@ export default {
     if (!isPortalHost) {
       try {
         const resolveRes = await fetch(
-          `https://epaper-gateway.satishkumar-link.workers.dev/api/domain/resolve?host=${encodeURIComponent(hostname)}`,
+          `${API_BASE}/api/domain/resolve?host=${encodeURIComponent(hostname)}`,
           { headers: { 'User-Agent': 'Cloudflare-Pages-Edge-Worker' } }
         );
         if (resolveRes.ok) {
@@ -65,7 +69,7 @@ export default {
     ) {
       try {
         const editionsRes = await fetch(
-          `https://epaper-content.satishkumar-link.workers.dev/api/read/${targetSlug}/editions`,
+          `${API_BASE}/api/read/${targetSlug}/editions`,
           { headers: { 'User-Agent': 'Cloudflare-Pages-Edge-Worker' } }
         );
         if (editionsRes.ok) {
@@ -73,7 +77,7 @@ export default {
           const items = editionsData?.data?.items || [];
           if (items.length === 1) {
             const papersRes = await fetch(
-              `https://epaper-content.satishkumar-link.workers.dev/api/read/${targetSlug}/papers?limit=1`,
+              `${API_BASE}/api/read/${targetSlug}/papers?limit=1`,
               { headers: { 'User-Agent': 'Cloudflare-Pages-Edge-Worker' } }
             );
             if (papersRes.ok) {
@@ -104,7 +108,7 @@ export default {
     if (targetSlug && (assetResponse.headers.get('content-type')?.includes('text/html') || !url.pathname.includes('.'))) {
       try {
         const settingsRes = await fetch(
-          `https://epaper-content.satishkumar-link.workers.dev/api/content/${targetSlug}/settings`,
+          `${API_BASE}/api/content/${targetSlug}/settings`,
           { headers: { 'User-Agent': 'Cloudflare-Pages-Edge-Worker' } }
         );
         if (settingsRes.ok) {
@@ -134,7 +138,10 @@ export default {
                   );
                 }
                 if (paperId) {
-                  const pageImageUrl = `https://epaper-content.satishkumar-link.workers.dev/api/read/${targetSlug}/papers/${paperId}/pages/${pageNum}`;
+                  // Social crawlers must always get an image, even for fully-premium
+                  // papers. The cover endpoint is public + unauthenticated, unlike the
+                  // per-page endpoint (premium pages require a signed token now).
+                  const pageImageUrl = `${API_BASE}/api/read/${targetSlug}/papers/${paperId}/cover`;
                   const desc = `Read today's ${pubTitle} ePaper online. Stay informed on local, national, and international stories across all editions.`;
                   element.append(
                     `<meta property="og:title" content="${clipTitle.replace(/"/g, '&quot;')}" />` +

@@ -4,10 +4,6 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
-  "assets": {
-    "directory": "../../frontend/shell/dist",
-    "not_found_handling": "single-page-application"
-  },
   "services": [
     {
       "binding": "ADMIN_WORKER",

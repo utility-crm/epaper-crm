@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/
 
 const tooltipStyle = { background: '#1a2035', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8, fontSize: 12 } as const;
 
-export default function DashboardCharts({ trafficData, diskData, diskUsed, diskLimitBytes, formatBytes, isEnterprise, limitMB, plan }: any) {
+export default function DashboardCharts({ trafficData, diskData, diskUsed, diskLimitBytes, formatBytes, isEnterprise, plan }: any) {
   return (
     <div className="grid gap-4 lg:grid-cols-5">
       <Card className="lg:col-span-3">
@@ -30,7 +30,7 @@ export default function DashboardCharts({ trafficData, diskData, diskUsed, diskL
       </Card>
 
       <Card className="lg:col-span-2">
-        <CardHeader><CardTitle>Storage</CardTitle><CardDescription>{formatBytes(diskUsed)} of {isEnterprise ? 'Custom' : (limitMB >= 1024 ? `${(limitMB/1024).toFixed(1).replace('.0','')} GB` : `${limitMB} MB`)} ({plan})</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Storage</CardTitle><CardDescription>{formatBytes(diskUsed)} of {isEnterprise ? 'Custom' : formatBytes(diskLimitBytes)} ({plan})</CardDescription></CardHeader>
         <CardContent>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">

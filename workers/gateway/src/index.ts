@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { ok } from '@epaper/types';
+import { ok, err, ErrorCode } from '@epaper/types';
 
 export interface Env {
   ADMIN_WORKER: Fetcher;
@@ -50,10 +50,16 @@ app.all('/api/*', async (c) => {
     return targetWorker.fetch(new Request(url, c.req.raw));
   }
   
-  return c.text('Service not found', 404);
+  return c.json(err(ErrorCode.NOT_FOUND, 'Service not found'), 404);
 });
 
 app.get('/health', (c) => c.json(ok({ status: 'ok', worker: 'gateway' })));
+
+// Data-only API gateway: it serves JSON, never a frontend. Anything that isn't a
+// known /api/* route or /health gets a JSON 404 (no SPA / HTML fallback).
+app.get('/', (c) => c.json(ok({ service: 'epaper-gateway', message: 'API gateway. Use /api/*' })));
+
+app.notFound((c) => c.json(err(ErrorCode.NOT_FOUND, 'Not found'), 404));
 
 export default {
   fetch: app.fetch,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { portalApi, readerApi } from '../lib/api';
+import { portalApi, readerApi, API_BASE_URL } from '../lib/api';
 import { Lock, Mail, Eye, EyeOff, Newspaper, ArrowLeft, ShieldCheck } from 'lucide-react';
 
 interface PaperAdminLoginPageProps {
@@ -117,7 +117,7 @@ export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPa
     if (!url) return undefined;
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
     if (url.startsWith('/api')) {
-      return `https://epaper-gateway.satishkumar-link.workers.dev${url}`;
+      return `${API_BASE_URL}${url}`;
     }
     return url;
   };

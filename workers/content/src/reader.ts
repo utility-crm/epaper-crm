@@ -4,7 +4,7 @@ import { ok, err, ErrorCode, ReaderJwtPayload } from '@epaper/types';
 import { signJwt, verifyJwt } from './jwt';
 import { hashPassword, verifyPassword } from './password';
 
-type ReaderEnv = { ORG_JWT_SECRET: string } & Record<string, unknown>;
+type ReaderEnv = { ORG_JWT_SECRET: string; PUBLIC_API_BASE?: string } & Record<string, unknown>;
 
 // Public reader-facing API. Mounted OUTSIDE the orgUserAuth guard: free content and
 // signup/login must work without a staff token. Premium pages are gated per-request.
@@ -27,6 +27,57 @@ async function hasActiveSub(db: D1Database, readerId: string, tierId: string | n
      LIMIT 1`
   ).bind(readerId, tierId).first();
   return !!row;
+}
+
+// ── Signed page-access tokens ────────────────────────────────────────────────
+// Premium pages must not hit D1 on every image request (page turns need to be
+// instant and edge-cacheable). Instead, the subscription check runs ONCE when
+// getPaper builds the paper metadata; for each premium page the viewer is
+// entitled to, we mint a short-lived HMAC token bound to (paperId, page_no).
+// The raw page endpoint then verifies the signature with pure crypto — no DB.
+const PAGE_TOKEN_TTL_SEC = 60 * 60 * 6; // 6h — long enough for a reading session
+
+const hmacKeyCache = new Map<string, Promise<CryptoKey>>();
+function getHmacKey(secret: string): Promise<CryptoKey> {
+  let k = hmacKeyCache.get(secret);
+  if (!k) {
+    k = crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    hmacKeyCache.set(secret, k);
+  }
+  return k;
+}
+
+function toHex(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, '0');
+  return out;
+}
+
+async function signPageToken(secret: string, paperId: string, pageNo: number, exp: number): Promise<string> {
+  const key = await getHmacKey(secret);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${paperId}:${pageNo}:${exp}`));
+  return toHex(sig);
+}
+
+// Constant-time-ish comparison of two hex strings.
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+async function verifyPageToken(secret: string, paperId: string, pageNo: number, exp: number, sig: string): Promise<boolean> {
+  if (!Number.isFinite(exp) || exp * 1000 < Date.now()) return false;
+  const expected = await signPageToken(secret, paperId, pageNo, exp);
+  return safeEqual(expected, sig);
 }
 
 // --- Reader accounts ---
@@ -209,22 +260,35 @@ readerRouter.get('/:slug/papers/:id', async (c) => {
       'SELECT page_no, clickmasks FROM epaper_pages WHERE epaper_id = ? ORDER BY page_no ASC'
     ).bind(id).all<{ page_no: number; clickmasks: string | null }>();
 
-    const pages = (pageRows.results ?? []).map(p => {
+    // Premium pages the viewer is entitled to get a short-lived signed URL, so the
+    // raw endpoint can serve + edge-cache them without re-checking D1 per request.
+    const tokenExp = Math.floor(Date.now() / 1000) + PAGE_TOKEN_TTL_SEC;
+
+    const pages = await Promise.all((pageRows.results ?? []).map(async p => {
       let masks: any[] = [];
       try {
         masks = p.clickmasks ? JSON.parse(p.clickmasks) : [];
       } catch {
         masks = [];
       }
-      
+
       const isFreePage = !!paper.is_free || p.page_no <= (paper.free_page_count || 0);
       const isLocked = !isFreePage && !unlocked;
-      const imageUrl = isLocked 
-        ? `/api/read/${slug}/papers/${id}/pages/${p.page_no}/blurred` 
-        : `/api/read/${slug}/papers/${id}/pages/${p.page_no}`;
+
+      let imageUrl: string;
+      if (isLocked) {
+        imageUrl = `/api/read/${slug}/papers/${id}/pages/${p.page_no}/blurred`;
+      } else if (isFreePage) {
+        // Free pages are public and need no token.
+        imageUrl = `/api/read/${slug}/papers/${id}/pages/${p.page_no}`;
+      } else {
+        // Premium page, viewer is entitled: sign it.
+        const sig = await signPageToken(c.env.ORG_JWT_SECRET, id, p.page_no, tokenExp);
+        imageUrl = `/api/read/${slug}/papers/${id}/pages/${p.page_no}?exp=${tokenExp}&sig=${sig}`;
+      }
 
       return { page_no: p.page_no, clickmasks: masks, image_url: imageUrl, is_locked: isLocked };
-    });
+    }));
 
     return c.json(ok({ ...paper, unlocked, signed_in: !!reader, pages }));
   } catch {
@@ -313,8 +377,16 @@ readerRouter.get('/:slug/papers/:id/pages/:n', async (c) => {
     if (n > paper.page_count) return c.json(err(ErrorCode.NOT_FOUND, 'Page not found'), 404);
 
     const isFreePage = !!paper.is_free || n <= paper.free_page_count;
-    // Fast path: Frontend already checks subscription and routes to /blurred if locked.
-    // We skip the D1 check here to maximize page load performance.
+    // Free pages are public. Premium pages require a valid signed token minted by
+    // getPaper (which already verified the subscription) — this keeps the hot image
+    // path free of any D1 subscription lookup while preventing raw-URL paywall bypass.
+    if (!isFreePage) {
+      const url = new URL(c.req.url);
+      const exp = parseInt(url.searchParams.get('exp') || '', 10);
+      const sig = url.searchParams.get('sig') || '';
+      const valid = sig && await verifyPageToken(c.env.ORG_JWT_SECRET, id, n, exp, sig);
+      if (!valid) return c.json(err(ErrorCode.FORBIDDEN, 'Premium page requires a valid access token'), 403);
+    }
 
     const page = await db.prepare('SELECT r2_key FROM epaper_pages WHERE epaper_id = ? AND page_no = ?')
       .bind(id, n).first<{ r2_key: string }>();
@@ -331,8 +403,13 @@ readerRouter.get('/:slug/papers/:id/pages/:n', async (c) => {
 
     // Use the content-type that was stored when the file was uploaded (pdf or image).
     const ct = obj.httpMetadata?.contentType ?? 'application/pdf';
+    // Free pages are shared-cacheable forever; premium pages carry a per-session
+    // signed URL, so cache privately in the browser for the token's lifetime only.
+    const cacheControl = isFreePage
+      ? 'public, max-age=31536000, immutable'
+      : 'private, max-age=21600';
     return new Response(obj.body, {
-      headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=31536000, immutable' },
+      headers: { 'Content-Type': ct, 'Cache-Control': cacheControl },
     });
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
@@ -389,7 +466,8 @@ readerRouter.post('/:slug/clips', async (c) => {
     await bucket.put(key, blob, {
       httpMetadata: { contentType: 'image/png' },
     });
-    return c.json(ok({ id, url: `https://epaper-content.satishkumar-link.workers.dev/api/read/${slug}/clips/${id}.png` }));
+    const apiBase = c.env.PUBLIC_API_BASE || 'https://api.epaperspace.com';
+    return c.json(ok({ id, url: `${apiBase}/api/read/${slug}/clips/${id}.png` }));
   } catch (e) {
     return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to save clip'), 500);
   }

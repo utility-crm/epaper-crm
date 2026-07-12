@@ -36,5 +36,8 @@
   ],
   "triggers": {
     "crons": ["* * * * *"]
+  },
+  "vars": {
+    "PUBLIC_API_BASE": "https://api.epaperspace.com"
   }
 }
