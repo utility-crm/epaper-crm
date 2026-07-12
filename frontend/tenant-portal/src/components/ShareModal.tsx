@@ -19,9 +19,13 @@ export function ShareModal({ slug, paper, onClose }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
 
   const isWorkersDev = window.location.hostname.includes('workers.dev') || window.location.hostname === 'localhost';
+  const d = new Date(paper.publish_date);
+  const dateSlug = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).replace(/\s+/g, '-').toLowerCase();
+  const editionSlug = (paper.edition_title || 'edition').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  
   const shareUrl = isWorkersDev 
-    ? `${window.location.protocol}//${window.location.host}/tenant/${slug}/papers/${paper.id}`
-    : `${window.location.protocol}//${window.location.host}/papers/${paper.id}`;
+    ? `${window.location.protocol}//${window.location.host}/tenant/${slug}/${dateSlug}/${editionSlug}/${paper.id}`
+    : `${window.location.protocol}//${window.location.host}/${dateSlug}/${editionSlug}/${paper.id}`;
 
   const copyLink = () => {
     navigator.clipboard.writeText(shareUrl);

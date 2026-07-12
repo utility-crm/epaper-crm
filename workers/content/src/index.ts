@@ -112,7 +112,7 @@ export default {
         for (const t of tenants.results || []) {
           try {
             const db = getTenantDb(env, t.slug);
-            await db.prepare("UPDATE epapers SET status = 'published' WHERE status = 'draft' AND publish_type = 'scheduled' AND scheduled_at <= datetime('now')").run();
+            await db.prepare("UPDATE epapers SET status = 'published' WHERE status = 'draft' AND publish_type = 'scheduled' AND datetime(scheduled_at) <= datetime('now')").run();
           } catch (e) {
             console.error(`Failed to run scheduled publish for ${t.slug}`, e);
           }

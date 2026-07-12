@@ -17,8 +17,11 @@ export function DedicatedClipView({ slug, paper, pageNumber, clip, onReadFullPap
   const [imageLoaded, setImageLoaded] = useState(false);
 
   const basePrefix = window.location.pathname.startsWith('/read') ? `/read/${slug}` : '';
-  const clipParams = `&clip=${Math.round(clip.x)},${Math.round(clip.y)},${Math.round(clip.w)},${Math.round(clip.h)}&title=${encodeURIComponent(clip.title || paper.title || 'Clip')}`;
-  const shareUrl = `${window.location.protocol}//${window.location.host}${basePrefix}/paper/${paper.id}?page=${pageNumber}${clipParams}`;
+  const clipParams = `?page=${pageNumber}&clip=${Math.round(clip.x)},${Math.round(clip.y)},${Math.round(clip.w)},${Math.round(clip.h)}&title=${encodeURIComponent(clip.title || paper.title || 'Clip')}`;
+  const d = new Date(paper.publish_date);
+  const dateSlug = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).replace(/\s+/g, '-').toLowerCase();
+  const editionSlug = (paper.edition_title || 'edition').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  const shareUrl = `${window.location.protocol}//${window.location.host}${basePrefix}/${dateSlug}/${editionSlug}/${paper.id}${clipParams}`;
 
   const clipTitle = clip.title || paper.title || 'Shared Clipping';
   const pubTitle = paper?.publication?.title || paper?.title || 'ePaper';

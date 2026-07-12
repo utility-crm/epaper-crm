@@ -80,8 +80,11 @@ export default {
               const papersData = await papersRes.json();
               const latestPaper = papersData?.data?.items?.[0];
               if (latestPaper && latestPaper.id) {
+                const d = new Date(latestPaper.publish_date);
+                const dateSlug = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).replace(/\s+/g, '-').toLowerCase();
+                const editionSlug = (latestPaper.edition_title || 'edition').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
                 const targetUrl = new URL(
-                  `${redirectBasePath}/paper/${latestPaper.id}`,
+                  `${redirectBasePath}/${dateSlug}/${editionSlug}/${latestPaper.id}`,
                   request.url
                 ).toString();
                 return Response.redirect(targetUrl, 302);
