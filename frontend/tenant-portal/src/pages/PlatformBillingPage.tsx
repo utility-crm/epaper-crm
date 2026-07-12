@@ -133,14 +133,16 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
 
           <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 16 }}>Available Plans</h2>
 
-          {tiers.length === 0 ? (
+          {tiers.length === 0 && (
             <div style={{ background: 'rgba(99,102,241,0.05)', border: '1px dashed var(--color-border)',
               borderRadius: 12, padding: '32px 24px', textAlign: 'center', color: 'var(--color-text-secondary)', marginBottom: 20 }}>
               <p style={{ marginBottom: 8 }}>No plans have been configured yet.</p>
             </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20, marginBottom: 20 }}>
-              {tiers.map((tier) => {
+          )}
+
+          {/* All plan cards (tiers + Enterprise) share one grid so they line up on a single row */}
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${tiers.length + 1}, minmax(0, 1fr))`, gap: 20, marginBottom: 20 }}>
+            {tiers.map((tier) => {
                 const isCurrentPlan = status?.has_subscription && status?.razorpay_status === 'active' && status?.plan?.toLowerCase() === tier.name.toLowerCase();
                 const isManualFree = !status?.has_subscription && tier.price_inr === 0;
                 const isCurrent = isCurrentPlan || (isManualFree && !status?.has_subscription); // approximate
@@ -202,17 +204,14 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                       </button>
                     ) : (
                       <button className="btn-secondary" disabled style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                        {isCurrent ? 'Current Plan' : 'Free Tier'}
+                        {isCurrent ? 'Current Plan' : amount > 0 ? 'Unavailable' : 'Free Tier'}
                       </button>
                     )}
                   </div>
                 );
               })}
-            </div>
-          )}
 
-          {/* Custom Enterprise Card (Always visible) */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20 }}>
+            {/* Custom Enterprise Card (always visible, same row as the tiers) */}
             <div
               className="card"
               style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px' }}

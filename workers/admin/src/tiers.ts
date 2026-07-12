@@ -140,6 +140,52 @@ tiersRouter.put('/:id', async (c) => {
   return c.json(ok({ id, ...body, razorpay_plan_id: razorpayPlanId, price_inr: priceInr, tax_percentage: taxPct, billing_cycle: cycle, features: body.features || [] }));
 });
 
+// Backfill: create real Razorpay plans for any paid tier missing a razorpay_plan_id
+// (e.g. tiers inserted via seed_tiers.sql, which bypasses the create/update flow).
+// Without this, the platform billing page shows disabled Subscribe buttons because
+// checkout needs a Razorpay plan id. Superadmin-only (all non-GET routes are guarded).
+tiersRouter.post('/backfill-razorpay', async (c) => {
+  const { results } = await c.env.CONTROL_DB.prepare(
+    'SELECT id, name, price_inr, tax_percentage, billing_cycle FROM platform_tiers WHERE price_inr > 0 AND (razorpay_plan_id IS NULL OR razorpay_plan_id = "")'
+  ).all<{ id: string; name: string; price_inr: number; tax_percentage: number; billing_cycle: string }>();
+
+  const fixed: { id: string; name: string; razorpay_plan_id: string }[] = [];
+  const failed: { id: string; name: string; error: string }[] = [];
+
+  for (const tier of results) {
+    try {
+      const internalReq = new Request('http://internal/internal/billing/platform/plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: tier.name,
+          price_inr: tier.price_inr,
+          tax_percentage: tier.tax_percentage ?? 0,
+          billing_cycle: tier.billing_cycle || 'monthly',
+        }),
+      });
+      const res = await c.env.BILLING_PLATFORM_WORKER.fetch(internalReq);
+      if (!res.ok) {
+        failed.push({ id: tier.id, name: tier.name, error: await res.text().catch(() => 'unknown error') });
+        continue;
+      }
+      const data = await res.json() as any;
+      const planId = data.data?.razorpay_plan_id;
+      if (!planId) {
+        failed.push({ id: tier.id, name: tier.name, error: 'No razorpay_plan_id returned' });
+        continue;
+      }
+      await c.env.CONTROL_DB.prepare('UPDATE platform_tiers SET razorpay_plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .bind(planId, tier.id).run();
+      fixed.push({ id: tier.id, name: tier.name, razorpay_plan_id: planId });
+    } catch (e: any) {
+      failed.push({ id: tier.id, name: tier.name, error: e?.message ?? 'fetch failed' });
+    }
+  }
+
+  return c.json(ok({ fixed, failed, checked: results.length }));
+});
+
 tiersRouter.delete('/:id', async (c) => {
   const id = c.req.param('id');
   const inUse = await c.env.CONTROL_DB.prepare('SELECT count(*) as c FROM tenants WHERE plan = (SELECT name FROM platform_tiers WHERE id = ?)')
