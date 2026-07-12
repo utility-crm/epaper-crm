@@ -1,4 +1,4 @@
-const fs = require('fs');
+import fs from 'node:fs';
 
 const slug = process.argv[2];
 const dbId = process.argv[3];
