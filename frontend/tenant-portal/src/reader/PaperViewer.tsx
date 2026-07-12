@@ -45,7 +45,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
   const [plans, setPlans] = useState<any[]>([]);
 
   // Memory cache of preloaded page object URLs for instant snappy transitions
-  const pageCacheRef = useRef<Record<number, string>>({});
+  const pageCacheRef = useRef<Record<number, { url: string | null; locked: boolean }>>({});
 
   // Clickmasks for the current paper
   const [clickmasksByPage, setClickmasksByPage] = useState<Record<number, any[]>>({});
@@ -128,6 +128,9 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
         });
         setClickmasksByPage(prev => ({ ...prev, ...maskMap }));
       }
+    } else {
+      setPageLoading(false);
+      return;
     }
 
     // Also fetch clickmasks directly if not in pages
@@ -157,26 +160,40 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
   const fetchPageBlobUrl = useCallback(
     async (pageNo: number): Promise<{ url: string | null; locked: boolean }> => {
       if (!id) return { url: null, locked: false };
-      if (pageCacheRef.current[pageNo]) {
-        return { url: pageCacheRef.current[pageNo], locked: false };
-      }
+      
+      const cached = pageCacheRef.current[pageNo];
+      if (cached) return cached;
+
+      const isFreePage = !!paper?.is_free || pageNo <= (paper?.free_page_count || 0);
+      const isLocked = !isFreePage && !paper?.unlocked;
+
       try {
-        const res = await fetch(readerApi.pageUrl(slug, id, pageNo), {
-          headers: session?.token ? { Authorization: `Bearer ${session.token}` } : {},
-        });
-        if (res.status === 401 || res.status === 402) {
-          return { url: null, locked: true };
+        let res;
+        if (isLocked) {
+          res = await fetch(readerApi.blurredPageUrl(slug, id, pageNo));
+        } else {
+          res = await fetch(readerApi.pageUrl(slug, id, pageNo), {
+            headers: session?.token ? { Authorization: `Bearer ${session.token}` } : {},
+          });
         }
+
+        if (isLocked || res.status === 401 || res.status === 402) {
+          const blob = await res.blob();
+          const url = blob.size > 0 ? URL.createObjectURL(blob) : null;
+          pageCacheRef.current[pageNo] = { url, locked: true };
+          return { url, locked: true };
+        }
+        
         if (!res.ok) return { url: null, locked: false };
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
-        pageCacheRef.current[pageNo] = url;
+        pageCacheRef.current[pageNo] = { url, locked: false };
         return { url, locked: false };
       } catch {
         return { url: null, locked: false };
       }
     },
-    [slug, id, session]
+    [slug, id, session, paper]
   );
 
   // Foreground Page Load: Instant if cached, otherwise show newspaper skeleton while loading
@@ -185,9 +202,10 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
     let cancelled = false;
 
     // Fast path: if already cached in memory, switch instantly with 0ms delay!
-    if (pageCacheRef.current[page]) {
-      setPageUrl(pageCacheRef.current[page]);
-      setLocked(false);
+    const cached = pageCacheRef.current[page];
+    if (cached) {
+      setPageUrl(cached.url);
+      setLocked(cached.locked);
       setPageLoading(false);
       return;
     }
@@ -663,21 +681,36 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
                   <span>ePaper Space Reader</span>
                 </div>
               </div>
+            ) : !paper ? (
+              <div className="flex items-center justify-center min-h-[60vh]">
+                <div className="flex flex-col items-center text-muted-foreground gap-2">
+                  <Newspaper className="h-10 w-10 opacity-20" />
+                  <p>Paper could not be loaded</p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => window.location.href = basePath || '/'}>Go Back Home</Button>
+                </div>
+              </div>
             ) : locked ? (
-              <Card className="overflow-hidden">
-                <CardContent className="p-8 text-center min-h-[60vh] flex flex-col items-center justify-center">
-                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/15">
+              <Card className="overflow-hidden relative w-full max-w-4xl mx-auto aspect-[3/4] border-border/80 shadow-lg">
+                {pageUrl && (
+                  <div 
+                    className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-60"
+                    style={{ backgroundImage: `url(${pageUrl})` }} 
+                  />
+                )}
+                <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10" />
+                <CardContent className="relative z-20 h-full p-8 text-center flex flex-col items-center justify-center">
+                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/15 shadow-sm">
                     <Lock className="h-6 w-6 text-primary" />
                   </div>
-                  <h3 className="font-serif text-xl font-bold">Page {page} is for subscribers</h3>
-                  <p className="mt-1 text-sm text-muted-foreground max-w-md">
+                  <h3 className="font-serif text-2xl font-bold">Page {page} is Premium</h3>
+                  <p className="mt-2 text-sm text-foreground/80 max-w-md font-medium">
                     {paper.free_page_count > 0
                       ? `The first ${paper.free_page_count} page${paper.free_page_count > 1 ? 's are' : ' is'} free.`
                       : 'This paper is premium.'}{' '}
                     Subscribe to read the full issue.
                   </p>
                   {!session && (
-                    <Button className="mt-4" onClick={onRequireAuth}>
+                    <Button className="mt-6" size="lg" onClick={onRequireAuth}>
                       Sign in to continue
                     </Button>
                   )}

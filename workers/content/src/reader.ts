@@ -337,6 +337,42 @@ readerRouter.get('/:slug/papers/:id/pages/:n', async (c) => {
   }
 });
 
+// ── GET /:slug/papers/:id/pages/:n/blurred ──────────────────────────────────────────────
+// Fast, lightweight endpoint that ONLY returns the blurred thumbnail of a premium page.
+// Used by frontend for lazy-loading premium pages without hitting the database for subscription checks.
+readerRouter.get('/:slug/papers/:id/pages/:n/blurred', async (c) => {
+  const slug = c.req.param('slug');
+  const id = c.req.param('id');
+  const n = parseInt(c.req.param('n'), 10);
+  if (isNaN(n) || n < 1) return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid page number'), 400);
+
+  try {
+    const db = getTenantDb(c.env, slug);
+    const page = await db.prepare('SELECT r2_key FROM epaper_pages WHERE epaper_id = ? AND page_no = ?')
+      .bind(id, n).first<{ r2_key: string }>();
+    if (!page) return c.json(err(ErrorCode.NOT_FOUND, 'Page not available'), 404);
+
+    const bucket = getTenantBucket(c.env, slug);
+    // Replace .webp/.png/.jpg with -blurred.webp
+    const blurredKey = page.r2_key.replace(/\.([a-z]+)$/, '-blurred.webp');
+    const obj = await bucket.get(blurredKey);
+    if (!obj) {
+      // If blurred version isn't found (e.g. old paper), return 404
+      return c.json(err(ErrorCode.NOT_FOUND, 'Blurred page missing'), 404);
+    }
+
+    // Blurred pages are public (they have the paywall baked in)
+    return new Response(obj.body, {
+      headers: { 
+        'Content-Type': 'image/webp', 
+        'Cache-Control': 'public, max-age=31536000, immutable' 
+      },
+    });
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
 // Upload a cropped clipping PNG image so social media crawlers (Facebook, X, WhatsApp) can preview it
 readerRouter.post('/:slug/clips', async (c) => {
   const slug = c.req.param('slug');

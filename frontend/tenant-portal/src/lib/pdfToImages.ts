@@ -55,6 +55,43 @@ export async function convertPdfToWebpPages(
     });
     pages.push(pageFile);
 
+    // Generate Blurred Thumbnail for Premium Paywall
+    const blurScale = Math.min(1.0, 800 / baseViewport.width); // downscale for smaller size
+    const blurCanvas = document.createElement('canvas');
+    blurCanvas.width = baseViewport.width * blurScale;
+    blurCanvas.height = baseViewport.height * blurScale;
+    const blurCtx = blurCanvas.getContext('2d');
+    if (blurCtx) {
+      // Draw heavily blurred original
+      blurCtx.filter = 'blur(15px)';
+      blurCtx.drawImage(canvas, 0, 0, blurCanvas.width, blurCanvas.height);
+      
+      // Bake PREMIUM overlay into it
+      blurCtx.filter = 'none';
+      blurCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      blurCtx.fillRect(0, 0, blurCanvas.width, blurCanvas.height);
+      
+      blurCtx.font = 'bold 40px sans-serif';
+      blurCtx.fillStyle = 'white';
+      blurCtx.textAlign = 'center';
+      blurCtx.textBaseline = 'middle';
+      blurCtx.fillText('PREMIUM', blurCanvas.width / 2, blurCanvas.height / 2 - 20);
+      blurCtx.font = '24px sans-serif';
+      blurCtx.fillText('Content Locked', blurCanvas.width / 2, blurCanvas.height / 2 + 25);
+
+      const blurredBlob = await new Promise<Blob>((resolve, reject) => {
+        blurCanvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error('Failed to generate blurred page'))),
+          'image/webp',
+          0.3 // highly compressed since it's blurred anyway
+        );
+      });
+      const blurredFile = new File([blurredBlob], `page-${pageNumStr}-blurred.webp`, {
+        type: 'image/webp',
+      });
+      pages.push(blurredFile);
+    }
+
     if (i === 1) {
       // Also generate a smaller cover thumbnail for listings (~600px wide)
       const coverScale = Math.min(1.0, 600 / baseViewport.width);

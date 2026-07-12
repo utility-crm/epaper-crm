@@ -45,14 +45,17 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
     const form = await c.req.formData();
     
     // Extract pages and cover separately
-    const pageFiles: File[] = [];
-    let coverFile: File | null = null;
+    const pageFiles: any[] = [];
+    const blurredFiles = new Map<string, any>();
+    let coverFile: any | null = null;
     
     for (const [key, v] of form.entries()) {
       const file = v as any;
       if (file.name && file.type && ACCEPTED_TYPES.has(file.type)) {
         if (key === 'cover') {
           coverFile = file;
+        } else if (file.name.includes('-blurred')) {
+          blurredFiles.set(file.name.replace('-blurred', ''), file);
         } else {
           pageFiles.push(file);
         }
@@ -87,6 +90,15 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
       totalBytes += obj?.size ?? bytes.byteLength;
       pageRows.push({ id: crypto.randomUUID(), page_no: i + 1, r2_key: key });
       
+      // Handle corresponding blurred file
+      const blurred = blurredFiles.get(f.name);
+      if (blurred) {
+        const blurredKey = `epapers/${id}/pages/page-${pageNumStr}-blurred.${ext}`;
+        const blurredBytes = await blurred.arrayBuffer();
+        const blurredObj = await bucket.put(blurredKey, blurredBytes, { httpMetadata: { contentType: blurred.type, cacheControl: 'public, max-age=31536000, immutable' } });
+        totalBytes += blurredObj?.size ?? blurredBytes.byteLength;
+      }
+
       if (i === 0 && !coverKey) {
         // Fallback: If no explicit cover was uploaded, use the first page.
         const coverK = `epapers/${id}/cover.${ext}`;

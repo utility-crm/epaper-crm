@@ -26,6 +26,8 @@ function PaperRedirect({ slug, basePath }: { slug: string; basePath: string }) {
         const editionSlug = (res.data.edition_title || 'edition').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
         const prefix = basePath ? basePath + '/' : '/';
         navigate(`${prefix}${dateSlug}/${editionSlug}/${id}`, { replace: true });
+      } else {
+        navigate(basePath || '/', { replace: true });
       }
     });
   }, [slug, id, basePath, navigate]);
