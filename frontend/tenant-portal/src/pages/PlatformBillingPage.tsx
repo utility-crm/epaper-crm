@@ -140,8 +140,8 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
             </div>
           )}
 
-          {/* All plan cards (tiers + Enterprise) share one grid so they line up on a single row */}
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${tiers.length + 1}, minmax(0, 1fr))`, gap: 20, marginBottom: 20 }}>
+          {/* Plan tiers: 4 equal columns */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 20, marginBottom: 20 }}>
             {tiers.map((tier) => {
                 const isCurrentPlan = status?.has_subscription && status?.razorpay_status === 'active' && status?.plan?.toLowerCase() === tier.name.toLowerCase();
                 const isManualFree = !status?.has_subscription && tier.price_inr === 0;
@@ -176,18 +176,21 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                     )}
 
                     <ul style={{ margin: '0 0 24px 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-                      <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
-                        <span style={{ color: 'var(--color-success)' }}>✓</span> <strong>{tier.max_storage_mb >= 1024 ? `${(tier.max_storage_mb / 1024).toFixed(1)} GB` : `${tier.max_storage_mb} MB`}</strong> Storage
+                      <li style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--color-success)', flexShrink: 0 }}>✓</span>
+                        <span><strong style={{ whiteSpace: 'nowrap' }}>{tier.max_storage_mb >= 1024 ? `${(tier.max_storage_mb / 1024).toFixed(1)} GB` : `${tier.max_storage_mb} MB`}</strong> Storage</span>
                       </li>
-                      <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
-                        <span style={{ color: 'var(--color-success)' }}>✓</span> <strong>{tier.max_views_per_day.toLocaleString()}</strong> Views / Day
+                      <li style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--color-success)', flexShrink: 0 }}>✓</span>
+                        <span><strong style={{ whiteSpace: 'nowrap' }}>{tier.max_views_per_day.toLocaleString()}</strong> Views / Day</span>
                       </li>
-                      <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
-                        <span style={{ color: 'var(--color-success)' }}>✓</span> Up to <strong>{tier.max_papers_per_day}</strong> Papers / Day
+                      <li style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--color-success)', flexShrink: 0 }}>✓</span>
+                        <span>Up to <strong style={{ whiteSpace: 'nowrap' }}>{tier.max_papers_per_day}</strong> Papers / Day</span>
                       </li>
                       {tier.features && tier.features.map((f: string, i: number) => (
                         <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.85rem' }}>
-                          <span style={{ color: 'var(--color-brand-primary)' }}>✦</span> {f}
+                          <span style={{ color: 'var(--color-brand-primary)', flexShrink: 0 }}>✦</span> {f}
                         </li>
                       ))}
                     </ul>
@@ -210,36 +213,31 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                   </div>
                 );
               })}
+          </div>
 
-            {/* Custom Enterprise Card (always visible, same row as the tiers) */}
-            <div
-              className="card"
-              style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px' }}
-            >
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 8 }}>
-                Enterprise (Contact Us)
-              </h3>
-
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 4 }}>
-                Price: Custom
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 16, textTransform: 'capitalize' }}>
-                Storage: Custom
-              </div>
-
-              <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: 20, flex: 1 }}>
-                Need custom storage limits, white-glove onboarding, or a dedicated account manager? Contact us for a bespoke enterprise plan.
-              </p>
-
-              <a href="mailto:sales@epaper-cms.com?subject=Enterprise Custom Quote Request" style={{ textDecoration: 'none' }}>
-                <button
-                  className="btn-secondary"
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-                >
-                  Contact Us
-                </button>
-              </a>
+          {/* Enterprise: full-width landscape block below the tier grid */}
+          <div
+            className="card"
+            style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 24, padding: '24px 28px', marginBottom: 20 }}
+          >
+            <div style={{ flex: '1 1 220px', minWidth: 200 }}>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 6 }}>Enterprise</h3>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>Custom pricing</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 2 }}>Custom storage &amp; limits</div>
             </div>
+
+            <p style={{ flex: '2 1 320px', margin: 0, fontSize: '0.9rem', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+              Need custom storage limits, white-glove onboarding, or a dedicated account manager? Contact us for a bespoke enterprise plan.
+            </p>
+
+            <a href="mailto:sales@epaper-cms.com?subject=Enterprise Custom Quote Request" style={{ textDecoration: 'none', flex: '0 0 auto' }}>
+              <button
+                className="btn-primary"
+                style={{ whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 32px' }}
+              >
+                Contact Us
+              </button>
+            </a>
           </div>
 
           {/* Info note */}
