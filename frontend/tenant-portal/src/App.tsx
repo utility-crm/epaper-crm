@@ -202,6 +202,7 @@ function AdminPortalRoutes({ slug, token }: { slug: string; token: string }) {
         <Route path="papers" element={<PapersPage slug={slug} token={token} />} />
         <Route path="plans" element={<PlansPage slug={slug} token={token} />} />
         <Route path="users" element={<UserManagementPage slug={slug} token={token} />} />
+        <Route path="user-management" element={<UserManagementPage slug={slug} token={token} />} />
         <Route path="domain" element={<DomainPage slug={slug} token={token} />} />
         <Route path="reader-setup" element={<ReaderSubscriptionSetup slug={slug} token={token} />} />
         <Route path="platform-billing" element={<PlatformBillingPage slug={slug} token={token} />} />
