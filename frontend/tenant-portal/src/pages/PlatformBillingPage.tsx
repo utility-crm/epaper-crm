@@ -140,8 +140,8 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
             </div>
           )}
 
-          {/* Plan tiers: 4 equal columns */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 20, marginBottom: 20 }}>
+          {/* Plan grid — matches the root portal /pricing card style */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, marginBottom: 20 }}>
             {tiers.map((tier) => {
                 const isCurrentPlan = status?.has_subscription && status?.razorpay_status === 'active' && status?.plan?.toLowerCase() === tier.name.toLowerCase();
                 const isManualFree = !status?.has_subscription && tier.price_inr === 0;
@@ -153,44 +153,46 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                   <div
                     key={tier.id}
                     className="card"
-                    style={{ display: 'flex', flexDirection: 'column', padding: '28px 24px',
-                      border: isCurrent ? '1px solid var(--color-brand-primary)' : undefined }}
+                    style={{ display: 'flex', flexDirection: 'column', padding: '32px 24px', borderRadius: 12,
+                      border: isCurrent ? '1px solid var(--color-brand-primary)' : '1px solid var(--color-border)' }}
                   >
-                    <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 8,
-                      color: isCurrent ? 'var(--color-brand-primary)' : undefined, textTransform: 'capitalize' }}>
+                    <h3 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 8, color: 'var(--color-brand-primary)', textTransform: 'capitalize' }}>
                       {tier.name}
                     </h3>
 
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 4 }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 700, marginBottom: 8 }}>
                       {amount > 0 ? formatAmount(amount, tier.billing_cycle || 'monthly') : 'Free'}
                     </div>
-                    {amount > 0 ? (
-                      <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 16, textTransform: 'capitalize' }}>
-                        Billed {tier.billing_cycle || 'monthly'} · auto-debit via mandate
-                        {tier.tax_percentage > 0 && <span style={{display: 'block', marginTop: 4, fontWeight: 500}}>+ {tier.tax_percentage}% tax (calculated at checkout)</span>}
+
+                    {tier.tax_percentage > 0 && (
+                      <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 24 }}>
+                        + {tier.tax_percentage}% tax (calculated at checkout)
                       </div>
-                    ) : (
-                      <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 16 }}>
+                    )}
+                    {tier.tax_percentage === 0 && amount > 0 && (
+                      <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 24 }}>
+                        Inclusive of taxes
+                      </div>
+                    )}
+                    {amount === 0 && (
+                      <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 24 }}>
                         No credit card required
                       </div>
                     )}
 
-                    <ul style={{ margin: '0 0 24px 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-                      <li style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: '0.85rem' }}>
-                        <span style={{ color: 'var(--color-success)', flexShrink: 0 }}>✓</span>
-                        <span><strong style={{ whiteSpace: 'nowrap' }}>{tier.max_storage_mb >= 1024 ? `${(tier.max_storage_mb / 1024).toFixed(1)} GB` : `${tier.max_storage_mb} MB`}</strong> Storage</span>
+                    <ul style={{ margin: '0 0 24px 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                      <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                        <span style={{ color: 'var(--color-success)' }}>✓</span> <strong>{tier.max_storage_mb >= 1024 ? `${(tier.max_storage_mb / 1024).toFixed(1)} GB` : `${tier.max_storage_mb} MB`}</strong> Storage
                       </li>
-                      <li style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: '0.85rem' }}>
-                        <span style={{ color: 'var(--color-success)', flexShrink: 0 }}>✓</span>
-                        <span><strong style={{ whiteSpace: 'nowrap' }}>{tier.max_views_per_day.toLocaleString()}</strong> Views / Day</span>
+                      <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                        <span style={{ color: 'var(--color-success)' }}>✓</span> <strong>{tier.max_views_per_day.toLocaleString()}</strong> Views / Day
                       </li>
-                      <li style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: '0.85rem' }}>
-                        <span style={{ color: 'var(--color-success)', flexShrink: 0 }}>✓</span>
-                        <span>Up to <strong style={{ whiteSpace: 'nowrap' }}>{tier.max_papers_per_day}</strong> Papers / Day</span>
+                      <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                        <span style={{ color: 'var(--color-success)' }}>✓</span> Up to <strong>{tier.max_papers_per_day}</strong> Papers / Day
                       </li>
                       {tier.features && tier.features.map((f: string, i: number) => (
-                        <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.85rem' }}>
-                          <span style={{ color: 'var(--color-brand-primary)', flexShrink: 0 }}>✦</span> {f}
+                        <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.95rem' }}>
+                          <span style={{ color: 'var(--color-brand-primary)' }}>✦</span> {f}
                         </li>
                       ))}
                     </ul>
@@ -200,44 +202,52 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                         className={isCurrent ? 'btn-secondary' : 'btn-primary'}
                         disabled={isCurrent || !!paying}
                         onClick={() => handleSubscribe(tier)}
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                       >
                         {isLoading && <span className="spinner" style={{ width: 14, height: 14 }} />}
                         {isCurrent ? 'Current Plan' : isLoading ? 'Opening…' : 'Subscribe'}
                       </button>
                     ) : (
-                      <button className="btn-secondary" disabled style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                      <button className="btn-secondary" disabled style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                         {isCurrent ? 'Current Plan' : amount > 0 ? 'Unavailable' : 'Free Tier'}
                       </button>
                     )}
                   </div>
                 );
               })}
-          </div>
 
-          {/* Enterprise: full-width landscape block below the tier grid */}
-          <div
-            className="card"
-            style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 24, padding: '24px 28px', marginBottom: 20 }}
-          >
-            <div style={{ flex: '1 1 220px', minWidth: 200 }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 6 }}>Enterprise</h3>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>Custom pricing</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 2 }}>Custom storage &amp; limits</div>
+            {/* Enterprise card — mirrors the /pricing "Global Syndicate" card */}
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '32px 24px', border: '1px solid var(--color-text-primary)', borderRadius: 12, background: 'var(--color-bg-alt)' }}>
+              <h3 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 8, color: 'var(--color-text-primary)' }}>
+                Global Syndicate
+              </h3>
+
+              <div style={{ fontSize: '2rem', fontWeight: 700, marginBottom: 8 }}>
+                Custom
+              </div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 24 }}>
+                Tailored limits &amp; SLA
+              </div>
+
+              <ul style={{ margin: '0 0 24px 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Custom Storage Capacity
+                </li>
+                <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Unlimited Readership
+                </li>
+                <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
+                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Dedicated Account Manager
+                </li>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.95rem' }}>
+                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Custom Integrations &amp; APIs
+                </li>
+              </ul>
+
+              <a href="mailto:sales@epaper-cms.com?subject=Enterprise Custom Quote Request" className="btn-secondary" style={{ width: '100%', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+                Contact Sales
+              </a>
             </div>
-
-            <p style={{ flex: '2 1 320px', margin: 0, fontSize: '0.9rem', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-              Need custom storage limits, white-glove onboarding, or a dedicated account manager? Contact us for a bespoke enterprise plan.
-            </p>
-
-            <a href="mailto:sales@epaper-cms.com?subject=Enterprise Custom Quote Request" style={{ textDecoration: 'none', flex: '0 0 auto' }}>
-              <button
-                className="btn-primary"
-                style={{ whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 32px' }}
-              >
-                Contact Us
-              </button>
-            </a>
           </div>
 
           {/* Info note */}
