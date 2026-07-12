@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { readerApi } from '../lib/api';
+import { readerApi, API_BASE_URL } from '../lib/api';
 import { formatINR } from '../lib/utils';
 import { ReaderSession, loadRazorpay } from './lib';
 import { Button } from '../components/ui/button';
@@ -38,14 +38,22 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
     }
     return 1;
   });
-  const [pageUrl, setPageUrl] = useState<string | null>(null);
-  const [blobType, setBlobType] = useState<'pdf' | 'image'>('pdf');
-  const [locked, setLocked] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [plans, setPlans] = useState<any[]>([]);
 
-  // Memory cache of preloaded page object URLs for instant snappy transitions
-  const pageCacheRef = useRef<Record<number, { url: string | null; locked: boolean }>>({});
+  const currentPageData = paper?.pages?.[page - 1];
+  const pageUrl = currentPageData?.image_url ? `${API_BASE_URL}${currentPageData.image_url}` : null;
+  const locked = currentPageData?.is_locked ?? false;
+
+  useEffect(() => {
+    if (pageUrl) {
+      setPageLoading(true);
+      const img = new Image();
+      img.onload = () => setPageLoading(false);
+      img.onerror = () => setPageLoading(false);
+      img.src = pageUrl;
+    }
+  }, [pageUrl]);
 
   // Clickmasks for the current paper
   const [clickmasksByPage, setClickmasksByPage] = useState<Record<number, any[]>>({});
@@ -116,7 +124,6 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
 
   const loadPaper = useCallback(async () => {
     if (!id) return;
-    pageCacheRef.current = {};
     const res = await readerApi.getPaper(slug, id, session?.token);
     if (res.ok && res.data) {
       setPaper(res.data);
@@ -156,113 +163,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
     loadPaper();
   }, [loadPaper]);
 
-  // Helper to fetch and cache a single page's blob URL
-  const fetchPageBlobUrl = useCallback(
-    async (pageNo: number): Promise<{ url: string | null; locked: boolean }> => {
-      if (!id) return { url: null, locked: false };
-      
-      const cached = pageCacheRef.current[pageNo];
-      if (cached) return cached;
 
-      const isFreePage = !!paper?.is_free || pageNo <= (paper?.free_page_count || 0);
-      const isLocked = !isFreePage && !paper?.unlocked;
-
-      try {
-        let res;
-        if (isLocked) {
-          res = await fetch(readerApi.blurredPageUrl(slug, id, pageNo));
-        } else {
-          res = await fetch(readerApi.pageUrl(slug, id, pageNo), {
-            headers: session?.token ? { Authorization: `Bearer ${session.token}` } : {},
-          });
-        }
-
-        if (isLocked || res.status === 401 || res.status === 402) {
-          const blob = await res.blob();
-          const url = blob.size > 0 ? URL.createObjectURL(blob) : null;
-          pageCacheRef.current[pageNo] = { url, locked: true };
-          return { url, locked: true };
-        }
-        
-        if (!res.ok) return { url: null, locked: false };
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        pageCacheRef.current[pageNo] = { url, locked: false };
-        return { url, locked: false };
-      } catch {
-        return { url: null, locked: false };
-      }
-    },
-    [slug, id, session, paper]
-  );
-
-  // Foreground Page Load: Instant if cached, otherwise show newspaper skeleton while loading
-  useEffect(() => {
-    if (!id || !paper) return;
-    let cancelled = false;
-
-    // Fast path: if already cached in memory, switch instantly with 0ms delay!
-    const cached = pageCacheRef.current[page];
-    if (cached) {
-      setPageUrl(cached.url);
-      setLocked(cached.locked);
-      setPageLoading(false);
-      return;
-    }
-
-    setPageLoading(true);
-    setLocked(false);
-
-    (async () => {
-      const result = await fetchPageBlobUrl(page);
-      if (cancelled) return;
-      if (result.locked) {
-        setLocked(true);
-        setPageLoading(false);
-        return;
-      }
-      if (result.url) {
-        setPageUrl(result.url);
-      }
-      setPageLoading(false);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [id, page, paper, fetchPageBlobUrl]);
-
-  // Background Preloader: Sequentially preload upcoming pages without blocking foreground rendering
-  useEffect(() => {
-    if (!id || !paper || pageLoading || locked) return;
-    const totalPages = paper?.page_count || 1;
-    let cancelled = false;
-
-    const timer = setTimeout(async () => {
-      const candidates = [page + 1, page - 1, page + 2, page + 3].filter(
-        p => p >= 1 && p <= totalPages && p !== page && !pageCacheRef.current[p]
-      );
-      for (const targetPage of candidates) {
-        if (cancelled) break;
-        
-        // Smart optimization: if we know this target page is premium (targetPage > free_page_count),
-        // and the paper is NOT unlocked for this user, the API WILL return 401 Unauthorized.
-        // We skip prefetching it entirely to prevent the browser from logging 401 network errors.
-        if (targetPage > (paper.free_page_count || 0) && paper.unlocked === false) {
-          break;
-        }
-
-        const result = await fetchPageBlobUrl(targetPage);
-        // If a page is locked (401/402), subsequent pages are almost certainly locked too
-        if (result.locked) break;
-      }
-    }, 120);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [id, page, paper, pageLoading, fetchPageBlobUrl]);
 
   const total = paper?.page_count || 1;
   const currentClickmasks = clickmasksByPage[page] || [];
@@ -308,7 +209,6 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
           session.token
         );
         if (v.ok) {
-          setLocked(false);
           loadPaper();
           setPage(page);
         } else {

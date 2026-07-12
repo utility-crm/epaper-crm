@@ -112,7 +112,8 @@ export default {
           const settings = settingsJson?.data;
           const pubTitle = settings?.org_name || targetSlug;
 
-          const paperMatch = url.pathname.match(/\/paper\/([^\/]+)/);
+          // Support both legacy /paper/:id and new SEO /:date/:edition/:id formats
+          const paperMatch = url.pathname.match(/\/paper\/([^\/]+)$/) || url.pathname.match(/\/[^\/]+\/[^\/]+\/([^\/]+)$/);
           const paperId = paperMatch ? paperMatch[1] : null;
           const pageNum = url.searchParams.get('page') || '1';
           const clipTitle = url.searchParams.get('title') || `${pubTitle} - Page ${pageNum}`;

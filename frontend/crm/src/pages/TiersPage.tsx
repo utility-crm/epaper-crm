@@ -135,7 +135,7 @@ export function TiersPage() {
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
-                    <div>Storage: <strong>{t.max_storage_mb} MB</strong></div>
+                    <div>Storage: <strong>{t.max_storage_mb >= 1024 ? `${(t.max_storage_mb / 1024).toFixed(1).replace('.0', '')} GB` : `${t.max_storage_mb} MB`}</strong></div>
                     <div>Views/Day: <strong>{t.max_views_per_day}</strong></div>
                     <div>Simultaneous: <strong>{t.max_simultaneous_editions}</strong></div>
                     <div>Papers/Day: <strong>{t.max_papers_per_day}</strong></div>

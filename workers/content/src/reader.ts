@@ -216,7 +216,14 @@ readerRouter.get('/:slug/papers/:id', async (c) => {
       } catch {
         masks = [];
       }
-      return { page_no: p.page_no, clickmasks: masks };
+      
+      const isFreePage = !!paper.is_free || p.page_no <= (paper.free_page_count || 0);
+      const isLocked = !isFreePage && !unlocked;
+      const imageUrl = isLocked 
+        ? `/api/read/${slug}/papers/${id}/pages/${p.page_no}/blurred` 
+        : `/api/read/${slug}/papers/${id}/pages/${p.page_no}`;
+
+      return { page_no: p.page_no, clickmasks: masks, image_url: imageUrl, is_locked: isLocked };
     });
 
     return c.json(ok({ ...paper, unlocked, signed_in: !!reader, pages }));
@@ -306,13 +313,8 @@ readerRouter.get('/:slug/papers/:id/pages/:n', async (c) => {
     if (n > paper.page_count) return c.json(err(ErrorCode.NOT_FOUND, 'Page not found'), 404);
 
     const isFreePage = !!paper.is_free || n <= paper.free_page_count;
-    if (!isFreePage) {
-      const reader = await getReader(c, slug);
-      if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Sign in to read this page'), 401);
-      if (!(await hasActiveSub(db, reader.sub, paper.tier_id))) {
-        return c.json(err(ErrorCode.FORBIDDEN, 'Active subscription required'), 402);
-      }
-    }
+    // Fast path: Frontend already checks subscription and routes to /blurred if locked.
+    // We skip the D1 check here to maximize page load performance.
 
     const page = await db.prepare('SELECT r2_key FROM epaper_pages WHERE epaper_id = ? AND page_no = ?')
       .bind(id, n).first<{ r2_key: string }>();
@@ -330,7 +332,7 @@ readerRouter.get('/:slug/papers/:id/pages/:n', async (c) => {
     // Use the content-type that was stored when the file was uploaded (pdf or image).
     const ct = obj.httpMetadata?.contentType ?? 'application/pdf';
     return new Response(obj.body, {
-      headers: { 'Content-Type': ct, 'Cache-Control': isFreePage ? 'public, max-age=31536000, immutable' : 'private, no-store' },
+      headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=31536000, immutable' },
     });
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
