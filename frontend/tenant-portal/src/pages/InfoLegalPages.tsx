@@ -357,9 +357,6 @@ export const PricingInfoPage: React.FC = () => {
                 <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
                   <span style={{ color: 'var(--color-text-primary)' }}>★</span> Dedicated Account Manager
                 </li>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.95rem' }}>
-                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Custom Integrations & APIs
-                </li>
               </ul>
 
               <Link to="/contact" className="landing-btn landing-btn--outline" style={{ width: '100%', textAlign: 'center' }}>

@@ -135,7 +135,7 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
             <h2 style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Current Plan</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--color-text-primary)', textTransform: 'capitalize' }}>
-                {status?.plan || 'Starter'}
+                {status?.plan || 'Community'}
               </span>
               <span className={`status-badge ${status?.has_subscription ? 'status-published' : 'status-archived'}`}>
                 {status?.has_subscription ? (status?.razorpay_status || 'Active') : 'Free / Manual'}
@@ -266,9 +266,6 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
                   <span style={{ color: 'var(--color-text-primary)' }}>★</span> Dedicated Account Manager
-                </li>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.95rem' }}>
-                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Custom Integrations &amp; APIs
                 </li>
               </ul>
 
