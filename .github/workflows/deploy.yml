@@ -61,6 +61,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler pages deploy frontend/tenant-portal/dist --project-name=epaper-portal --branch=main
 
+      # epaper-reader serves the tenant reader domains (custom domains CNAME here,
+      # wired in workers/admin/src/domain.ts). Same build as the portal — deploy the
+      # identical dist so the reader never drifts behind the portal.
+      - name: Deploy to Cloudflare Pages (epaper-reader)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages deploy frontend/tenant-portal/dist --project-name=epaper-reader --branch=main
+
   # Deploy CRM (epaper-crm.pages.dev)
   deploy-crm:
     runs-on: ubuntu-latest
