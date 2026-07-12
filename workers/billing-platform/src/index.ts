@@ -85,7 +85,7 @@ app.post('/api/billing/platform/subscribe', async (c) => {
   // Create Razorpay Subscription — e-mandate / auto-debit enabled via subscription checkout.
   const res = await razorpayRequest(c.env, 'subscriptions', 'POST', {
     plan_id,
-    total_count: 120, // up to 10 years of recurring billing
+    total_count: 100, // Razorpay allows max 100 total_count
     customer_notify: 1,
     notify_info: {
       notify_email: tenant.email,
