@@ -16,12 +16,21 @@
       "binding": "GUNJ_UTHI_RANBHERI_F453_DB",
       "database_name": "epaper-gunj-uthi-ranbheri-f453",
       "database_id": "8a007a8d-f465-4be9-bdc7-e1658fb5aa82"
+    },
+    {
+      "binding": "TEST_PAPER_9AE6_DB",
+      "database_name": "epaper-test-paper-9ae6",
+      "database_id": "ed6ad84f-acf0-4761-902e-03ad6c1b3631"
     }
   ],
   "r2_buckets": [
     {
       "binding": "GUNJ_UTHI_RANBHERI_F453_R2",
       "bucket_name": "epaper-gunj-uthi-ranbheri-f453"
+    },
+    {
+      "binding": "TEST_PAPER_9AE6_R2",
+      "bucket_name": "epaper-test-paper-9ae6"
     }
   ],
   "services": [
@@ -35,7 +44,9 @@
     }
   ],
   "triggers": {
-    "crons": ["* * * * *"]
+    "crons": [
+      "* * * * *"
+    ]
   },
   "vars": {
     "PUBLIC_API_BASE": "https://api.epaperspace.com"
