@@ -19,17 +19,20 @@ export function PlansPage({ slug, token }: Props) {
   const [plans, setPlans] = useState<any[]>([]);
   const [subs, setSubs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [paymentConfigured, setPaymentConfigured] = useState<boolean | null>(null);
   const [modal, setModal] = useState<{ type: 'tier' | 'plan', data?: any } | null>(null);
 
   const load = useCallback(async () => {
-    const [t, p, s] = await Promise.all([
+    const [t, p, s, cfg] = await Promise.all([
       portalApi.getTiers(slug, token),
       portalApi.getPlans(slug, token),
       portalApi.getReaderSubscriptions(slug, token),
+      portalApi.getRazorpayConfig(slug, token),
     ]);
     if (t.ok && t.data) setTiers(t.data.items ?? []);
     if (p.ok && p.data) setPlans(p.data.items ?? []);
     if (s.ok && s.data) setSubs(s.data.items ?? []);
+    setPaymentConfigured(!!(cfg.ok && cfg.data && cfg.data.key_id));
     setLoading(false);
   }, [slug, token]);
 
@@ -41,6 +44,34 @@ export function PlansPage({ slug, token }: Props) {
   if (loading) return <div className="flex justify-center py-24"><div className="spinner" /></div>;
 
   const activeSubs = subs.filter(s => s.status === 'active').length;
+
+  if (paymentConfigured === false) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="font-serif text-3xl font-700 tracking-tight">Reader Subscriptions</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Define content tiers and the plans readers buy to unlock premium papers.</p>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center gap-4 py-16 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/10">
+              <Tag className="h-6 w-6 text-amber-500" />
+            </div>
+            <div>
+              <div className="text-lg font-600">Connect payments first</div>
+              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                Set up your Razorpay keys on the Payment Setup page before creating subscription tiers and plans.
+                Readers can't be charged until payments are connected.
+              </p>
+            </div>
+            <Button onClick={() => { window.location.href = window.location.pathname.replace(/\/plans$/, '/reader-setup'); }}>
+              Go to Payment Setup
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -8,6 +8,7 @@ import { ReaderAuthDialog } from './ReaderAuthDialog';
 import { TodayRedirect } from './TodayRedirect';
 import { ReaderFooter } from './ReaderFooter';
 import { ReaderInfoPage } from './ReaderInfoPage';
+import { ReaderAccount } from './ReaderAccount';
 import { Button } from '../components/ui/button';
 import { Newspaper, ShieldAlert } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -67,6 +68,7 @@ function ReaderShell() {
 
 function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
   const { session, signIn, signOut } = useReaderSession(slug);
+  const navigate = useNavigate();
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [orgSettings, setOrgSettings] = useState<{ org_name: string | null; logo_url: string | null; theme_id?: string } | null>(() => {
@@ -161,7 +163,7 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
           </Link>
           {session ? (
             <div className="flex items-center gap-3 text-sm">
-              <span className="text-muted-foreground hidden sm:block">{session.reader.email}</span>
+              <Link to={`${basePath}/account`} className="text-muted-foreground hidden sm:block hover:text-foreground">{session.reader.email}</Link>
               <Button variant="secondary" size="sm" onClick={signOut}>Sign out</Button>
             </div>
           ) : (
@@ -178,6 +180,7 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
           <Route path="/" element={<ReaderHome slug={slug} basePath={basePath} session={session} orgName={displayName} />} />
           <Route path="today" element={<TodayRedirect slug={slug} basePath={basePath} />} />
           <Route path="paper/:id" element={<PaperRedirect slug={slug} basePath={basePath} />} />
+          <Route path="account" element={<ReaderAccount slug={slug} basePath={basePath} session={session} orgName={displayName} onRequireAuth={() => openAuth('login')} onSignedOut={() => { signOut(); navigate(basePath || '/', { replace: true }); }} />} />
           <Route path=":date/:edition/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
           <Route path="privacy" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="privacy" />} />
           <Route path="disclaimer" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="disclaimer" />} />

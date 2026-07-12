@@ -40,7 +40,13 @@ export default {
           await env.CONTROL_DB.prepare(
             'UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
           ).bind('deleting', tenant.slug).run();
-          
+
+          // Cancel the platform Razorpay subscription so the org stops being billed.
+          // (Reader subscriptions live in the tenant DB, which is destroyed by deprovision.)
+          await env.BILLING_PLATFORM_WORKER.fetch(new Request(`http://billing/internal/billing/platform/${tenant.slug}/subscription`, {
+            method: 'DELETE'
+          })).catch(e => console.error(`Failed to cancel platform subscription for ${tenant.slug}`, e));
+
           // Trigger deprovision workflow
           await env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/deprovision', {
             method: 'POST',

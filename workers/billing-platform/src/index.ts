@@ -216,6 +216,45 @@ app.get('/api/billing/platform/:slug/status', async (c) => {
 
 app.get('/health', (c) => c.json(ok({ status: 'ok', worker: 'billing-platform' })));
 
+// Public, org-staff facing: cancel this tenant's platform subscription.
+// Reuses the same Razorpay cancel + DB-clear as the internal delete path.
+// `at_cycle_end` (default false) lets the org keep access until the paid period ends.
+app.post('/api/billing/platform/:slug/subscription/cancel', async (c) => {
+  const slug = c.req.param('slug');
+  let atCycleEnd = false;
+  try {
+    const body = await c.req.json<{ at_cycle_end?: boolean }>();
+    atCycleEnd = !!body?.at_cycle_end;
+  } catch { /* empty body is fine — default immediate cancel */ }
+
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT id, razorpay_sub_id FROM tenants WHERE slug = ?').bind(slug).first<{ id: string; razorpay_sub_id: string | null }>();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+  if (!tenant.razorpay_sub_id) return c.json(err(ErrorCode.BAD_REQUEST, 'No active subscription to cancel'), 400);
+
+  const res = await razorpayRequest(c.env, `subscriptions/${tenant.razorpay_sub_id}/cancel`, 'POST', {
+    cancel_at_cycle_end: atCycleEnd ? 1 : 0,
+  });
+  if (!res.ok) {
+    console.error('Failed to cancel Razorpay subscription', await res.text());
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to cancel subscription in Razorpay'), 500);
+  }
+
+  await c.env.CONTROL_DB.prepare(
+    'INSERT INTO platform_billing_events (id, tenant_id, event_type, razorpay_event_id, amount_paise, payload) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(crypto.randomUUID(), tenant.id, 'subscription.cancelled', `cancel_${tenant.razorpay_sub_id}_${crypto.randomUUID().slice(0, 8)}`, 0, JSON.stringify({ at_cycle_end: atCycleEnd })).run();
+
+  if (atCycleEnd) {
+    // Keep plan access until the cycle ends; just record the pending cancel.
+    return c.json(ok({ cancelled: true, at_cycle_end: true }));
+  }
+
+  await c.env.CONTROL_DB.prepare(
+    'UPDATE tenants SET razorpay_plan_id = NULL, razorpay_sub_id = NULL, plan = NULL, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
+  ).bind(slug).run();
+
+  return c.json(ok({ cancelled: true, at_cycle_end: false }));
+});
+
 app.post('/internal/billing/platform/plans', async (c) => {
   const { name, price_inr, tax_percentage, billing_cycle } = await c.req.json();
   

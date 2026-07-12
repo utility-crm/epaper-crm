@@ -4,6 +4,7 @@ import { getTenantDb } from './db';
 import { encrypt, decrypt } from './crypto';
 import { verifyJwt } from './jwt';
 import { createOrder, verifyPaymentSignature } from './razorpay';
+import { hashPassword } from './password';
 
 export interface Env {
   TENANT_ENCRYPTION_KEY: string;
@@ -23,6 +24,25 @@ async function getReader(c: any, slug: string): Promise<ReaderJwtPayload | null>
   return payload as unknown as ReaderJwtPayload;
 }
 
+// Resolve an org staff member from a tenant-portal JWT scoped to this slug.
+async function getOrgStaff(c: any, slug: string): Promise<{ sub: string; role: string } | null> {
+  const auth = c.req.header('Authorization');
+  if (!auth?.startsWith('Bearer ')) return null;
+  const payload = await verifyJwt(auth.substring(7), c.env.ORG_JWT_SECRET);
+  if (!payload || payload.aud !== 'tenant-portal' || payload.tenantSlug !== slug || typeof payload.sub !== 'string') return null;
+  return { sub: payload.sub as string, role: payload.role as string };
+}
+
+// Read whether the org refunds on cancellation (drives immediate vs end-of-term access loss).
+async function orgRefundsOnCancel(db: D1Database): Promise<boolean> {
+  try {
+    const row = await db.prepare('SELECT process_refunds FROM razorpay_config WHERE id = 1').first<{ process_refunds: number }>();
+    return !!row?.process_refunds;
+  } catch {
+    return false;
+  }
+}
+
 // Load + decrypt the tenant's Razorpay credentials.
 async function tenantRazorpayKeys(db: D1Database, encKey: string): Promise<{ key_id: string; key_secret: string } | null> {
   const cfg = await db.prepare('SELECT key_id, key_secret_enc FROM razorpay_config WHERE id = 1')
@@ -39,31 +59,57 @@ function finalPaise(price: number, offerPct: number, taxPct: number): number {
   return Math.round(discounted * (1 + tax / 100));
 }
 
+// Defensive: make sure the columns this worker relies on exist on older tenant DBs.
+async function ensureBillingColumns(db: D1Database) {
+  await db.prepare('ALTER TABLE razorpay_config ADD COLUMN process_refunds INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
+  await db.prepare("ALTER TABLE reader_subscriptions ADD COLUMN cancelled_at DATETIME").run().catch(() => {});
+}
+
+function generateWebhookSecret(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 app.post('/api/billing/tenant/:slug/config', async (c) => {
   const slug = c.req.param('slug');
   const body = await c.req.json();
-  
+
   if (!body.key_id || !body.key_secret) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Missing Razorpay credentials'), 400);
   }
-  
+
   try {
     const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
     const secretEnc = await encrypt(body.key_secret, c.env.TENANT_ENCRYPTION_KEY);
-    const webhookEnc = body.webhook_secret ? await encrypt(body.webhook_secret, c.env.TENANT_ENCRYPTION_KEY) : null;
-    
-    // Upsert config (id is always 1)
+
+    // Webhook secret: use the one supplied, else keep the existing, else auto-generate one.
+    const existing = await db.prepare('SELECT webhook_secret_enc FROM razorpay_config WHERE id = 1').first<{ webhook_secret_enc: string | null }>();
+    let webhookPlain: string | null = body.webhook_secret || null;
+    let generated = false;
+    if (!webhookPlain && !existing?.webhook_secret_enc) {
+      webhookPlain = generateWebhookSecret();
+      generated = true;
+    }
+    const webhookEnc = webhookPlain
+      ? await encrypt(webhookPlain, c.env.TENANT_ENCRYPTION_KEY)
+      : existing?.webhook_secret_enc ?? null;
+
+    const processRefunds = body.process_refunds ? 1 : 0;
+
     await db.prepare(`
-      INSERT INTO razorpay_config (id, key_id, key_secret_enc, webhook_secret_enc, updated_at) 
-      VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(id) DO UPDATE SET 
-        key_id=excluded.key_id, 
-        key_secret_enc=excluded.key_secret_enc, 
-        webhook_secret_enc=excluded.webhook_secret_enc, 
+      INSERT INTO razorpay_config (id, key_id, key_secret_enc, webhook_secret_enc, process_refunds, updated_at)
+      VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(id) DO UPDATE SET
+        key_id=excluded.key_id,
+        key_secret_enc=excluded.key_secret_enc,
+        webhook_secret_enc=excluded.webhook_secret_enc,
+        process_refunds=excluded.process_refunds,
         updated_at=CURRENT_TIMESTAMP
-    `).bind(body.key_id, secretEnc, webhookEnc).run();
-    
-    return c.json(ok({ configured: true }));
+    `).bind(body.key_id, secretEnc, webhookEnc, processRefunds).run();
+
+    // Only surface the plaintext webhook secret when we just generated it (so the org can paste it into Razorpay).
+    return c.json(ok({ configured: true, webhook_secret: generated ? webhookPlain : undefined }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
   }
@@ -71,13 +117,42 @@ app.post('/api/billing/tenant/:slug/config', async (c) => {
 
 app.get('/api/billing/tenant/:slug/config', async (c) => {
   const slug = c.req.param('slug');
-  
+
   try {
     const db = getTenantDb(c.env, slug);
-    const config = await db.prepare('SELECT key_id, updated_at FROM razorpay_config WHERE id = 1').first();
-    
+    await ensureBillingColumns(db);
+    const config = await db.prepare('SELECT key_id, webhook_secret_enc, process_refunds, updated_at FROM razorpay_config WHERE id = 1')
+      .first<{ key_id: string; webhook_secret_enc: string | null; process_refunds: number; updated_at: string }>();
+
     if (!config) return c.json(ok(null)); // Not configured yet
-    return c.json(ok(config)); // Only return safe fields
+    // Never return the secrets themselves — only whether they're set.
+    return c.json(ok({
+      key_id: config.key_id,
+      webhook_configured: !!config.webhook_secret_enc,
+      process_refunds: !!config.process_refunds,
+      updated_at: config.updated_at,
+    }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+// Rotate the tenant's webhook secret. Returns the new plaintext ONCE so the org can
+// paste it into their Razorpay dashboard. (No automatic rotation — that would silently
+// break delivery until the dashboard is updated.)
+app.post('/api/billing/tenant/:slug/config/webhook-secret/rotate', async (c) => {
+  const slug = c.req.param('slug');
+  const staff = await getOrgStaff(c, slug);
+  if (!staff) return c.json(err(ErrorCode.UNAUTHORIZED, 'Org sign-in required'), 401);
+  try {
+    const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
+    const cfg = await db.prepare('SELECT id FROM razorpay_config WHERE id = 1').first();
+    if (!cfg) return c.json(err(ErrorCode.BAD_REQUEST, 'Configure Razorpay keys first'), 400);
+    const secret = generateWebhookSecret();
+    const enc = await encrypt(secret, c.env.TENANT_ENCRYPTION_KEY);
+    await db.prepare('UPDATE razorpay_config SET webhook_secret_enc = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1').bind(enc).run();
+    return c.json(ok({ webhook_secret: secret }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
   }
@@ -223,6 +298,142 @@ app.get('/api/billing/tenant/:slug/subscriptions', async (c) => {
 });
 
 app.get('/health', (c) => c.json(ok({ status: 'ok', worker: 'billing-tenant' })));
+
+// Cancel access-loss helper: refund-processing orgs revoke immediately; otherwise the
+// reader keeps access until current_end (they paid for the term).
+async function cancelSubscriptionRow(db: D1Database, id: string, immediate: boolean) {
+  if (immediate) {
+    await db.prepare("UPDATE reader_subscriptions SET status='cancelled', current_end=CURRENT_TIMESTAMP, cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+  } else {
+    await db.prepare("UPDATE reader_subscriptions SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+  }
+}
+
+// ── Reader self-service ─────────────────────────────────────────────────────
+
+// Reader cancels their own active subscription.
+app.post('/api/billing/tenant/:slug/reader/subscription/cancel', async (c) => {
+  const slug = c.req.param('slug');
+  const reader = await getReader(c, slug);
+  if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Sign in to manage your subscription'), 401);
+  try {
+    const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
+    const immediate = await orgRefundsOnCancel(db);
+    const subs = await db.prepare("SELECT id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active'")
+      .bind(reader.sub).all<{ id: string }>();
+    if (!subs.results?.length) return c.json(err(ErrorCode.NOT_FOUND, 'No active subscription to cancel'), 404);
+    for (const s of subs.results) await cancelSubscriptionRow(db, s.id, immediate);
+    return c.json(ok({ cancelled: subs.results.length, access_until: immediate ? 'now' : 'current_period_end' }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+// Reader deletes their own account (and all their subscriptions) for this publication.
+app.delete('/api/billing/tenant/:slug/reader/account', async (c) => {
+  const slug = c.req.param('slug');
+  const reader = await getReader(c, slug);
+  if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Sign in to delete your account'), 401);
+  try {
+    const db = getTenantDb(c.env, slug);
+    await db.batch([
+      db.prepare("UPDATE reader_subscriptions SET status='cancelled' WHERE reader_id = ? AND status = 'active'").bind(reader.sub),
+      db.prepare('DELETE FROM reader_subscriptions WHERE reader_id = ?').bind(reader.sub),
+      db.prepare('DELETE FROM readers WHERE id = ?').bind(reader.sub),
+    ]);
+    return c.json(ok({ deleted: true }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+// ── Org-admin user management (staff-authed) ────────────────────────────────
+
+// List readers with their current subscription status.
+app.get('/api/billing/tenant/:slug/users', async (c) => {
+  const slug = c.req.param('slug');
+  const staff = await getOrgStaff(c, slug);
+  if (!staff) return c.json(err(ErrorCode.UNAUTHORIZED, 'Org sign-in required'), 401);
+  const page = parseInt(c.req.query('page') || '1');
+  const pageSize = 25;
+  const offset = (page - 1) * pageSize;
+  try {
+    const db = getTenantDb(c.env, slug);
+    const [itemsRes, countRes] = await db.batch([
+      db.prepare(`
+        SELECT r.id, r.email, r.name, r.created_at,
+               (SELECT status FROM reader_subscriptions s WHERE s.reader_id = r.id ORDER BY s.created_at DESC LIMIT 1) AS sub_status,
+               (SELECT current_end FROM reader_subscriptions s WHERE s.reader_id = r.id AND s.status='active' ORDER BY s.current_end DESC LIMIT 1) AS current_end
+        FROM readers r ORDER BY r.created_at DESC LIMIT ? OFFSET ?`).bind(pageSize, offset),
+      db.prepare('SELECT count(*) as total FROM readers'),
+    ]);
+    const total = (countRes.results[0] as unknown as { total: number })?.total ?? 0;
+    return c.json(ok({ items: itemsRes.results, total, page, pageSize }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+// Org creates a reader account (id is a generated UUID, never autoincrement).
+app.post('/api/billing/tenant/:slug/users', async (c) => {
+  const slug = c.req.param('slug');
+  const staff = await getOrgStaff(c, slug);
+  if (!staff) return c.json(err(ErrorCode.UNAUTHORIZED, 'Org sign-in required'), 401);
+  const body = await c.req.json<{ email?: string; name?: string; password?: string }>();
+  if (!body.email || !body.name) return c.json(err(ErrorCode.BAD_REQUEST, 'Email and name are required'), 400);
+  try {
+    const db = getTenantDb(c.env, slug);
+    const existing = await db.prepare('SELECT id FROM readers WHERE email = ?').bind(body.email).first();
+    if (existing) return c.json(err(ErrorCode.CONFLICT, 'A reader with this email already exists'), 409);
+    // If no password supplied, generate a temporary one and return it so the org can share it.
+    const tempPassword = body.password && body.password.length >= 8 ? body.password : generateWebhookSecret().slice(0, 12);
+    const id = crypto.randomUUID();
+    await db.prepare('INSERT INTO readers (id, email, password_hash, name) VALUES (?, ?, ?, ?)')
+      .bind(id, body.email, await hashPassword(tempPassword), body.name).run();
+    return c.json(ok({ id, email: body.email, name: body.name, temp_password: body.password ? undefined : tempPassword }), 201);
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+// Org cancels a specific reader's subscription on their behalf.
+app.post('/api/billing/tenant/:slug/users/:id/cancel', async (c) => {
+  const slug = c.req.param('slug');
+  const readerId = c.req.param('id');
+  const staff = await getOrgStaff(c, slug);
+  if (!staff) return c.json(err(ErrorCode.UNAUTHORIZED, 'Org sign-in required'), 401);
+  try {
+    const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
+    const immediate = await orgRefundsOnCancel(db);
+    const subs = await db.prepare("SELECT id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active'")
+      .bind(readerId).all<{ id: string }>();
+    if (!subs.results?.length) return c.json(err(ErrorCode.NOT_FOUND, 'No active subscription for this reader'), 404);
+    for (const s of subs.results) await cancelSubscriptionRow(db, s.id, immediate);
+    return c.json(ok({ cancelled: subs.results.length }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+// Org removes a reader account entirely.
+app.delete('/api/billing/tenant/:slug/users/:id', async (c) => {
+  const slug = c.req.param('slug');
+  const readerId = c.req.param('id');
+  const staff = await getOrgStaff(c, slug);
+  if (!staff) return c.json(err(ErrorCode.UNAUTHORIZED, 'Org sign-in required'), 401);
+  try {
+    const db = getTenantDb(c.env, slug);
+    await db.batch([
+      db.prepare('DELETE FROM reader_subscriptions WHERE reader_id = ?').bind(readerId),
+      db.prepare('DELETE FROM readers WHERE id = ?').bind(readerId),
+    ]);
+    return c.json(ok({ deleted: true }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
 
 export default {
   fetch: app.fetch,

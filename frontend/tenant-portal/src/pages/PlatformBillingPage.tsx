@@ -31,6 +31,7 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
   const [paying, setPaying]       = useState<string | null>(null); // plan_id being paid
   const [error, setError]         = useState('');
   const [successMsg, setSuccess]  = useState('');
+  const [cancelling, setCancelling] = useState(false);
   
   const { formatAmount, loading: loadingCurrency } = useCurrencyConverter();
   
@@ -85,6 +86,22 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
     await openCheckout(tier.razorpay_plan_id, tier.name);
   }, [openCheckout]);
 
+  const handleCancelSubscription = useCallback(async () => {
+    if (!window.confirm('Cancel your platform subscription? Auto-debit will stop and your plan reverts to Free/Manual.')) return;
+    setError('');
+    setSuccess('');
+    setCancelling(true);
+    const res = await portalApi.cancelPlatformSubscription(slug, token);
+    setCancelling(false);
+    if (res.ok) {
+      setSuccess('Your subscription has been cancelled. Auto-debit will not be charged again.');
+      const s = await portalApi.getPlatformBillingStatus(slug, token);
+      if (s.ok && s.data) setStatus(s.data);
+    } else {
+      setError(res.error?.message ?? 'Failed to cancel subscription');
+    }
+  }, [slug, token]);
+
   return (
     <div>
       <div style={{ marginBottom: 32 }}>
@@ -125,9 +142,20 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
               </span>
             </div>
             {status?.has_subscription && (
-              <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 6 }}>
-                Auto-debit mandate is active — Razorpay will charge on renewal.
-              </p>
+              <>
+                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 6 }}>
+                  Auto-debit mandate is active — Razorpay will charge on renewal.
+                </p>
+                <button
+                  className="btn-secondary"
+                  disabled={cancelling}
+                  onClick={handleCancelSubscription}
+                  style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}
+                >
+                  {cancelling && <span className="spinner" style={{ width: 14, height: 14 }} />}
+                  {cancelling ? 'Cancelling…' : 'Cancel Subscription'}
+                </button>
+              </>
             )}
           </div>
 

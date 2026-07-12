@@ -73,7 +73,13 @@ export const portalApi = {
   // billing config (reader-facing Razorpay creds)
   getRazorpayConfig: (slug: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/config`, {}, token),
   saveRazorpayConfig: (slug: string, body: any, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/config`, { method: 'POST', body: JSON.stringify(body) }, token),
+  rotateWebhookSecret: (slug: string, token: string) => apiFetch<{ webhook_secret: string }>(`/api/billing/tenant/${slug}/config/webhook-secret/rotate`, { method: 'POST' }, token),
   getReaderSubscriptions: (slug: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/subscriptions`, {}, token),
+  // user management (org-admin over readers)
+  listUsers: (slug: string, token: string, page = 1) => apiFetch<any>(`/api/billing/tenant/${slug}/users?page=${page}`, {}, token),
+  createUser: (slug: string, body: { email: string; name: string; password?: string }, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/users`, { method: 'POST', body: JSON.stringify(body) }, token),
+  cancelUserSubscription: (slug: string, id: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/users/${id}/cancel`, { method: 'POST' }, token),
+  deleteUser: (slug: string, id: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/users/${id}`, { method: 'DELETE' }, token),
 
   // platform billing (tenant pays platform)
   getPlatformTiers: () => apiFetch<any>('/api/tiers'),
@@ -83,6 +89,8 @@ export const portalApi = {
     apiFetch<{ subscription_id: string; key_id: string }>('/api/billing/platform/subscribe', { method: 'POST', body: JSON.stringify({ slug, plan_id }) }, token),
   verifyPlatformPayment: (body: { slug: string; razorpay_payment_id: string; razorpay_subscription_id: string; razorpay_signature: string }, token: string) =>
     apiFetch<{ verified: boolean; plan: string }>('/api/billing/platform/verify-payment', { method: 'POST', body: JSON.stringify(body) }, token),
+  cancelPlatformSubscription: (slug: string, token: string, atCycleEnd = false) =>
+    apiFetch<{ cancelled: boolean; at_cycle_end: boolean }>(`/api/billing/platform/${slug}/subscription/cancel`, { method: 'POST', body: JSON.stringify({ at_cycle_end: atCycleEnd }) }, token),
   // kept for backwards compat — delegates to subscribeToPlatformPlan
   subscribeToPlatform: (slug: string, plan_id: string, token: string) =>
     apiFetch<any>('/api/billing/platform/subscribe', { method: 'POST', body: JSON.stringify({ slug, plan_id }) }, token),
@@ -122,6 +130,8 @@ export const readerApi = {
   signup: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/signup`, { method: 'POST', body: JSON.stringify(body) }),
   login: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/login`, { method: 'POST', body: JSON.stringify(body) }),
   me: (slug: string, token: string) => apiFetch<any>(`/api/read/${slug}/me`, {}, token),
+  cancelSubscription: (slug: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/reader/subscription/cancel`, { method: 'POST' }, token),
+  deleteAccount: (slug: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/reader/account`, { method: 'DELETE' }, token),
   getPapers: (slug: string, filters?: { edition_id?: string; start_date?: string; end_date?: string; page?: number; limit?: number }) => {
     let url = `/api/read/${slug}/papers`;
     if (filters) {
