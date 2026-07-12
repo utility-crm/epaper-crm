@@ -141,7 +141,7 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                 {status?.has_subscription ? (status?.razorpay_status || 'Active') : 'Free / Manual'}
               </span>
             </div>
-            {status?.has_subscription && (
+            {status?.has_subscription && ['active', 'authenticated'].includes(status?.razorpay_status) && (
               <>
                 <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 6 }}>
                   Auto-debit mandate is active — Razorpay will charge on renewal.
