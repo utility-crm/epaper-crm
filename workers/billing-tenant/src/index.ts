@@ -3,12 +3,18 @@ import { ok, err, ErrorCode, ReaderJwtPayload, SubscriptionInterval } from '@epa
 import { getTenantDb } from './db';
 import { encrypt, decrypt } from './crypto';
 import { verifyJwt } from './jwt';
-import { createRazorpayPlan, createSubscription, cancelSubscription, verifySubscriptionSignature } from './razorpay';
+import { createRazorpayPlan, createSubscription, cancelSubscription, verifySubscriptionSignature, refundPayment } from './razorpay';
 import { hashPassword } from './password';
+import { sendEmail, refundEmailHtml } from './email';
 
 export interface Env {
   TENANT_ENCRYPTION_KEY: string;
   ORG_JWT_SECRET: string;
+  RESEND_API_KEY?: string;
+  RESEND_FROM?: string;
+  // Verified Resend sending domain. Reader refund mail is sent from
+  // no-reply-<slug>@<RESEND_DOMAIN> so each publication has a distinct sender.
+  RESEND_DOMAIN?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -67,6 +73,28 @@ async function ensureBillingColumns(db: D1Database) {
   await db.prepare('ALTER TABLE razorpay_config ADD COLUMN process_refunds INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
   await db.prepare("ALTER TABLE reader_subscriptions ADD COLUMN cancelled_at DATETIME").run().catch(() => {});
   await db.prepare('ALTER TABLE plans ADD COLUMN razorpay_plan_id TEXT').run().catch(() => {});
+  // Last successful charge on a subscription — needed to know which payment to refund.
+  await db.prepare('ALTER TABLE reader_subscriptions ADD COLUMN last_payment_id TEXT').run().catch(() => {});
+  // Refund policy + per-publication email identity (single platform sending domain).
+  await db.prepare('ALTER TABLE razorpay_config ADD COLUMN refund_window_days INTEGER NOT NULL DEFAULT 7').run().catch(() => {});
+  await db.prepare('ALTER TABLE razorpay_config ADD COLUMN support_email TEXT').run().catch(() => {});
+  await db.prepare('ALTER TABLE razorpay_config ADD COLUMN display_name TEXT').run().catch(() => {});
+  // Reader-raised refund requests, processed by org staff.
+  await db.prepare(`CREATE TABLE IF NOT EXISTS reader_refund_requests (
+    id TEXT PRIMARY KEY,
+    reader_id TEXT NOT NULL,
+    subscription_id TEXT,
+    reader_email TEXT,
+    payment_id TEXT,
+    reason TEXT,
+    status TEXT NOT NULL DEFAULT 'requested',
+    refund_amount_paise INTEGER,
+    staff_message TEXT,
+    razorpay_refund_id TEXT,
+    processed_by TEXT,
+    processed_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`).run().catch(() => {});
 }
 
 function generateWebhookSecret(): string {
@@ -100,17 +128,24 @@ app.post('/api/billing/tenant/:slug/config', async (c) => {
       : existing?.webhook_secret_enc ?? null;
 
     const processRefunds = body.process_refunds ? 1 : 0;
+    // Refund policy + email identity (single-domain sending; per-publication From/Reply-To).
+    const refundWindowDays = Number.isFinite(body.refund_window_days) ? Math.max(0, Math.floor(body.refund_window_days)) : 7;
+    const supportEmail = typeof body.support_email === 'string' && body.support_email.trim() ? body.support_email.trim() : null;
+    const displayName = typeof body.display_name === 'string' && body.display_name.trim() ? body.display_name.trim() : null;
 
     await db.prepare(`
-      INSERT INTO razorpay_config (id, key_id, key_secret_enc, webhook_secret_enc, process_refunds, updated_at)
-      VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO razorpay_config (id, key_id, key_secret_enc, webhook_secret_enc, process_refunds, refund_window_days, support_email, display_name, updated_at)
+      VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(id) DO UPDATE SET
         key_id=excluded.key_id,
         key_secret_enc=excluded.key_secret_enc,
         webhook_secret_enc=excluded.webhook_secret_enc,
         process_refunds=excluded.process_refunds,
+        refund_window_days=excluded.refund_window_days,
+        support_email=excluded.support_email,
+        display_name=excluded.display_name,
         updated_at=CURRENT_TIMESTAMP
-    `).bind(body.key_id, secretEnc, webhookEnc, processRefunds).run();
+    `).bind(body.key_id, secretEnc, webhookEnc, processRefunds, refundWindowDays, supportEmail, displayName).run();
 
     // Only surface the plaintext webhook secret when we just generated it (so the org can paste it into Razorpay).
     return c.json(ok({ configured: true, webhook_secret: generated ? webhookPlain : undefined }));
@@ -125,8 +160,8 @@ app.get('/api/billing/tenant/:slug/config', async (c) => {
   try {
     const db = getTenantDb(c.env, slug);
     await ensureBillingColumns(db);
-    const config = await db.prepare('SELECT key_id, webhook_secret_enc, process_refunds, updated_at FROM razorpay_config WHERE id = 1')
-      .first<{ key_id: string; webhook_secret_enc: string | null; process_refunds: number; updated_at: string }>();
+    const config = await db.prepare('SELECT key_id, webhook_secret_enc, process_refunds, refund_window_days, support_email, display_name, updated_at FROM razorpay_config WHERE id = 1')
+      .first<{ key_id: string; webhook_secret_enc: string | null; process_refunds: number; refund_window_days: number | null; support_email: string | null; display_name: string | null; updated_at: string }>();
 
     if (!config) return c.json(ok(null)); // Not configured yet
     // Never return the secrets themselves — only whether they're set.
@@ -134,6 +169,9 @@ app.get('/api/billing/tenant/:slug/config', async (c) => {
       key_id: config.key_id,
       webhook_configured: !!config.webhook_secret_enc,
       process_refunds: !!config.process_refunds,
+      refund_window_days: config.refund_window_days ?? 7,
+      support_email: config.support_email,
+      display_name: config.display_name,
       updated_at: config.updated_at,
     }));
   } catch (e) {
@@ -202,8 +240,9 @@ app.post('/api/billing/tenant/:slug/webhook', async (c) => {
           // Renewal succeeded — extend access by one interval.
           const months = INTERVAL_MONTHS[(row.plan_type as SubscriptionInterval)] ?? 1;
           const end = new Date(); end.setMonth(end.getMonth() + months);
-          await db.prepare("UPDATE reader_subscriptions SET status='active', current_end=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
-            .bind(end.toISOString(), row.id).run();
+          const paymentId = event.payload?.payment?.entity?.id ?? null;
+          await db.prepare("UPDATE reader_subscriptions SET status='active', current_end=?, last_payment_id=COALESCE(?, last_payment_id), updated_at=CURRENT_TIMESTAMP WHERE id=?")
+            .bind(end.toISOString(), paymentId, row.id).run();
           break;
         }
         case 'subscription.cancelled':
@@ -302,12 +341,21 @@ app.post('/api/billing/tenant/:slug/reader/verify', async (c) => {
     const id = crypto.randomUUID();
     await db.prepare(
       `INSERT INTO reader_subscriptions
-         (id, reader_id, razorpay_sub_id, plan_type, tier_id, plan_id, status, current_start, current_end)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+         (id, reader_id, razorpay_sub_id, plan_type, tier_id, plan_id, status, current_start, current_end, last_payment_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
        ON CONFLICT(razorpay_sub_id) DO UPDATE SET
-         status='active', current_start=excluded.current_start, current_end=excluded.current_end, updated_at=CURRENT_TIMESTAMP`
+         status='active', current_start=excluded.current_start, current_end=excluded.current_end,
+         last_payment_id=excluded.last_payment_id, updated_at=CURRENT_TIMESTAMP`
     ).bind(id, reader.sub, body.razorpay_subscription_id, plan.interval, plan.tier_id, plan.id,
-           now.toISOString(), end.toISOString()).run();
+           now.toISOString(), end.toISOString(), body.razorpay_payment_id).run();
+
+    // Upgrade/downgrade: this new mandate replaces any prior active subscription for the
+    // reader. Cancel the old mandate(s) at Razorpay immediately so they stop auto-debiting —
+    // otherwise the reader is charged for every plan they've ever subscribed to.
+    const stale = await db.prepare(
+      "SELECT id, razorpay_sub_id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active' AND razorpay_sub_id != ?"
+    ).bind(reader.sub, body.razorpay_subscription_id).all<{ id: string; razorpay_sub_id: string | null }>();
+    for (const s of stale.results ?? []) await cancelSubscriptionRow(db, s, true, keys);
 
     return c.json(ok({ subscription_id: id, tier_id: plan.tier_id, current_end: end.toISOString() }));
   } catch (e) {
@@ -413,6 +461,73 @@ app.delete('/api/billing/tenant/:slug/reader/account', async (c) => {
   }
 });
 
+// Publication email identity: single platform sending domain, per-publication From name +
+// Reply-To. Falls back to the slug when the org hasn't set a display name.
+async function pubEmailIdentity(db: D1Database, slug: string): Promise<{ displayName: string; supportEmail: string | null; refundWindowDays: number }> {
+  const cfg = await db.prepare('SELECT display_name, support_email, refund_window_days FROM razorpay_config WHERE id = 1')
+    .first<{ display_name: string | null; support_email: string | null; refund_window_days: number | null }>().catch(() => null);
+  return {
+    displayName: cfg?.display_name || slug,
+    supportEmail: cfg?.support_email || null,
+    refundWindowDays: cfg?.refund_window_days ?? 7,
+  };
+}
+
+// Reader raises a refund request against their most recent paid subscription.
+// Eligibility (within the refund window) is flagged, but the org admin makes the final call.
+app.post('/api/billing/tenant/:slug/reader/refund-request', async (c) => {
+  const slug = c.req.param('slug');
+  const reader = await getReader(c, slug);
+  if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Sign in to request a refund'), 401);
+  const { reason } = await c.req.json<{ reason?: string }>().catch(() => ({ reason: '' }));
+  try {
+    const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
+    // Newest subscription that actually has a payment we could refund.
+    const sub = await db.prepare(
+      "SELECT id, last_payment_id, current_start FROM reader_subscriptions WHERE reader_id = ? AND last_payment_id IS NOT NULL ORDER BY created_at DESC LIMIT 1"
+    ).bind(reader.sub).first<{ id: string; last_payment_id: string; current_start: string | null }>();
+    if (!sub) return c.json(err(ErrorCode.NOT_FOUND, 'No refundable payment found'), 404);
+
+    // Block a duplicate open request for the same subscription.
+    const open = await db.prepare("SELECT id FROM reader_refund_requests WHERE reader_id = ? AND subscription_id = ? AND status = 'requested'")
+      .bind(reader.sub, sub.id).first();
+    if (open) return c.json(err(ErrorCode.CONFLICT, 'A refund request is already pending'), 409);
+
+    const { refundWindowDays } = await pubEmailIdentity(db, slug);
+    const startMs = sub.current_start ? Date.parse(sub.current_start) : NaN;
+    const withinWindow = Number.isFinite(startMs)
+      ? (Date.now() - startMs) <= refundWindowDays * 86400_000
+      : false;
+
+    const id = crypto.randomUUID();
+    await db.prepare(
+      "INSERT INTO reader_refund_requests (id, reader_id, subscription_id, reader_email, payment_id, reason, status) VALUES (?, ?, ?, ?, ?, ?, 'requested')"
+    ).bind(id, reader.sub, sub.id, reader.email ?? null, sub.last_payment_id, reason ?? null).run();
+
+    return c.json(ok({ id, status: 'requested', within_policy_window: withinWindow }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+// Reader lists their own refund requests.
+app.get('/api/billing/tenant/:slug/reader/refund-requests', async (c) => {
+  const slug = c.req.param('slug');
+  const reader = await getReader(c, slug);
+  if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Sign in to view your requests'), 401);
+  try {
+    const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
+    const rows = await db.prepare(
+      'SELECT id, subscription_id, reason, status, refund_amount_paise, staff_message, created_at, processed_at FROM reader_refund_requests WHERE reader_id = ? ORDER BY created_at DESC'
+    ).bind(reader.sub).all();
+    return c.json(ok({ items: rows.results }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
 // ── Org-admin user management (staff-authed) ────────────────────────────────
 
 // List readers with their current subscription status.
@@ -478,6 +593,101 @@ app.post('/api/billing/tenant/:slug/users/:id/cancel', async (c) => {
     if (!subs.results?.length) return c.json(err(ErrorCode.NOT_FOUND, 'No active subscription for this reader'), 404);
     for (const s of subs.results) await cancelSubscriptionRow(db, s, immediate, keys);
     return c.json(ok({ cancelled: subs.results.length }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+// Org lists the refund-request queue.
+app.get('/api/billing/tenant/:slug/refund-requests', async (c) => {
+  const slug = c.req.param('slug');
+  const staff = await getOrgStaff(c, slug);
+  if (!staff) return c.json(err(ErrorCode.UNAUTHORIZED, 'Org sign-in required'), 401);
+  const status = c.req.query('status'); // optional filter
+  try {
+    const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
+    const base = `SELECT rr.id, rr.reader_id, rr.subscription_id, rr.reader_email, rr.payment_id, rr.reason,
+               rr.status, rr.refund_amount_paise, rr.staff_message, rr.razorpay_refund_id, rr.created_at, rr.processed_at,
+               s.plan_type, s.last_payment_id, s.current_start
+        FROM reader_refund_requests rr
+        LEFT JOIN reader_subscriptions s ON s.id = rr.subscription_id`;
+    const stmt = status
+      ? db.prepare(`${base} WHERE rr.status = ? ORDER BY rr.created_at DESC`).bind(status)
+      : db.prepare(`${base} ORDER BY rr.created_at DESC`);
+    const rows = await stmt.all();
+    return c.json(ok({ items: rows.results }));
+  } catch (e) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+});
+
+// Org approves (issues a custom-amount Razorpay refund) or rejects a request, then emails the reader.
+app.post('/api/billing/tenant/:slug/refund-requests/:id/process', async (c) => {
+  const slug = c.req.param('slug');
+  const reqId = c.req.param('id');
+  const staff = await getOrgStaff(c, slug);
+  if (!staff) return c.json(err(ErrorCode.UNAUTHORIZED, 'Org sign-in required'), 401);
+  const body = await c.req.json<{ action: 'approve' | 'reject'; amount_paise?: number; message?: string }>();
+  if (body.action !== 'approve' && body.action !== 'reject') {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'action must be approve or reject'), 400);
+  }
+  try {
+    const db = getTenantDb(c.env, slug);
+    await ensureBillingColumns(db);
+    const rr = await db.prepare('SELECT id, reader_id, reader_email, payment_id, status FROM reader_refund_requests WHERE id = ?')
+      .bind(reqId).first<{ id: string; reader_id: string; reader_email: string | null; payment_id: string | null; status: string }>();
+    if (!rr) return c.json(err(ErrorCode.NOT_FOUND, 'Refund request not found'), 404);
+    if (rr.status !== 'requested') return c.json(err(ErrorCode.CONFLICT, `Request already ${rr.status}`), 409);
+
+    const identity = await pubEmailIdentity(db, slug);
+    const message = body.message?.trim() || (body.action === 'approve' ? 'Your refund has been processed.' : 'Your refund request could not be approved.');
+
+    let refundId: string | null = null;
+    let refundedPaise: number | null = null;
+
+    if (body.action === 'approve') {
+      const keys = await tenantRazorpayKeys(db, c.env.TENANT_ENCRYPTION_KEY);
+      if (!keys) return c.json(err(ErrorCode.BAD_REQUEST, 'Payments not configured'), 400);
+      if (!rr.payment_id) return c.json(err(ErrorCode.BAD_REQUEST, 'No payment on file to refund'), 400);
+      // amount_paise null/omitted = full refund; otherwise the staff-set custom amount.
+      const amount = typeof body.amount_paise === 'number' && body.amount_paise > 0 ? body.amount_paise : null;
+      try {
+        const refund = await refundPayment(keys.key_id, keys.key_secret, rr.payment_id, amount, { refund_request_id: rr.id, slug });
+        refundId = refund.id;
+        refundedPaise = refund.amount ?? amount;
+      } catch (e) {
+        return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Razorpay refund failed'), 502);
+      }
+    }
+
+    const newStatus = body.action === 'approve' ? 'refunded' : 'rejected';
+    await db.prepare(
+      "UPDATE reader_refund_requests SET status=?, refund_amount_paise=?, staff_message=?, razorpay_refund_id=?, processed_by=?, processed_at=CURRENT_TIMESTAMP WHERE id=?"
+    ).bind(newStatus, refundedPaise, message, refundId, staff.sub, rr.id).run();
+
+    // Best-effort branded email to the reader (never blocks the refund result).
+    if (rr.reader_email) {
+      // Per-publication sender: no-reply-<slug>@<verified domain>, display name = publication.
+      const domain = c.env.RESEND_DOMAIN || 'payments.epaperspace.com';
+      const localSlug = slug.replace(/[^a-z0-9-]/gi, '').toLowerCase();
+      const fromAddr = `no-reply-${localSlug}@${domain}`;
+      await sendEmail(c.env.RESEND_API_KEY, fromAddr, {
+        to: rr.reader_email,
+        fromName: identity.displayName,
+        replyTo: identity.supportEmail ?? undefined,
+        tags: [{ name: 'lane', value: 'reader_refund' }, { name: 'slug', value: localSlug || 'unknown' }],
+        subject: body.action === 'approve' ? `Your ${identity.displayName} refund` : `Your ${identity.displayName} refund request`,
+        html: refundEmailHtml({
+          brandName: identity.displayName,
+          approved: body.action === 'approve',
+          amountRupees: refundedPaise != null ? (refundedPaise / 100).toFixed(2) : undefined,
+          message,
+        }),
+      });
+    }
+
+    return c.json(ok({ status: newStatus, razorpay_refund_id: refundId, refund_amount_paise: refundedPaise }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
   }

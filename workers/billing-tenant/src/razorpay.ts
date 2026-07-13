@@ -116,6 +116,28 @@ export async function cancelSubscription(
   return res.ok;
 }
 
+export interface RazorpayRefund { id: string; amount: number; status: string; }
+
+// Refund (full or partial) a captured payment. amountPaise omitted = full refund.
+// Uses the tenant's own keys so money returns from the tenant's account.
+export async function refundPayment(
+  keyId: string,
+  keySecret: string,
+  paymentId: string,
+  amountPaise: number | null,
+  notes: Record<string, string>,
+): Promise<RazorpayRefund> {
+  const body: Record<string, unknown> = { notes, speed: 'normal' };
+  if (amountPaise != null) body.amount = amountPaise;
+  const res = await fetch(`https://api.razorpay.com/v1/payments/${paymentId}/refund`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: authHeader(keyId, keySecret) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Razorpay refund failed (${res.status}): ${await res.text()}`);
+  return res.json();
+}
+
 // Subscription checkout signature: HMAC_SHA256(payment_id|subscription_id, key_secret).
 export async function verifySubscriptionSignature(
   paymentId: string,

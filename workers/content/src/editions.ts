@@ -1,8 +1,51 @@
 import { Hono } from 'hono';
 import { getTenantDb, getTenantBucket } from './db';
 import { ok, err, ErrorCode } from '@epaper/types';
+import { Env } from './middleware';
 
-export const editionsRouter = new Hono<{ Bindings: Record<string, unknown>; Variables: { userId: string } }>();
+export const editionsRouter = new Hono<{ Bindings: Env; Variables: { userId: string } }>();
+
+async function ensureOrgUser(db: D1Database, controlDb: D1Database | undefined, slug: string, userId: string) {
+  if (!userId) return;
+  try {
+    const existing = await db.prepare('SELECT id FROM org_users WHERE id = ?').bind(userId).first();
+    if (!existing) {
+      if (controlDb) {
+        const tenant = await controlDb.prepare('SELECT id, email FROM tenants WHERE slug = ?').bind(slug).first<{ id: string; email: string }>();
+        if (tenant) {
+          const owner = await controlDb.prepare('SELECT * FROM pending_owners WHERE id = ? OR tenant_id = ?').bind(userId, tenant.id).first<any>();
+          if (owner) {
+            await db.prepare(
+              'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
+            ).bind(userId, tenant.email, owner.password_hash || '', owner.name || 'Admin', owner.role || 'owner').run();
+            return;
+          }
+          await db.prepare(
+            'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
+          ).bind(userId, tenant.email, '', 'Admin', 'owner').run();
+          return;
+        }
+      }
+      await db.prepare(
+        'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
+      ).bind(userId, `${userId}@tenant.local`, '', 'Admin', 'owner').run();
+    }
+  } catch (e) {
+    console.error('Error ensuring org user:', e);
+  }
+}
+
+async function resolveTierId(db: D1Database, tierId: unknown): Promise<string | null> {
+  if (!tierId || typeof tierId !== 'string' || tierId === '__none__' || tierId.trim() === '') {
+    return null;
+  }
+  try {
+    const exists = await db.prepare('SELECT id FROM tiers WHERE id = ?').bind(tierId).first();
+    return exists ? tierId : null;
+  } catch {
+    return null;
+  }
+}
 
 editionsRouter.get('/:slug/editions', async (c) => {
   const slug = c.req.param('slug');
@@ -43,11 +86,13 @@ editionsRouter.post('/:slug/editions', async (c) => {
 
   try {
     const db = getTenantDb(c.env, slug);
+    await ensureOrgUser(db, c.env.CONTROL_DB, slug, created_by);
+    const tier_id = await resolveTierId(db, body.tier_id);
     const id = crypto.randomUUID();
 
     await db.prepare(
       'INSERT INTO editions (id, title, status, tier_id, created_by) VALUES (?, ?, ?, ?, ?)'
-    ).bind(id, body.title, 'draft', body.tier_id ?? null, created_by).run();
+    ).bind(id, body.title, 'draft', tier_id, created_by).run();
 
     return c.json(ok({ id }), 201);
   } catch (e) {
@@ -80,6 +125,10 @@ editionsRouter.post('/:slug/editions/:id/epapers', async (c) => {
   
   try {
     const db = getTenantDb(c.env, slug);
+    const editionExists = await db.prepare('SELECT id FROM editions WHERE id = ?').bind(edition_id).first();
+    if (!editionExists) {
+      return c.json(err(ErrorCode.NOT_FOUND, 'Edition not found'), 404);
+    }
     const id = crypto.randomUUID();
 
     const freePages = Number.isInteger(body.free_page_count) && body.free_page_count >= 0 ? body.free_page_count : 0;
@@ -228,7 +277,9 @@ editionsRouter.patch('/:slug/editions/:id', async (c) => {
     if (!existing) return c.json(err(ErrorCode.NOT_FOUND, 'Edition not found'), 404);
 
     const title = body.title ?? existing.title;
-    const tier_id = body.tier_id !== undefined ? body.tier_id : existing.tier_id;
+    const tier_id = body.tier_id !== undefined
+      ? await resolveTierId(db, body.tier_id)
+      : existing.tier_id;
     const status = body.status ?? existing.status;
 
     await db.prepare('UPDATE editions SET title=?, tier_id=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')

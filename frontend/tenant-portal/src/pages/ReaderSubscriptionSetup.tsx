@@ -11,6 +11,9 @@ export function ReaderSubscriptionSetup({ slug, token }: ReaderSubscriptionSetup
   const [keySecret, setKeySecret] = useState('');
   const [webhookSecret, setWebhookSecret] = useState('');
   const [processRefunds, setProcessRefunds] = useState(false);
+  const [refundWindowDays, setRefundWindowDays] = useState('7');
+  const [supportEmail, setSupportEmail] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [existing, setExisting] = useState<{ key_id: string; webhook_configured: boolean; process_refunds: boolean; updated_at: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -26,6 +29,9 @@ export function ReaderSubscriptionSetup({ slug, token }: ReaderSubscriptionSetup
       if (res.ok && res.data) {
         setExisting(res.data);
         setProcessRefunds(!!res.data.process_refunds);
+        if (res.data.refund_window_days != null) setRefundWindowDays(String(res.data.refund_window_days));
+        if (res.data.support_email) setSupportEmail(res.data.support_email);
+        if (res.data.display_name) setDisplayName(res.data.display_name);
       }
       setLoading(false);
     });
@@ -43,6 +49,9 @@ export function ReaderSubscriptionSetup({ slug, token }: ReaderSubscriptionSetup
         key_id: keyId, key_secret: keySecret,
         webhook_secret: webhookSecret || undefined,
         process_refunds: processRefunds,
+        refund_window_days: parseInt(refundWindowDays, 10) || 0,
+        support_email: supportEmail || undefined,
+        display_name: displayName || undefined,
       }, token);
       if (res.ok) {
         setSuccess(true);
@@ -151,6 +160,32 @@ export function ReaderSubscriptionSetup({ slug, token }: ReaderSubscriptionSetup
                 </span>
               </span>
             </label>
+
+            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Refunds &amp; reader emails</div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 4 }}>Refund window (days)</label>
+                <input className="input" type="number" min={0} value={refundWindowDays} onChange={e => setRefundWindowDays(e.target.value)}
+                  style={{ maxWidth: 160 }} />
+                <span style={{ display: 'block', color: 'var(--color-text-muted)', fontSize: '0.78rem', marginTop: 2 }}>
+                  Reader refund requests inside this many days of purchase are flagged as within policy. You still approve each one manually.
+                </span>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 4 }}>Publication name (email “from”)</label>
+                <input className="input" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="e.g. Local Press" />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 4 }}>Support email (reader replies go here)</label>
+                <input className="input" type="email" value={supportEmail} onChange={e => setSupportEmail(e.target.value)} placeholder="support@yourpublication.com" />
+                <span style={{ display: 'block', color: 'var(--color-text-muted)', fontSize: '0.78rem', marginTop: 2 }}>
+                  Refund emails are sent from the platform’s domain, shown as your publication name, with replies routed to this address.
+                </span>
+              </div>
+            </div>
 
             {error && (
               <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',

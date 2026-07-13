@@ -21,7 +21,7 @@ tenantsRouter.patch('/internal/:slug/activate', async (c) => {
 
   if (pendingOwner) {
     // Call the content worker to insert the owner into the tenant's new org_users table
-    const migrateRes = await c.env.CONTENT_WORKER.fetch(`http://internal/api/internal/${slug}/migrate-owner`, {
+    const migrateRes = await c.env.CONTENT_WORKER.fetch(`http://internal/internal/${slug}/migrate-owner`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

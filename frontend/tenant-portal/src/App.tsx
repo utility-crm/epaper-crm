@@ -1,6 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut, Settings, ExternalLink, Users } from 'lucide-react';
+import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut, Settings, ExternalLink, Users, ReceiptText } from 'lucide-react';
 
 const LandingPage = lazy(() => import('./pages/LandingPage').then(m => ({ default: m.LandingPage })));
 const AboutPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ default: m.AboutPage })));
@@ -22,6 +22,7 @@ const PlansPage = lazy(() => import('./pages/PlansPage').then(m => ({ default: m
 const DomainPage = lazy(() => import('./pages/DomainPage').then(m => ({ default: m.DomainPage })));
 const ReaderSubscriptionSetup = lazy(() => import('./pages/ReaderSubscriptionSetup').then(m => ({ default: m.ReaderSubscriptionSetup })));
 const UserManagementPage = lazy(() => import('./pages/UserManagementPage').then(m => ({ default: m.UserManagementPage })));
+const RefundsPage = lazy(() => import('./pages/RefundsPage').then(m => ({ default: m.RefundsPage })));
 const PlatformBillingPage = lazy(() => import('./pages/PlatformBillingPage').then(m => ({ default: m.PlatformBillingPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const ReaderApp = lazy(() => import('./reader/ReaderApp').then(m => ({ default: m.ReaderApp })));
@@ -91,6 +92,7 @@ function PortalSidebar({ slug, token, basePrefix, onLogout }: { slug: string; to
     { to: `${basePrefix}/papers`, label: 'Editions & Papers', icon: Newspaper },
     { to: `${basePrefix}/plans`, label: 'Subscriptions', icon: CreditCard },
     { to: `${basePrefix}/users`, label: 'User Management', icon: Users },
+    { to: `${basePrefix}/refunds`, label: 'Refund Requests', icon: ReceiptText },
     { to: `${basePrefix}/reader-setup`, label: 'Payment Setup', icon: KeyRound },
     { to: `${basePrefix}/domain`, label: 'Custom Domain', icon: Globe },
     { to: `${basePrefix}/platform-billing`, label: 'Platform Billing', icon: Building2 },
@@ -203,6 +205,7 @@ function AdminPortalRoutes({ slug, token }: { slug: string; token: string }) {
         <Route path="plans" element={<PlansPage slug={slug} token={token} />} />
         <Route path="users" element={<UserManagementPage slug={slug} token={token} />} />
         <Route path="user-management" element={<UserManagementPage slug={slug} token={token} />} />
+        <Route path="refunds" element={<RefundsPage slug={slug} token={token} />} />
         <Route path="domain" element={<DomainPage slug={slug} token={token} />} />
         <Route path="reader-setup" element={<ReaderSubscriptionSetup slug={slug} token={token} />} />
         <Route path="platform-billing" element={<PlatformBillingPage slug={slug} token={token} />} />
