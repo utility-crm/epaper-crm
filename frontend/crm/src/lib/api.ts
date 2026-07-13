@@ -55,4 +55,18 @@ export const crmApi = {
   getPlatformBillingStatus: (slug: string) => apiFetch<any>(`/api/admin/billing/platform/${slug}/status`),
   getPlatformBillingEvents: (slug: string) => apiFetch<any>(`/api/admin/billing/platform/${slug}/events`),
   getPlatformPlans: () => apiFetch<any>('/api/admin/billing/platform/plans'),
+
+  // Platform refund queue (Publication → Platform), superadmin only
+  listPlatformRefundRequests: (status?: string) => apiFetch<{ items: any[] }>(`/api/admin/billing/platform/refund-requests${status ? `?status=${status}` : ''}`),
+  processPlatformRefundRequest: (id: string, body: { action: 'approve' | 'reject'; amount_paise?: number; message?: string }) =>
+    apiFetch<any>(`/api/admin/billing/platform/refund-requests/${id}/process`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // Email delivery monitoring (Resend webhook events), superadmin only
+  listEmailEvents: (params?: { lane?: string; slug?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.lane) q.set('lane', params.lane);
+    if (params?.slug) q.set('slug', params.slug);
+    const qs = q.toString();
+    return apiFetch<{ items: any[] }>(`/api/admin/billing/platform/email-events${qs ? `?${qs}` : ''}`);
+  },
 };

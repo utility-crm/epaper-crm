@@ -80,6 +80,9 @@ export const portalApi = {
   createUser: (slug: string, body: { email: string; name: string; password?: string }, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/users`, { method: 'POST', body: JSON.stringify(body) }, token),
   cancelUserSubscription: (slug: string, id: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/users/${id}/cancel`, { method: 'POST' }, token),
   deleteUser: (slug: string, id: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/users/${id}`, { method: 'DELETE' }, token),
+  // reader refund queue (org-admin processes)
+  listRefundRequests: (slug: string, token: string, status?: string) => apiFetch<{ items: any[] }>(`/api/billing/tenant/${slug}/refund-requests${status ? `?status=${status}` : ''}`, {}, token),
+  processRefundRequest: (slug: string, id: string, body: { action: 'approve' | 'reject'; amount_paise?: number; message?: string }, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/refund-requests/${id}/process`, { method: 'POST', body: JSON.stringify(body) }, token),
 
   // platform billing (tenant pays platform)
   getPlatformTiers: () => apiFetch<any>('/api/tiers'),
@@ -91,6 +94,9 @@ export const portalApi = {
     apiFetch<{ verified: boolean; plan: string }>('/api/billing/platform/verify-payment', { method: 'POST', body: JSON.stringify(body) }, token),
   cancelPlatformSubscription: (slug: string, token: string, atCycleEnd = false) =>
     apiFetch<{ cancelled: boolean; at_cycle_end: boolean }>(`/api/billing/platform/${slug}/subscription/cancel`, { method: 'POST', body: JSON.stringify({ at_cycle_end: atCycleEnd }) }, token),
+  // tenant raises a refund request to the platform (superadmin processes it)
+  requestPlatformRefund: (slug: string, reason: string, token: string) =>
+    apiFetch<{ id: string; status: string }>(`/api/billing/platform/${slug}/refund-request`, { method: 'POST', body: JSON.stringify({ reason }) }, token),
   // kept for backwards compat — delegates to subscribeToPlatformPlan
   subscribeToPlatform: (slug: string, plan_id: string, token: string) =>
     apiFetch<any>('/api/billing/platform/subscribe', { method: 'POST', body: JSON.stringify({ slug, plan_id }) }, token),
@@ -155,6 +161,8 @@ export const readerApi = {
   coverUrl: (slug: string, paperId: string) => `${API_BASE}/api/read/${slug}/papers/${paperId}/cover`,
   subscribe: (slug: string, plan_id: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/reader/subscribe`, { method: 'POST', body: JSON.stringify({ plan_id }) }, token),
   verify: (slug: string, body: any, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/reader/verify`, { method: 'POST', body: JSON.stringify(body) }, token),
+  requestRefund: (slug: string, reason: string, token: string) => apiFetch<{ id: string; status: string; within_policy_window: boolean }>(`/api/billing/tenant/${slug}/reader/refund-request`, { method: 'POST', body: JSON.stringify({ reason }) }, token),
+  getRefundRequests: (slug: string, token: string) => apiFetch<{ items: any[] }>(`/api/billing/tenant/${slug}/reader/refund-requests`, {}, token),
 };
 
 export const API_BASE_URL = API_BASE;
