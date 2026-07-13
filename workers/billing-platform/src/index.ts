@@ -78,18 +78,34 @@ app.post('/api/billing/platform/subscribe', async (c) => {
   if (!slug || !plan_id) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing slug or plan_id'), 400);
 
   const tenant = await c.env.CONTROL_DB.prepare(
-    'SELECT id, name, email FROM tenants WHERE slug = ?'
-  ).bind(slug).first<{ id: string; name: string; email: string }>();
+    'SELECT id, name, email, razorpay_sub_id FROM tenants WHERE slug = ?'
+  ).bind(slug).first<{ id: string; name: string; email: string; razorpay_sub_id: string | null }>();
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+
+  let activeSubId = '';
+  if (tenant.razorpay_sub_id) {
+    const existingSubRes = await razorpayRequest(c.env, `subscriptions/${tenant.razorpay_sub_id}`);
+    if (existingSubRes.ok) {
+      const existingSub = await existingSubRes.json() as any;
+      if (['active', 'authenticated'].includes(existingSub.status)) {
+        activeSubId = tenant.razorpay_sub_id;
+      } else {
+        activeSubId = existingSub.notes?.old_sub_id || '';
+      }
+    }
+  }
 
   // Create Razorpay Subscription — e-mandate / auto-debit enabled via subscription checkout.
   const res = await razorpayRequest(c.env, 'subscriptions', 'POST', {
     plan_id,
-    total_count: 120, // up to 10 years of recurring billing
+    total_count: 100, // Razorpay allows max 100 total_count
     customer_notify: 1,
     notify_info: {
       notify_email: tenant.email,
     },
+    notes: {
+      old_sub_id: activeSubId
+    }
   });
 
   if (!res.ok) {
@@ -134,6 +150,23 @@ app.post('/api/billing/platform/verify-payment', async (c) => {
   const subRes = await razorpayRequest(c.env, `subscriptions/${body.razorpay_subscription_id}`);
   if (!subRes.ok) return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to fetch subscription from Razorpay'), 500);
   const sub = await subRes.json() as any;
+
+  // Cancel old subscription if this is an upgrade/downgrade
+  const oldSubId = sub.notes?.old_sub_id;
+  if (oldSubId && oldSubId !== body.razorpay_subscription_id) {
+    try {
+      const oldSubRes = await razorpayRequest(c.env, `subscriptions/${oldSubId}`);
+      if (oldSubRes.ok) {
+        const oldSub = await oldSubRes.json() as any;
+        if (['active', 'authenticated'].includes(oldSub.status)) {
+          await razorpayRequest(c.env, `subscriptions/${oldSubId}/cancel`, 'POST', { cancel_at_cycle_end: 0 });
+          console.log(`Cancelled old subscription ${oldSubId} after upgrade to ${body.razorpay_subscription_id}`);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to cancel old subscription on upgrade', e);
+    }
+  }
 
   // Fetch the plan name so we can set tenant.plan accordingly.
   const planRes = await razorpayRequest(c.env, `plans/${sub.plan_id}`);
@@ -249,7 +282,7 @@ app.post('/api/billing/platform/:slug/subscription/cancel', async (c) => {
   }
 
   await c.env.CONTROL_DB.prepare(
-    'UPDATE tenants SET razorpay_plan_id = NULL, razorpay_sub_id = NULL, plan = NULL, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
+    "UPDATE tenants SET razorpay_plan_id = NULL, razorpay_sub_id = NULL, plan = 'community', updated_at = CURRENT_TIMESTAMP WHERE slug = ?"
   ).bind(slug).run();
 
   return c.json(ok({ cancelled: true, at_cycle_end: false }));
@@ -341,7 +374,7 @@ app.delete('/internal/billing/platform/:slug/subscription', async (c) => {
   }
 
   await c.env.CONTROL_DB.prepare(
-    'UPDATE tenants SET razorpay_plan_id = NULL, razorpay_sub_id = NULL, plan = NULL, updated_at = CURRENT_TIMESTAMP WHERE slug = ?'
+    "UPDATE tenants SET razorpay_plan_id = NULL, razorpay_sub_id = NULL, plan = 'community', updated_at = CURRENT_TIMESTAMP WHERE slug = ?"
   ).bind(slug).run();
 
   return c.json(ok({ cancelled: true }));

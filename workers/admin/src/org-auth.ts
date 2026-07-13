@@ -37,7 +37,7 @@ function slugify(text: string): string {
 
 orgAuthRouter.post('/signup', async (c) => {
   const body = await c.req.json();
-  const { orgName, name, email, password, plan = 'Free' } = body;
+  const { orgName, name, email, password, plan = 'community' } = body;
   
   if (!orgName || !name || !email || !password || password.length < 8) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid input'), 400);
