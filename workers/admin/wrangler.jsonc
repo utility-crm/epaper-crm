@@ -32,6 +32,9 @@
   ],
   "triggers": {
     "crons": ["*/5 * * * *"]
+  },
+  "vars": {
+    "FIREBASE_PROJECT_ID": "epaperspace"
   }
   // Note: secrets ADMIN_JWT_SECRET and ORG_JWT_SECRET should be set via `wrangler secret put`
 }

@@ -10,6 +10,12 @@ export interface Env {
   CONTENT_WORKER: Fetcher;
   BILLING_WORKER: Fetcher;
   BILLING_PLATFORM_WORKER: Fetcher;
+  FIREBASE_PROJECT_ID?: string;
+  FIREBASE_CLIENT_EMAIL?: string;
+  FIREBASE_PRIVATE_KEY?: string;
+  FIREBASE_SERVICE_ACCOUNT?: string;
+  ADMIN_WORKER: Fetcher;
+  [key: string]: unknown;
 }
 
 export async function adminAuth(c: Context<{ Bindings: Env; Variables: { adminId: string; adminRole: AdminRole } }>, next: Next) {

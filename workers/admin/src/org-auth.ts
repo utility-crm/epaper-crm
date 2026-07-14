@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Env, orgUserAuth } from './middleware';
 import { ok, err, ErrorCode, OrgUserJwtPayload, TenantRow, PendingOwnerRow, OrgUserRow } from '@epaper/types';
 import { signJwt } from './jwt';
+import { verifyFirebaseToken } from './verifyFirebaseToken';
 
 export const orgAuthRouter = new Hono<{ Bindings: Env; Variables: { tenantId: string; tenantSlug: string; orgRole: string } }>();
 
@@ -37,25 +38,49 @@ function slugify(text: string): string {
 
 orgAuthRouter.post('/signup', async (c) => {
   const body = await c.req.json();
-  const { orgName, name, email, password, plan = 'Free' } = body;
+  const { orgName, name, email, password, plan = 'Free', idToken } = body;
   
-  if (!orgName || !name || !email || !password || password.length < 8) {
-    return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid input'), 400);
+  if (!orgName || !name) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Missing organisation or name'), 400);
+  }
+
+  let firebaseUid: string | null = null;
+  let phoneNumber: string | null = null;
+  let emailVerified = 0;
+  let authProvider = 'password';
+  let resolvedEmail = email;
+
+  if (idToken) {
+    const claims = await verifyFirebaseToken(idToken, c.env.FIREBASE_PROJECT_ID || 'epaperspace');
+    if (!claims) {
+      return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid Firebase token'), 401);
+    }
+    firebaseUid = claims.sub;
+    phoneNumber = claims.phone_number || null;
+    authProvider = claims.firebase?.sign_in_provider || 'unknown';
+    emailVerified = claims.email_verified ? 1 : 0;
+    if (claims.email) resolvedEmail = claims.email;
+  } else {
+    if (!email || !password || password.length < 8) {
+      return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid input or password too short'), 400);
+    }
+    if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      return c.json(err(ErrorCode.BAD_REQUEST, 'Password must contain uppercase and digit'), 400);
+    }
+  }
+
+  if (!resolvedEmail && !phoneNumber) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Email or Phone Number required'), 400);
   }
   
-  if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
-    return c.json(err(ErrorCode.BAD_REQUEST, 'Password must contain uppercase and digit'), 400);
-  }
-  
-  const existing = await c.env.CONTROL_DB.prepare('SELECT id, status, slug FROM tenants WHERE email = ?').bind(email).first<{id: string, status: string, slug: string}>();
+  const lookupKey = resolvedEmail || phoneNumber;
+  const existing = await c.env.CONTROL_DB.prepare('SELECT id, status, slug FROM tenants WHERE email = ?').bind(lookupKey).first<{id: string, status: string, slug: string}>();
   if (existing) {
     if (existing.status === 'active' || existing.status === 'suspended') {
       return c.json(err(ErrorCode.CONFLICT, 'Account already exists. Please login.'), 409);
     } else if (existing.status === 'provisioning') {
       return c.json(err(ErrorCode.CONFLICT, 'Provisioning is currently in progress. Please wait a moment.'), 409);
     } else {
-      // It is pending, provision_failed, deleting, or deleted.
-      // We can safely delete the old record and allow them to sign up again for a clean slate.
       await c.env.CONTROL_DB.prepare('DELETE FROM tenants WHERE id = ?').bind(existing.id).run();
     }
   }
@@ -64,18 +89,18 @@ orgAuthRouter.post('/signup', async (c) => {
   const slugBase = slugify(orgName).slice(0, 32);
   const slug = `${slugBase}-${crypto.randomUUID().slice(0, 4)}`;
   const ownerId = crypto.randomUUID();
-  const hash = await hashPassword(password);
+  const hash = password ? await hashPassword(password) : null;
   
   await c.env.CONTROL_DB.batch([
     c.env.CONTROL_DB.prepare(
       'INSERT INTO tenants (id, slug, name, email, status, plan) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind(tenantId, slug, orgName, email, 'pending', plan),
+    ).bind(tenantId, slug, orgName, lookupKey, 'pending', plan),
     c.env.CONTROL_DB.prepare(
-      'INSERT INTO pending_owners (id, tenant_id, name, password_hash) VALUES (?, ?, ?, ?)'
-    ).bind(ownerId, tenantId, name, hash),
+      'INSERT INTO pending_owners (id, tenant_id, name, password_hash, firebase_uid, phone_number, email_verified, auth_provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(ownerId, tenantId, name, hash, firebaseUid, phoneNumber, emailVerified, authProvider),
     c.env.CONTROL_DB.prepare(
       'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
-    ).bind(crypto.randomUUID(), tenantId, 'tenant.created', 'system', JSON.stringify({ slug, email }))
+    ).bind(crypto.randomUUID(), tenantId, 'tenant.created', 'system', JSON.stringify({ slug, email: lookupKey }))
   ]);
   
   c.executionCtx.waitUntil(

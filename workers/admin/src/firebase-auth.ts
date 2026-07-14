@@ -1,0 +1,137 @@
+import { Hono } from 'hono';
+import { Env } from './middleware';
+import { ok, err, ErrorCode, OrgUserJwtPayload, TenantRow, PendingOwnerRow } from '@epaper/types';
+import { signJwt } from './jwt';
+import { verifyFirebaseToken, FirebaseIdTokenClaims } from './verifyFirebaseToken';
+
+export const firebaseAuthRouter = new Hono<{ Bindings: Env & { FIREBASE_PROJECT_ID?: string } }>();
+
+// Simple in-memory rate limiting map for SMS endpoints (IP -> { count, resetAt })
+const smsRateLimits = new Map<string, { count: number; resetAt: number }>();
+
+firebaseAuthRouter.post('/audit/sms-send', async (c) => {
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+  const now = Date.now();
+  const limitRecord = smsRateLimits.get(ip);
+
+  if (limitRecord) {
+    if (now > limitRecord.resetAt) {
+      smsRateLimits.set(ip, { count: 1, resetAt: now + 3600_000 });
+    } else if (limitRecord.count >= 5) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'Too many SMS attempts. Please wait before retrying.'), 429);
+    } else {
+      limitRecord.count += 1;
+    }
+  } else {
+    smsRateLimits.set(ip, { count: 1, resetAt: now + 3600_000 });
+  }
+
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const phonePrefix = typeof body.phonePrefix === 'string' ? body.phonePrefix.slice(0, 6) + 'XXXX' : 'unknown';
+    const slug = typeof body.slug === 'string' ? body.slug : 'system';
+
+    await c.env.CONTROL_DB.prepare(
+      'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
+    ).bind(
+      crypto.randomUUID(),
+      null,
+      'auth.sms_send_requested',
+      slug,
+      JSON.stringify({ ip, phonePrefix, stage: body.stage || 'reader' })
+    ).run();
+  } catch (e) {
+    console.error('Failed to log SMS audit event:', e);
+  }
+
+  return c.json(ok({ allowed: true }));
+});
+
+// Stage 1: Publisher Verification Endpoint
+firebaseAuthRouter.post('/verify-org', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const idToken = body.idToken;
+  const projectId = c.env.FIREBASE_PROJECT_ID || 'epaperspace';
+
+  if (!idToken || !projectId) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Missing ID token'), 400);
+  }
+
+  const claims: FirebaseIdTokenClaims | null = await verifyFirebaseToken(idToken, projectId);
+  if (!claims) {
+    return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid Firebase token'), 401);
+  }
+
+  const provider = claims.firebase?.sign_in_provider || 'unknown';
+  if (provider === 'password' && !claims.email_verified) {
+    return c.json(err(ErrorCode.UNAUTHORIZED, 'Please verify your email address before logging in.'), 403);
+  }
+
+  const email = claims.email;
+  const phone = claims.phone_number;
+  const uid = claims.sub;
+
+  // Search tenants table by email or phone
+  let tenant: Pick<TenantRow, 'id' | 'slug' | 'email' | 'status' | 'plan'> | null = null;
+  if (email) {
+    tenant = await c.env.CONTROL_DB.prepare(
+      'SELECT id, slug, email, status, plan FROM tenants WHERE email = ?'
+    ).bind(email).first();
+  }
+
+  if (!tenant) {
+    return c.json(err(ErrorCode.UNAUTHORIZED, 'No publisher account associated with this Google/Phone account. Please sign up first.'), 404);
+  }
+
+  let role: OrgUserJwtPayload['role'] = 'owner';
+  let userId: string | undefined;
+
+  // Check pending_owners first
+  const owner = await c.env.CONTROL_DB.prepare(
+    'SELECT id, name FROM pending_owners WHERE tenant_id = ?'
+  ).bind(tenant.id).first<Pick<PendingOwnerRow, 'id' | 'name'>>();
+
+  if (owner) {
+    userId = owner.id;
+    // Update pending owner record with firebase_uid
+    await c.env.CONTROL_DB.prepare(
+      'UPDATE pending_owners SET firebase_uid = ?, email_verified = 1, auth_provider = ? WHERE id = ?'
+    ).bind(uid, provider, owner.id).run().catch(() => {});
+  } else if (tenant.status === 'active') {
+    // Active tenant: delegate to CONTENT_WORKER internal verification endpoint
+    try {
+      const res = await c.env.CONTENT_WORKER.fetch(
+        new Request(`http://content/internal/${tenant.slug}/verify-firebase-owner`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ claims })
+        })
+      );
+      if (res.ok) {
+        const data = await res.json() as { ok: boolean; data?: { valid: boolean; role: string; userId: string } };
+        if (data.ok && data.data?.valid) {
+          userId = data.data.userId;
+          role = (data.data.role as OrgUserJwtPayload['role']) ?? 'owner';
+        }
+      }
+    } catch (e) {
+      console.error('Content worker firebase verify failed:', e);
+    }
+  }
+
+  if (!userId) {
+    return c.json(err(ErrorCode.UNAUTHORIZED, 'Could not resolve publisher profile'), 401);
+  }
+
+  const payload: OrgUserJwtPayload = {
+    aud: 'tenant-portal',
+    sub: tenant.id,
+    tenantSlug: tenant.slug,
+    role,
+    userId,
+    exp: Math.floor(Date.now() / 1000) + 604800,
+  };
+  const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);
+
+  return c.json(ok({ token, slug: tenant.slug, status: tenant.status }));
+});

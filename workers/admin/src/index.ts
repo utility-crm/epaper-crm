@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Env } from './middleware';
 import { adminAuthRouter } from './admin-auth';
 import { orgAuthRouter } from './org-auth';
+import { firebaseAuthRouter } from './firebase-auth';
 import { tenantsRouter } from './tenants';
 import { auditRouter } from './audit';
 import { domainRouter } from './domain';
@@ -13,6 +14,7 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.route('/api/auth', adminAuthRouter);
 app.route('/api/auth', orgAuthRouter);
+app.route('/api/auth', firebaseAuthRouter);
 app.route('/api/tenants', tenantsRouter);
 app.route('/api/audit', auditRouter);
 app.route('/api/domain', domainRouter);
