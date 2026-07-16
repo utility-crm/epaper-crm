@@ -22,12 +22,10 @@ export interface UploadOutcome {
   pageCount?: number;
 }
 
-interface CommittedPage {
-  page_no: number;
-  r2_key: string;
-}
-
 // Runs begin → per-page upload (parallel) → commit. A single rejected page upload
+// aborts the whole run so we never commit a partial paper. The commit derives all
+// keys and byte counts server-side from R2, so the client only reports how many
+// pages it uploaded (page_no 1..pageCount).
 /**
  * Uploads e-paper content and finalizes the upload only after every page succeeds.
  *
@@ -41,10 +39,8 @@ export async function uploadEpaperContent(args: UploadArgs): Promise<UploadOutco
   const begin = await portalApi.uploadBegin(slug, epaperId, token);
   if (!begin.ok) return { ok: false, error: begin.error?.message ?? 'Failed to prepare upload' };
 
-  const committed: CommittedPage[] = [];
-  let coverKey: string | null = null;
-  let totalBytes = 0;
   let done = 0;
+  let pageCount = 0;
 
   // A user-supplied cover overrides the auto-generated one; attach it to page 1.
   const explicitCover = cover ?? null;
@@ -53,21 +49,24 @@ export async function uploadEpaperContent(args: UploadArgs): Promise<UploadOutco
     if (isPdf) {
       const pdf = await openPdf(files[0]);
       const numPages = pdf.numPages;
+      pageCount = numPages;
       try {
         const inFlight = new Set<Promise<void>>();
+        const dispatched: Promise<void>[] = [];
 
         const dispatch = (pageNo: number, page: File, blurred: File | null, coverForPage: File | null) => {
           const task = (async () => {
             const res = await portalApi.uploadPage(slug, epaperId, pageNo, page, token, { blurred, cover: coverForPage });
             if (!res.ok || !res.data) throw new Error(res.error?.message ?? `Failed to upload page ${pageNo}`);
-            committed.push({ page_no: res.data.page_no, r2_key: res.data.r2_key });
-            if (res.data.cover_key) coverKey = res.data.cover_key;
-            totalBytes += res.data.bytes ?? 0;
             done++;
             onProgress?.(`Uploaded ${done} of ${numPages} pages…`);
           })();
+          dispatched.push(task);
           inFlight.add(task);
-          task.finally(() => inFlight.delete(task));
+          // Free the concurrency slot once settled, but keep the rejection observable:
+          // Promise.all(dispatched) below still holds `task`, so a failed page aborts the run.
+          // (settle handler returns void and never rethrows, so it adds no unhandled rejection.)
+          task.then(() => inFlight.delete(task), () => inFlight.delete(task));
         };
 
         for (let i = 1; i <= numPages; i++) {
@@ -77,16 +76,19 @@ export async function uploadEpaperContent(args: UploadArgs): Promise<UploadOutco
           dispatch(i, page, blurred, coverForPage);
 
           if (inFlight.size >= MAX_CONCURRENT_UPLOADS) {
-            await Promise.race(inFlight);
+            // Only waiting for a slot to free up here; the real error propagation
+            // happens at Promise.all(dispatched), which observes every task.
+            await Promise.race(inFlight).catch(() => {});
           }
         }
-        await Promise.all(inFlight);
+        await Promise.all(dispatched);
       } finally {
         await pdf.destroy();
       }
     } else {
       // Pre-sliced images: one file per page, ordered by filename like the legacy path.
       const ordered = [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      pageCount = ordered.length;
       let next = 0;
       const worker = async () => {
         while (next < ordered.length) {
@@ -95,9 +97,6 @@ export async function uploadEpaperContent(args: UploadArgs): Promise<UploadOutco
           const coverForPage = pageNo === 1 ? explicitCover : null;
           const res = await portalApi.uploadPage(slug, epaperId, pageNo, ordered[idx], token, { cover: coverForPage });
           if (!res.ok || !res.data) throw new Error(res.error?.message ?? `Failed to upload page ${pageNo}`);
-          committed.push({ page_no: res.data.page_no, r2_key: res.data.r2_key });
-          if (res.data.cover_key) coverKey = res.data.cover_key;
-          totalBytes += res.data.bytes ?? 0;
           done++;
           onProgress?.(`Uploaded ${done} of ${ordered.length} pages…`);
         }
@@ -108,15 +107,9 @@ export async function uploadEpaperContent(args: UploadArgs): Promise<UploadOutco
     return { ok: false, error: e?.message ?? 'Upload failed' };
   }
 
-  committed.sort((a, b) => a.page_no - b.page_no);
   onProgress?.('Finalizing…');
-  const commit = await portalApi.uploadCommit(
-    slug,
-    epaperId,
-    { pages: committed, cover_key: coverKey, total_bytes: totalBytes },
-    token
-  );
+  const commit = await portalApi.uploadCommit(slug, epaperId, { page_count: pageCount }, token);
   if (!commit.ok) return { ok: false, error: commit.error?.message ?? 'Failed to finalize upload' };
 
-  return { ok: true, pageCount: committed.length };
+  return { ok: true, pageCount };
 }

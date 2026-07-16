@@ -75,7 +75,7 @@ export const portalApi = {
       token
     );
   },
-  uploadCommit: (slug: string, epaperId: string, body: { pages: { page_no: number; r2_key: string }[]; cover_key?: string | null; total_bytes: number }, token: string) =>
+  uploadCommit: (slug: string, epaperId: string, body: { page_count: number }, token: string) =>
     apiFetch<{ committed: boolean; page_count: number }>(`/api/content/${slug}/epapers/${epaperId}/upload/commit`, { method: 'POST', body: JSON.stringify(body) }, token),
 
   // tiers + plans
