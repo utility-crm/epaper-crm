@@ -193,7 +193,12 @@ uploadRouter.put('/:slug/epapers/:id/upload/page', async (c) => {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Send multipart/form-data'), 415);
   }
   try {
+    const db     = getTenantDb(c.env, slug);
     const bucket = getTenantBucket(c.env, slug);
+
+    const epaper = await db.prepare('SELECT id FROM epapers WHERE id = ?').bind(id).first();
+    if (!epaper) return c.json(err(ErrorCode.NOT_FOUND, 'Epaper not found'), 404);
+
     const form = await c.req.formData();
 
     const pageNo = parseInt(String(form.get('page_no') ?? ''), 10);
