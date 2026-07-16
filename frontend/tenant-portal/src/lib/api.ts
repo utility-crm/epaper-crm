@@ -60,6 +60,24 @@ export const portalApi = {
     );
   },
 
+  // Parallel per-page upload protocol (see workers/content/src/upload.ts).
+  uploadBegin: (slug: string, epaperId: string, token: string) =>
+    apiFetch<{ cleared: boolean }>(`/api/content/${slug}/epapers/${epaperId}/upload/begin`, { method: 'POST' }, token),
+  uploadPage: (slug: string, epaperId: string, pageNo: number, page: File, token: string, opts?: { blurred?: File | null; cover?: File | null }) => {
+    const fd = new FormData();
+    fd.append('page_no', String(pageNo));
+    fd.append('page', page);
+    if (opts?.blurred) fd.append('blurred', opts.blurred);
+    if (opts?.cover) fd.append('cover', opts.cover);
+    return apiFetch<{ page_no: number; r2_key: string; blurred_key: string | null; cover_key: string | null; bytes: number }>(
+      `/api/content/${slug}/epapers/${epaperId}/upload/page`,
+      { method: 'PUT', body: fd },
+      token
+    );
+  },
+  uploadCommit: (slug: string, epaperId: string, body: { pages: { page_no: number; r2_key: string }[]; cover_key?: string | null; total_bytes: number }, token: string) =>
+    apiFetch<{ committed: boolean; page_count: number }>(`/api/content/${slug}/epapers/${epaperId}/upload/commit`, { method: 'POST', body: JSON.stringify(body) }, token),
+
   // tiers + plans
   getTiers: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/tiers`, {}, token),
   createTier: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/tiers`, { method: 'POST', body: JSON.stringify(body) }, token),

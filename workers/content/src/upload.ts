@@ -125,3 +125,155 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB/Bucket not found or unavailable'), 403);
   }
 });
+
+// ── Parallel per-page upload ──────────────────────────────────────────────
+// Three-step protocol that lets the client pipeline PDF conversion with
+// bounded-concurrency uploads instead of one monolithic multipart PUT:
+//   1. POST  /:slug/epapers/:id/upload/begin   — clear prior pages + cover
+//   2. PUT   /:slug/epapers/:id/upload/page    — store one page (+ blurred), repeatable/parallel
+//   3. POST  /:slug/epapers/:id/upload/commit  — write DB rows + stats in one batch
+// Keys are derived server-side from page_no so parallel PUTs never collide and
+// commit only needs the page numbers the client actually uploaded.
+
+function extFor(type: string): string {
+  return type === 'application/pdf' ? 'pdf'
+    : type === 'image/png' ? 'png'
+    : type === 'image/webp' ? 'webp'
+    : 'jpg';
+}
+
+// Step 1 — clear any previously uploaded pages/cover from R2 + DB.
+uploadRouter.post('/:slug/epapers/:id/upload/begin', async (c) => {
+  const slug = c.req.param('slug');
+  const id   = c.req.param('id');
+  try {
+    const db     = getTenantDb(c.env, slug);
+    const bucket = getTenantBucket(c.env, slug);
+
+    const epaper = await db.prepare('SELECT id FROM epapers WHERE id = ?').bind(id).first();
+    if (!epaper) return c.json(err(ErrorCode.NOT_FOUND, 'Epaper not found'), 404);
+
+    const prev = await db.prepare('SELECT r2_key FROM epaper_pages WHERE epaper_id = ?').bind(id).all<{ r2_key: string }>();
+    const oldCover = await db.prepare('SELECT cover_key FROM epapers WHERE id = ?').bind(id).first<{ cover_key: string | null }>();
+    const keysToDelete: string[] = (prev.results ?? []).map(p => p.r2_key);
+    if (oldCover?.cover_key) keysToDelete.push(oldCover.cover_key);
+    // Blurred variants share the page key with a -blurred suffix; clear them too.
+    for (const p of (prev.results ?? [])) {
+      keysToDelete.push(p.r2_key.replace(/(\.[^.]+)$/, '-blurred$1'));
+    }
+
+    const deletedSizes = await Promise.all(keysToDelete.map(async k => {
+      const head = await bucket.head(k);
+      if (head) await bucket.delete(k);
+      return head?.size || 0;
+    }));
+    const totalDeletedBytes = deletedSizes.reduce((acc, size) => acc + size, 0);
+
+    await db.batch([
+      db.prepare('DELETE FROM epaper_pages WHERE epaper_id = ?').bind(id),
+      db.prepare('UPDATE tenant_stats SET disk_usage_bytes=MAX(0, disk_usage_bytes - ?), updated_at=CURRENT_TIMESTAMP WHERE id=1').bind(totalDeletedBytes),
+    ]);
+
+    return c.json(ok({ cleared: true }));
+  } catch (e) {
+    console.error('upload/begin error', e);
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB/Bucket not found or unavailable'), 403);
+  }
+});
+
+// Step 2 — store one page. multipart/form-data with fields:
+//   page_no (text, 1-based), page (file), blurred (file, optional), cover (file, optional)
+// Safe to call concurrently for distinct page_no values. Returns the R2 keys +
+// authoritative byte sizes so commit can tally disk usage without re-heading.
+uploadRouter.put('/:slug/epapers/:id/upload/page', async (c) => {
+  const slug = c.req.param('slug');
+  const id   = c.req.param('id');
+  const ct   = c.req.header('Content-Type') ?? '';
+  if (!ct.startsWith('multipart/form-data')) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Send multipart/form-data'), 415);
+  }
+  try {
+    const bucket = getTenantBucket(c.env, slug);
+    const form = await c.req.formData();
+
+    const pageNo = parseInt(String(form.get('page_no') ?? ''), 10);
+    if (!Number.isInteger(pageNo) || pageNo < 1) {
+      return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid page_no'), 400);
+    }
+
+    const page = form.get('page') as unknown as { name?: string; type?: string; arrayBuffer(): Promise<ArrayBuffer> } | null;
+    if (!page || !page.type || !ACCEPTED_TYPES.has(page.type)) {
+      return c.json(err(ErrorCode.BAD_REQUEST, 'Missing or unsupported page file'), 400);
+    }
+
+    const pad = String(pageNo).padStart(3, '0');
+    const ext = extFor(page.type);
+    const put = async (key: string, file: { type?: string; arrayBuffer(): Promise<ArrayBuffer> }) => {
+      const bytes = await file.arrayBuffer();
+      const obj = await bucket.put(key, bytes, { httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' } });
+      return { key, bytes: obj?.size ?? bytes.byteLength };
+    };
+
+    const pageRes = await put(`epapers/${id}/pages/page-${pad}.${ext}`, page);
+    let bytes = pageRes.bytes;
+
+    const blurred = form.get('blurred') as unknown as { type?: string; arrayBuffer(): Promise<ArrayBuffer> } | null;
+    let blurred_key: string | null = null;
+    if (blurred && blurred.type && ACCEPTED_TYPES.has(blurred.type)) {
+      const res = await put(`epapers/${id}/pages/page-${pad}-blurred.${ext}`, blurred);
+      blurred_key = res.key;
+      bytes += res.bytes;
+    }
+
+    const cover = form.get('cover') as unknown as { type?: string; arrayBuffer(): Promise<ArrayBuffer> } | null;
+    let cover_key: string | null = null;
+    if (cover && cover.type && ACCEPTED_TYPES.has(cover.type)) {
+      const res = await put(`epapers/${id}/cover.${extFor(cover.type)}`, cover);
+      cover_key = res.key;
+      bytes += res.bytes;
+    }
+
+    return c.json(ok({ page_no: pageNo, r2_key: pageRes.key, blurred_key, cover_key, bytes }));
+  } catch (e) {
+    console.error('upload/page error', e);
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB/Bucket not found or unavailable'), 403);
+  }
+});
+
+// Step 3 — commit the uploaded pages: write rows + stats in one batch.
+// body: { pages: [{ page_no, r2_key }], cover_key?, total_bytes }
+uploadRouter.post('/:slug/epapers/:id/upload/commit', async (c) => {
+  const slug = c.req.param('slug');
+  const id   = c.req.param('id');
+  try {
+    const db = getTenantDb(c.env, slug);
+    const body = await c.req.json<{ pages?: { page_no: number; r2_key: string }[]; cover_key?: string | null; total_bytes?: number }>();
+
+    const epaper = await db.prepare('SELECT id FROM epapers WHERE id = ?').bind(id).first();
+    if (!epaper) return c.json(err(ErrorCode.NOT_FOUND, 'Epaper not found'), 404);
+
+    const pages = (body.pages ?? []).filter(p => Number.isInteger(p.page_no) && p.page_no >= 1 && typeof p.r2_key === 'string');
+    if (pages.length === 0) return c.json(err(ErrorCode.BAD_REQUEST, 'No pages to commit'), 400);
+    pages.sort((a, b) => a.page_no - b.page_no);
+
+    const totalBytes = Number.isFinite(body.total_bytes) && (body.total_bytes as number) >= 0 ? Math.floor(body.total_bytes as number) : 0;
+    const coverKey = typeof body.cover_key === 'string' && body.cover_key ? body.cover_key : (pages[0]?.r2_key ?? null);
+
+    const stmts = pages.map(p =>
+      db.prepare('INSERT INTO epaper_pages (id, epaper_id, page_no, r2_key) VALUES (?, ?, ?, ?)').bind(crypto.randomUUID(), id, p.page_no, p.r2_key)
+    );
+    stmts.push(
+      db.prepare('UPDATE epapers SET page_count=?, free_page_count=MIN(free_page_count,?), r2_key=?, cover_key=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+        .bind(pages.length, pages.length, pages[0].r2_key, coverKey, id)
+    );
+    stmts.push(
+      db.prepare('UPDATE tenant_stats SET disk_usage_bytes=disk_usage_bytes + ?, updated_at=CURRENT_TIMESTAMP WHERE id=1').bind(totalBytes)
+    );
+    await db.batch(stmts);
+
+    return c.json(ok({ committed: true, page_count: pages.length }));
+  } catch (e) {
+    console.error('upload/commit error', e);
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB/Bucket not found or unavailable'), 403);
+  }
+});

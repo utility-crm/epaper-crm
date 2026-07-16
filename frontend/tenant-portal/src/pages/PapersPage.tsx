@@ -8,7 +8,7 @@ import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff, Image as ImageIcon, Share2, Scissors, Clock } from 'lucide-react';
-import { convertPdfToWebpPages } from '../lib/pdfToImages';
+import { uploadEpaperContent } from '../lib/uploadEpaper';
 import { extractPdfThumbnail } from '../lib/pdfThumbnail';
 import { ShareModal } from '../components/ShareModal';
 import { ClickmaskEditorModal } from '../components/ClickmaskEditorModal';
@@ -334,25 +334,11 @@ function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: 
 
     if (files.length > 0) {
       setStep('uploading');
-      let finalFiles = files;
-      let finalCover = coverFile;
-      
-      if (isPdf) {
-        setProgressMsg('Converting PDF pages to crisp WebP images...');
-        try {
-          const { pages, cover } = await convertPdfToWebpPages(files[0], setProgressMsg);
-          finalFiles = pages;
-          if (!finalCover) finalCover = cover;
-          setProgressMsg('Uploading pages...');
-        } catch (err: any) {
-          setError('PDF conversion failed: ' + err.message);
-          setBusy(false); setStep('form'); return;
-        }
-      }
-
-      const uploadRes = await portalApi.uploadPages(slug, paper.id, finalFiles, token, finalCover ?? undefined);
+      const uploadRes = await uploadEpaperContent({
+        slug, epaperId: paper.id, token, files, cover: coverFile, isPdf, onProgress: setProgressMsg,
+      });
       if (!uploadRes.ok) {
-        setError('Paper updated but file upload failed: ' + (uploadRes.error?.message ?? 'unknown error'));
+        setError('Paper updated but file upload failed: ' + (uploadRes.error ?? 'unknown error'));
         setBusy(false); setStep('form'); return;
       }
       setStep('done');
@@ -609,26 +595,11 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
     const epaperId = res.data?.id;
     if (epaperId && files.length > 0) {
       setStep('uploading');
-      
-      let finalFiles = files;
-      let finalCover = coverFile;
-      
-      if (isPdf) {
-        setProgressMsg('Converting PDF pages to crisp WebP images...');
-        try {
-          const { pages, cover } = await convertPdfToWebpPages(files[0], setProgressMsg);
-          finalFiles = pages;
-          if (!finalCover) finalCover = cover;
-          setProgressMsg('Uploading pages...');
-        } catch (err: any) {
-          setError('PDF conversion failed: ' + err.message);
-          setBusy(false); setStep('form'); return;
-        }
-      }
-
-      const uploadRes = await portalApi.uploadPages(slug, epaperId, finalFiles, token, finalCover ?? undefined);
+      const uploadRes = await uploadEpaperContent({
+        slug, epaperId, token, files, cover: coverFile, isPdf, onProgress: setProgressMsg,
+      });
       if (!uploadRes.ok) {
-        setError('Paper created but file upload failed: ' + (uploadRes.error?.message ?? 'unknown error'));
+        setError('Paper created but file upload failed: ' + (uploadRes.error ?? 'unknown error'));
         setBusy(false); setStep('form'); return;
       }
     }
@@ -773,24 +744,11 @@ function UploadModal({ slug, token, paper, onClose }: { slug: string; token: str
     e.preventDefault();
     if (!files.length) return;
     setStep('uploading'); setError('');
-    
-    let finalFiles = files;
-    let finalCover = coverFile;
-    if (isPdf) {
-      setProgressMsg('Converting PDF pages to crisp WebP images...');
-      try {
-        const { pages, cover } = await convertPdfToWebpPages(files[0], setProgressMsg);
-        finalFiles = pages;
-        if (!finalCover) finalCover = cover;
-        setProgressMsg('Uploading pages...');
-      } catch (err: any) {
-        setError('PDF conversion failed: ' + err.message);
-        setStep('form'); return;
-      }
-    }
 
-    const res = await portalApi.uploadPages(slug, paper.id, finalFiles, token, finalCover ?? undefined);
-    if (!res.ok) { setError(res.error?.message ?? 'Upload failed'); setStep('form'); return; }
+    const res = await uploadEpaperContent({
+      slug, epaperId: paper.id, token, files, cover: coverFile, isPdf, onProgress: setProgressMsg,
+    });
+    if (!res.ok) { setError(res.error ?? 'Upload failed'); setStep('form'); return; }
     setStep('done');
     setTimeout(onClose, 1400);
   };
