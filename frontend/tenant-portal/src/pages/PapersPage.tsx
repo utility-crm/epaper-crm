@@ -221,7 +221,12 @@ export function PapersPage({ slug, token }: Props) {
   );
 }
 
-/* ── Edit Edition Sheet ──────────────────────────────────────── */
+/**
+ * Edits an edition's title, subscription tier, and publication status.
+ *
+ * Deleting the edition permanently deletes all papers it contains. On a successful
+ * save or deletion, invokes `onSaved`.
+ */
 function EditEditionSheet({ slug, token, tiers, edition, onSaved }: { slug: string; token: string; tiers: any[]; edition: any; onSaved: () => void }) {
   const [title, setTitle] = useState(edition.title ?? '');
   const [tierId, setTierId] = useState(edition.tier_id ?? NONE);
@@ -496,7 +501,14 @@ function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: 
   );
 }
 
-/* ── Create Edition Modal ────────────────────────────────────── */
+/**
+ * Displays a dialog for creating an edition with an optional subscription tier.
+ *
+ * @param slug - The publication identifier.
+ * @param token - The authentication token.
+ * @param tiers - The available subscription tiers.
+ * @param onClose - Called after creation succeeds or the dialog closes.
+ */
 function EditionModal({ slug, token, tiers, onClose }: { slug: string; token: string; tiers: any[]; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [tierId, setTierId] = useState(NONE);
@@ -543,7 +555,7 @@ function EditionModal({ slug, token, tiers, onClose }: { slug: string; token: st
  * @param slug - The publication identifier
  * @param token - The authentication token
  * @param editionId - The edition to which the paper belongs
- * @param onClose - Called after creation completes or the modal is closed
+ * @param onClose - Called when the modal closes or creation completes
  */
 function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: string; editionId: string; onClose: () => void }) {
   const [title, setTitle] = useState('');
@@ -730,11 +742,11 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
 }
 
 /**
- * Uploads replacement content for an existing paper.
+ * Uploads PDF or image content for a paper and optionally sets a custom thumbnail.
  *
  * @param slug - The publication identifier
  * @param token - The authentication token
- * @param paper - The paper whose content will be replaced
+ * @param paper - The paper receiving the uploaded content
  * @param onClose - Callback invoked after a successful upload
  */
 function UploadModal({ slug, token, paper, onClose }: { slug: string; token: string; paper: any; onClose: () => void }) {
