@@ -171,6 +171,8 @@ uploadRouter.post('/:slug/epapers/:id/upload/begin', async (c) => {
 
     await db.batch([
       db.prepare('DELETE FROM epaper_pages WHERE epaper_id = ?').bind(id),
+      // Clear stale references so the paper never advertises pages whose R2 objects we just deleted.
+      db.prepare('UPDATE epapers SET page_count=0, free_page_count=0, r2_key=NULL, cover_key=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(id),
       db.prepare('UPDATE tenant_stats SET disk_usage_bytes=MAX(0, disk_usage_bytes - ?), updated_at=CURRENT_TIMESTAMP WHERE id=1').bind(totalDeletedBytes),
     ]);
 
