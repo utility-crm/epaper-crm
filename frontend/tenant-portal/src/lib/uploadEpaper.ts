@@ -28,7 +28,12 @@ interface CommittedPage {
 }
 
 // Runs begin → per-page upload (parallel) → commit. A single rejected page upload
-// aborts the whole run so we never commit a partial paper.
+/**
+ * Uploads e-paper content and finalizes the upload only after every page succeeds.
+ *
+ * @param args - Upload identifiers, source files, format, optional cover, and progress callback.
+ * @returns The upload status, including an error message on failure or the number of committed pages on success.
+ */
 export async function uploadEpaperContent(args: UploadArgs): Promise<UploadOutcome> {
   const { slug, epaperId, token, files, cover, isPdf, onProgress } = args;
   if (files.length === 0) return { ok: false, error: 'No files to upload' };

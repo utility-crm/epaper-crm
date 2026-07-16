@@ -133,7 +133,12 @@ uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
 //   2. PUT   /:slug/epapers/:id/upload/page    — store one page (+ blurred), repeatable/parallel
 //   3. POST  /:slug/epapers/:id/upload/commit  — write DB rows + stats in one batch
 // Keys are derived server-side from page_no so parallel PUTs never collide and
-// commit only needs the page numbers the client actually uploaded.
+/**
+ * Determines the file extension for an uploaded MIME type.
+ *
+ * @param type - The uploaded file's MIME type
+ * @returns The corresponding file extension, defaulting to `jpg`
+ */
 
 function extFor(type: string): string {
   return type === 'application/pdf' ? 'pdf'

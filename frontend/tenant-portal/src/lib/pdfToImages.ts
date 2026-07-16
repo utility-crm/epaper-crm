@@ -17,7 +17,12 @@ export interface PdfHandle {
 
 // Open a PDF once and convert its pages on demand. Lets callers pipeline
 // conversion with uploads and convert pages concurrently instead of waiting
-// for the whole document up front.
+/**
+ * Opens a PDF and provides on-demand page conversion.
+ *
+ * @param pdfFile - The PDF file to open
+ * @returns A handle containing the page count and operations for converting pages and releasing resources
+ */
 export async function openPdf(pdfFile: File): Promise<PdfHandle> {
   const arrayBuffer = await pdfFile.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
@@ -36,6 +41,13 @@ export async function openPdf(pdfFile: File): Promise<PdfHandle> {
   };
 }
 
+/**
+ * Converts a PDF page into full-resolution, blurred, and cover WebP files.
+ *
+ * @param i - The 1-based page number to convert
+ * @returns The converted page, an optional blurred paywall variant, and a cover thumbnail for page 1
+ * @throws If the canvas context is unavailable or WebP conversion fails
+ */
 async function convertOne(pdf: pdfjsLib.PDFDocumentProxy, i: number): Promise<PdfPageResult> {
   const page = await pdf.getPage(i);
   const baseViewport = page.getViewport({ scale: 1.0 });

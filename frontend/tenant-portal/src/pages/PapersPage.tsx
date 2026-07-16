@@ -291,7 +291,14 @@ function EditEditionSheet({ slug, token, tiers, edition, onSaved }: { slug: stri
   );
 }
 
-/* ── Edit Paper Sheet ────────────────────────────────────────── */
+/**
+ * Edits paper details and access settings, optionally replacing its uploaded content.
+ *
+ * @param slug - The publication identifier.
+ * @param token - The authentication token.
+ * @param paper - The paper to edit.
+ * @param onSaved - Callback invoked after the changes are saved or the paper is deleted.
+ */
 function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: string; paper: any; onSaved: () => void }) {
   const [title, setTitle] = useState(paper.title ?? '');
   const [isFree, setIsFree] = useState(!!paper.is_free);
@@ -530,7 +537,14 @@ function EditionModal({ slug, token, tiers, onClose }: { slug: string; token: st
   );
 }
 
-/* ── Create Paper Modal (with inline file upload) ───────────────────────── */
+/**
+ * Creates a paper issue with optional scheduling, access controls, and file content.
+ *
+ * @param slug - The publication identifier
+ * @param token - The authentication token
+ * @param editionId - The edition to which the paper belongs
+ * @param onClose - Called after creation completes or the modal is closed
+ */
 function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: string; editionId: string; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [isManualTitle, setIsManualTitle] = useState(false);
@@ -715,7 +729,14 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
   );
 }
 
-/* ── PDF / Image Upload Modal (replace after creation) ──────────────────── */
+/**
+ * Uploads replacement content for an existing paper.
+ *
+ * @param slug - The publication identifier
+ * @param token - The authentication token
+ * @param paper - The paper whose content will be replaced
+ * @param onClose - Callback invoked after a successful upload
+ */
 function UploadModal({ slug, token, paper, onClose }: { slug: string; token: string; paper: any; onClose: () => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [coverFile, setCoverFile] = useState<File | null>(null);
