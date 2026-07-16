@@ -8,7 +8,7 @@ import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Newspaper, Plus, Upload, FileText, CheckCircle2, Layers, Pencil, Globe, EyeOff, Image as ImageIcon, Share2, Scissors, Clock } from 'lucide-react';
-import { convertPdfToWebpPages } from '../lib/pdfToImages';
+import { uploadEpaperContent } from '../lib/uploadEpaper';
 import { extractPdfThumbnail } from '../lib/pdfThumbnail';
 import { ShareModal } from '../components/ShareModal';
 import { ClickmaskEditorModal } from '../components/ClickmaskEditorModal';
@@ -221,7 +221,12 @@ export function PapersPage({ slug, token }: Props) {
   );
 }
 
-/* ── Edit Edition Sheet ──────────────────────────────────────── */
+/**
+ * Edits an edition's title, subscription tier, and publication status.
+ *
+ * Deleting the edition permanently deletes all papers it contains. On a successful
+ * save or deletion, invokes `onSaved`.
+ */
 function EditEditionSheet({ slug, token, tiers, edition, onSaved }: { slug: string; token: string; tiers: any[]; edition: any; onSaved: () => void }) {
   const [title, setTitle] = useState(edition.title ?? '');
   const [tierId, setTierId] = useState(edition.tier_id ?? NONE);
@@ -291,7 +296,14 @@ function EditEditionSheet({ slug, token, tiers, edition, onSaved }: { slug: stri
   );
 }
 
-/* ── Edit Paper Sheet ────────────────────────────────────────── */
+/**
+ * Edits paper details and access settings, optionally replacing its uploaded content.
+ *
+ * @param slug - The publication identifier.
+ * @param token - The authentication token.
+ * @param paper - The paper to edit.
+ * @param onSaved - Callback invoked after the changes are saved or the paper is deleted.
+ */
 function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: string; paper: any; onSaved: () => void }) {
   const [title, setTitle] = useState(paper.title ?? '');
   const [isFree, setIsFree] = useState(!!paper.is_free);
@@ -334,25 +346,11 @@ function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: 
 
     if (files.length > 0) {
       setStep('uploading');
-      let finalFiles = files;
-      let finalCover = coverFile;
-      
-      if (isPdf) {
-        setProgressMsg('Converting PDF pages to crisp WebP images...');
-        try {
-          const { pages, cover } = await convertPdfToWebpPages(files[0], setProgressMsg);
-          finalFiles = pages;
-          if (!finalCover) finalCover = cover;
-          setProgressMsg('Uploading pages...');
-        } catch (err: any) {
-          setError('PDF conversion failed: ' + err.message);
-          setBusy(false); setStep('form'); return;
-        }
-      }
-
-      const uploadRes = await portalApi.uploadPages(slug, paper.id, finalFiles, token, finalCover ?? undefined);
+      const uploadRes = await uploadEpaperContent({
+        slug, epaperId: paper.id, token, files, cover: coverFile, isPdf, onProgress: setProgressMsg,
+      });
       if (!uploadRes.ok) {
-        setError('Paper updated but file upload failed: ' + (uploadRes.error?.message ?? 'unknown error'));
+        setError('Paper updated but file upload failed: ' + (uploadRes.error ?? 'unknown error'));
         setBusy(false); setStep('form'); return;
       }
       setStep('done');
@@ -503,7 +501,14 @@ function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: 
   );
 }
 
-/* ── Create Edition Modal ────────────────────────────────────── */
+/**
+ * Displays a dialog for creating an edition with an optional subscription tier.
+ *
+ * @param slug - The publication identifier.
+ * @param token - The authentication token.
+ * @param tiers - The available subscription tiers.
+ * @param onClose - Called after creation succeeds or the dialog closes.
+ */
 function EditionModal({ slug, token, tiers, onClose }: { slug: string; token: string; tiers: any[]; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [tierId, setTierId] = useState(NONE);
@@ -544,7 +549,14 @@ function EditionModal({ slug, token, tiers, onClose }: { slug: string; token: st
   );
 }
 
-/* ── Create Paper Modal (with inline file upload) ───────────────────────── */
+/**
+ * Creates a paper issue with optional scheduling, access controls, and file content.
+ *
+ * @param slug - The publication identifier
+ * @param token - The authentication token
+ * @param editionId - The edition to which the paper belongs
+ * @param onClose - Called when the modal closes or creation completes
+ */
 function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: string; editionId: string; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [isManualTitle, setIsManualTitle] = useState(false);
@@ -609,26 +621,11 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
     const epaperId = res.data?.id;
     if (epaperId && files.length > 0) {
       setStep('uploading');
-      
-      let finalFiles = files;
-      let finalCover = coverFile;
-      
-      if (isPdf) {
-        setProgressMsg('Converting PDF pages to crisp WebP images...');
-        try {
-          const { pages, cover } = await convertPdfToWebpPages(files[0], setProgressMsg);
-          finalFiles = pages;
-          if (!finalCover) finalCover = cover;
-          setProgressMsg('Uploading pages...');
-        } catch (err: any) {
-          setError('PDF conversion failed: ' + err.message);
-          setBusy(false); setStep('form'); return;
-        }
-      }
-
-      const uploadRes = await portalApi.uploadPages(slug, epaperId, finalFiles, token, finalCover ?? undefined);
+      const uploadRes = await uploadEpaperContent({
+        slug, epaperId, token, files, cover: coverFile, isPdf, onProgress: setProgressMsg,
+      });
       if (!uploadRes.ok) {
-        setError('Paper created but file upload failed: ' + (uploadRes.error?.message ?? 'unknown error'));
+        setError('Paper created but file upload failed: ' + (uploadRes.error ?? 'unknown error'));
         setBusy(false); setStep('form'); return;
       }
     }
@@ -744,7 +741,14 @@ function PaperModal({ slug, token, editionId, onClose }: { slug: string; token: 
   );
 }
 
-/* ── PDF / Image Upload Modal (replace after creation) ──────────────────── */
+/**
+ * Uploads PDF or image content for a paper and optionally sets a custom thumbnail.
+ *
+ * @param slug - The publication identifier
+ * @param token - The authentication token
+ * @param paper - The paper receiving the uploaded content
+ * @param onClose - Callback invoked after a successful upload
+ */
 function UploadModal({ slug, token, paper, onClose }: { slug: string; token: string; paper: any; onClose: () => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -773,24 +777,11 @@ function UploadModal({ slug, token, paper, onClose }: { slug: string; token: str
     e.preventDefault();
     if (!files.length) return;
     setStep('uploading'); setError('');
-    
-    let finalFiles = files;
-    let finalCover = coverFile;
-    if (isPdf) {
-      setProgressMsg('Converting PDF pages to crisp WebP images...');
-      try {
-        const { pages, cover } = await convertPdfToWebpPages(files[0], setProgressMsg);
-        finalFiles = pages;
-        if (!finalCover) finalCover = cover;
-        setProgressMsg('Uploading pages...');
-      } catch (err: any) {
-        setError('PDF conversion failed: ' + err.message);
-        setStep('form'); return;
-      }
-    }
 
-    const res = await portalApi.uploadPages(slug, paper.id, finalFiles, token, finalCover ?? undefined);
-    if (!res.ok) { setError(res.error?.message ?? 'Upload failed'); setStep('form'); return; }
+    const res = await uploadEpaperContent({
+      slug, epaperId: paper.id, token, files, cover: coverFile, isPdf, onProgress: setProgressMsg,
+    });
+    if (!res.ok) { setError(res.error ?? 'Upload failed'); setStep('form'); return; }
     setStep('done');
     setTimeout(onClose, 1400);
   };
