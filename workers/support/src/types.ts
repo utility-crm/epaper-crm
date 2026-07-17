@@ -11,6 +11,10 @@ export interface SupportEnv {
   REFUND_API_KEY?: string;       // shared secret for the billing internal refund endpoint
   RESEND_API_KEY?: string;
   SUPPORT_FROM_EMAIL?: string;
+  // Optional external SMTP/webhook dispatch key used by support-mailer as an alternative to Resend.
+  SUPPORT_SMTP_API_KEY?: string;
+  // Base URL of the billing service for server-to-server refund verification (refund-verifier).
+  BILLING_API_URL?: string;
   // Comma-separated allowlist of origins permitted to call authed routes (agent desk, portal).
   ALLOWED_ORIGIN?: string;
 }

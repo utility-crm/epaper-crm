@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, Context } from 'hono';
 import { SupportEnv, TicketRecord, TicketMessageRecord } from '../types.js';
 import { sendSupportTicketNotification } from '../services/support-mailer.js';
 import { getOrgStaff } from '../auth.js';
@@ -17,7 +17,10 @@ ticketsRouter.use('/*', async (c, next) => {
 });
 
 // Load a ticket only if it belongs to the caller's tenant. Returns null otherwise.
-async function getOwnedTicket(c: any, id: string): Promise<TicketRecord | null> {
+async function getOwnedTicket(
+  c: Context<{ Bindings: SupportEnv; Variables: { tenantId: string } }>,
+  id: string,
+): Promise<TicketRecord | null> {
   return c.env.SUPPORT_DB.prepare(`SELECT * FROM tickets WHERE id = ? AND tenant_id = ?`)
     .bind(id, c.var.tenantId)
     .first<TicketRecord>();
