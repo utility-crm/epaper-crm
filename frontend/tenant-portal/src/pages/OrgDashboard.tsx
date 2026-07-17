@@ -42,11 +42,11 @@ export function OrgDashboard({ slug, token }: OrgDashboardProps) {
     });
   }, [slug, token]);
 
-  const plan = billing?.plan || 'starter';
+  const plan = billing?.plan || 'community';
   const isEnterprise = plan === 'enterprise';
   
   // Use limits from DB, fallback to hardcoded if not loaded yet
-  const limitMB = billing?.limits?.storage_mb ?? (isEnterprise ? 2000000 : plan === 'growth' ? 51200 : plan === 'starter' ? 10240 : 100);
+  const limitMB = billing?.limits?.storage_mb ?? (isEnterprise ? 2000000 : plan === 'growth' ? 51200 : plan === 'community' ? 100 : 100);
   const diskLimitBytes = limitMB * 1024 * 1024;
   const diskUsed = stats.disk_usage_bytes || 0;
   const diskFree = Math.max(0, diskLimitBytes - diskUsed);

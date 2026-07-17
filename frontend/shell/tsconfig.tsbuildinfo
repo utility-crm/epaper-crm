@@ -1,1 +1,0 @@
-{"root":["./src/App.tsx","./src/main.tsx","./src/remotes.d.ts","./src/vite-env.d.ts","./src/components/AppShell.tsx","./src/components/Sidebar.tsx","./src/context/AuthContext.tsx","./src/lib/api.ts","./src/pages/AdminLoginPage.tsx","./src/pages/LandingPage.tsx","./src/pages/OrgLoginPage.tsx","./src/pages/SignupPage.tsx"],"version":"6.0.3"}

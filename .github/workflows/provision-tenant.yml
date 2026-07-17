@@ -51,6 +51,12 @@ jobs:
             npx wrangler d1 execute epaper-${{ github.event.inputs.tenant_slug }} --remote --file="$f"
           done
         
+      # Inject D1/R2 bindings into wrangler configs BEFORE deploying, so the live
+      # workers actually get the new tenant's bindings. (Deploy reads wrangler.jsonc;
+      # the later Commit/Push step only persists the same change back to git.)
+      - name: Inject Bindings
+        run: node scripts/inject-binding.js ${{ github.event.inputs.tenant_slug }} ${{ steps.provision.outputs.db_id }}
+
       - name: Deploy Content Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

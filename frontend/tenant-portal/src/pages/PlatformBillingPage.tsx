@@ -32,6 +32,7 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
   const [error, setError]         = useState('');
   const [successMsg, setSuccess]  = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [requestingRefund, setRequestingRefund] = useState(false);
   
   const { formatAmount, loading: loadingCurrency } = useCurrencyConverter();
   
@@ -102,6 +103,16 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
     }
   }, [slug, token]);
 
+  const handleRequestRefund = useCallback(async () => {
+    const reason = window.prompt('Reason for your refund request? Our team will review it and process any eligible refund manually.');
+    if (reason === null) return;
+    setError(''); setSuccess(''); setRequestingRefund(true);
+    const res = await portalApi.requestPlatformRefund(slug, reason.trim(), token);
+    setRequestingRefund(false);
+    if (res.ok) setSuccess('Refund request submitted. Our team will review it and get back to you by email.');
+    else setError(res.error?.message ?? 'Failed to submit refund request');
+  }, [slug, token]);
+
   return (
     <div>
       <div style={{ marginBottom: 32 }}>
@@ -135,7 +146,7 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
             <h2 style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Current Plan</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--color-text-primary)', textTransform: 'capitalize' }}>
-                {status?.plan || 'Starter'}
+                {status?.plan || 'Community'}
               </span>
               <span className={`status-badge ${status?.has_subscription ? 'status-published' : 'status-archived'}`}>
                 {status?.has_subscription ? (status?.razorpay_status || 'Active') : 'Free / Manual'}
@@ -154,6 +165,15 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                 >
                   {cancelling && <span className="spinner" style={{ width: 14, height: 14 }} />}
                   {cancelling ? 'Cancelling…' : 'Cancel Subscription'}
+                </button>
+                <button
+                  className="btn-secondary"
+                  disabled={requestingRefund}
+                  onClick={handleRequestRefund}
+                  style={{ marginTop: 12, marginLeft: 10, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                >
+                  {requestingRefund && <span className="spinner" style={{ width: 14, height: 14 }} />}
+                  {requestingRefund ? 'Submitting…' : 'Request a refund'}
                 </button>
               </>
             )}
@@ -266,9 +286,6 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.95rem' }}>
                   <span style={{ color: 'var(--color-text-primary)' }}>★</span> Dedicated Account Manager
-                </li>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.95rem' }}>
-                  <span style={{ color: 'var(--color-text-primary)' }}>★</span> Custom Integrations &amp; APIs
                 </li>
               </ul>
 

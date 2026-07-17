@@ -38,7 +38,7 @@ function slugify(text: string): string {
 
 orgAuthRouter.post('/signup', async (c) => {
   const body = await c.req.json();
-  const { orgName, name, email, password, plan = 'Free', idToken } = body;
+  const { orgName, name, email, password, plan = 'community', idToken } = body;
   
   if (!orgName || !name) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Missing organisation or name'), 400);

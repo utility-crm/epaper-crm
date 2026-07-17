@@ -66,6 +66,21 @@ export function ReaderAccount({ slug, basePath = '', session, orgName, onRequire
     else setError(res.error?.message ?? 'Could not delete account. Please contact the publication.');
   };
 
+  const requestRefund = async () => {
+    const reason = window.prompt('Tell us why you’re requesting a refund. The publication will review it and process any eligible refund manually.');
+    if (reason === null) return; // cancelled
+    setBusy(true); setError(''); setMsg('');
+    const res = await readerApi.requestRefund(slug, reason.trim(), session.token);
+    setBusy(false);
+    if (res.ok) {
+      setMsg(res.data?.within_policy_window
+        ? 'Refund request submitted — it’s within the refund window. The publication will review it shortly.'
+        : 'Refund request submitted. It may fall outside the standard refund window; the publication will review it.');
+    } else {
+      setError(res.error?.message ?? 'Could not submit refund request. Please contact the publication.');
+    }
+  };
+
   const active = subs.filter(s => s.status === 'active');
 
   return (
@@ -103,6 +118,15 @@ export function ReaderAccount({ slug, basePath = '', session, orgName, onRequire
               </p>
             </div>
           )}
+          <div className="mt-4 border-t border-border pt-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Refund</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Charged by mistake or within {orgName || 'the publication'}’s refund window? Request a refund and they’ll review it.
+            </p>
+            <Button variant="outline" className="mt-3" disabled={busy} onClick={requestRefund}>
+              Request a refund
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

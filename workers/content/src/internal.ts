@@ -66,7 +66,7 @@ internalRouter.post('/internal/:slug/migrate-owner', async (c) => {
   try {
     const db = getTenantDb(c.env, slug);
     await db.prepare(
-      'INSERT INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
+      'INSERT OR REPLACE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
     ).bind(body.id, body.email, body.password_hash, body.name, body.role).run();
     
     return c.json(ok({ migrated: true }));
