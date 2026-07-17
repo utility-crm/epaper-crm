@@ -267,6 +267,9 @@ uploadRouter.put('/:slug/epapers/:id/upload/page', async (c) => {
 // we probe R2 for each expected page and reject the commit unless a contiguous
 // run 1..page_count exists.
 const PAGE_EXTS = ['webp', 'jpg', 'png'] as const;
+// Upper bound on pages per epaper. Guards commit from issuing an unbounded number
+// of R2 head probes for an attacker-supplied page_count before any work is rejected.
+const MAX_PAGE_COUNT = 500;
 
 uploadRouter.post('/:slug/epapers/:id/upload/commit', async (c) => {
   const slug = c.req.param('slug');
@@ -282,6 +285,9 @@ uploadRouter.post('/:slug/epapers/:id/upload/commit', async (c) => {
     const pageCount = Number(body.page_count);
     if (!Number.isInteger(pageCount) || pageCount < 1) {
       return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid page_count'), 400);
+    }
+    if (pageCount > MAX_PAGE_COUNT) {
+      return c.json(err(ErrorCode.BAD_REQUEST, `page_count exceeds maximum of ${MAX_PAGE_COUNT}`), 400);
     }
 
     // Resolve one uploaded page object by probing the known extensions at its
