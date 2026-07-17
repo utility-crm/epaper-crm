@@ -48,7 +48,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npm run deploy --workspace=workers/billing-tenant
-        
+
+      - name: Deploy Auth Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy --workspace=workers/auth
+
       - name: Commit and Push Wrangler Configs
         run: |
           git config --global user.name "github-actions[bot]"
@@ -57,7 +63,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             node scripts/remove-binding.js ${{ github.event.inputs.tenant_slug }}
-            git add workers/content/wrangler.jsonc workers/billing-tenant/wrangler.jsonc
+            git add workers/content/wrangler.jsonc workers/billing-tenant/wrangler.jsonc workers/auth/wrangler.jsonc
             git commit -m "chore: remove bindings for ${{ github.event.inputs.tenant_slug }}" || break
             if git push origin main; then
               break

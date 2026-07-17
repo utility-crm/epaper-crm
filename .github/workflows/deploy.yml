@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        worker: [admin, provision, content, billing-platform, billing-tenant, gateway]
+        worker: [admin, auth, provision, content, billing-platform, billing-tenant, gateway]
     steps:
       - uses: actions/checkout@v4
 
