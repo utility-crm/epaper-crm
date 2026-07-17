@@ -290,12 +290,12 @@ export const PricingInfoPage: React.FC = () => {
                   </h3>
                   
                   <div style={{ fontSize: '2rem', fontWeight: 700, marginBottom: 8 }}>
-                    {amount > 0 ? formatAmount(amount, tier.billing_cycle || 'monthly') : 'Free'}
+                    {amount > 0 ? formatAmount(Math.round(amount * (1 + (tier.tax_percentage || 0) / 100)), tier.billing_cycle || 'monthly') : 'Free'}
                   </div>
-                  
+
                   {tier.tax_percentage > 0 && (
                     <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 24 }}>
-                      + {tier.tax_percentage}% tax (calculated at checkout)
+                      Incl. {tier.tax_percentage}% tax
                     </div>
                   )}
                   {tier.tax_percentage === 0 && amount > 0 && (
@@ -337,7 +337,7 @@ export const PricingInfoPage: React.FC = () => {
             {/* Enterprise Tier Static Card */}
             <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '32px 24px', border: '1px solid var(--color-text-primary)', borderRadius: 12, background: 'var(--color-bg-alt)' }}>
               <h3 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 8, color: 'var(--color-text-primary)' }}>
-                Global Syndicate
+                Enterprise
               </h3>
               
               <div style={{ fontSize: '2rem', fontWeight: 700, marginBottom: 8 }}>
