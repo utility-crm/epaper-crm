@@ -220,6 +220,11 @@ uploadRouter.put('/:slug/epapers/:id/upload/page', async (c) => {
     if (!Number.isInteger(pageNo) || pageNo < 1) {
       return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid page_no'), 400);
     }
+    // Bound page_no symmetrically with the commit cap: without this, a client can write
+    // R2 objects at arbitrary out-of-range keys that begin's DB-driven sweep never clears.
+    if (pageNo > MAX_PAGE_COUNT) {
+      return c.json(err(ErrorCode.BAD_REQUEST, `page_no exceeds maximum of ${MAX_PAGE_COUNT}`), 400);
+    }
 
     const page = form.get('page') as unknown as { name?: string; type?: string; arrayBuffer(): Promise<ArrayBuffer> } | null;
     if (!page || !page.type || !IMAGE_TYPES.has(page.type)) {
