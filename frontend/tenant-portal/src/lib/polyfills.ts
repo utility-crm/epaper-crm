@@ -36,8 +36,14 @@ if (typeof arr.toReversed !== 'function') {
 }
 if (typeof arr.with !== 'function') {
   arr.with = function <T>(this: T[], index: number, value: T): T[] {
+    const len = this.length;
+    // Match native semantics: truncate toward zero, resolve negatives from the
+    // end, and reject out-of-range indices with RangeError (never extend).
+    const i = Math.trunc(index) || 0;
+    const actual = i < 0 ? len + i : i;
+    if (actual < 0 || actual >= len) throw new RangeError('Invalid index');
     const copy = [...this];
-    copy[index < 0 ? copy.length + index : index] = value;
+    copy[actual] = value;
     return copy;
   };
 }
