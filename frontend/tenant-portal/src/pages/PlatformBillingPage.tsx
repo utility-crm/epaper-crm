@@ -146,7 +146,7 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
             <h2 style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Current Plan</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--color-text-primary)', textTransform: 'capitalize' }}>
-                {status?.plan || 'Community'}
+                {status?.plan || 'Free'}
               </span>
               <span className={`status-badge ${status?.has_subscription ? 'status-published' : 'status-archived'}`}>
                 {status?.has_subscription ? (status?.razorpay_status || 'Active') : 'Free / Manual'}
@@ -209,12 +209,12 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                     </h3>
 
                     <div style={{ fontSize: '2rem', fontWeight: 700, marginBottom: 8 }}>
-                      {amount > 0 ? formatAmount(amount, tier.billing_cycle || 'monthly') : 'Free'}
+                      {amount > 0 ? formatAmount(Math.round(amount * (1 + (tier.tax_percentage || 0) / 100)), tier.billing_cycle || 'monthly') : 'Free'}
                     </div>
 
                     {tier.tax_percentage > 0 && (
                       <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 24 }}>
-                        + {tier.tax_percentage}% tax (calculated at checkout)
+                        Incl. {tier.tax_percentage}% tax
                       </div>
                     )}
                     {tier.tax_percentage === 0 && amount > 0 && (
@@ -264,10 +264,10 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
                 );
               })}
 
-            {/* Enterprise card — mirrors the /pricing "Global Syndicate" card */}
+            {/* Enterprise card — mirrors the /pricing "Enterprise" card */}
             <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '32px 24px', border: '1px solid var(--color-text-primary)', borderRadius: 12, background: 'var(--color-bg-alt)' }}>
               <h3 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 8, color: 'var(--color-text-primary)' }}>
-                Global Syndicate
+                Enterprise
               </h3>
 
               <div style={{ fontSize: '2rem', fontWeight: 700, marginBottom: 8 }}>
