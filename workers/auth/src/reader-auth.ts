@@ -54,39 +54,63 @@ readerAuthRouter.post('/:slug/verify-firebase', async (c) => {
   }
 
   try {
-    // Resolve identity deterministically: firebase_uid is the primary key. Fall back
-    // to a verified email or a present phone ONLY when that value uniquely maps to a
-    // single reader that isn't already bound to a different Firebase uid. Permissive
-    // OR-matching with empty-string binds (the previous approach) could splice two
-    // separate accounts together or overwrite another reader's uid.
+    // Resolve identity deterministically. firebase_uid is the primary key; a verified
+    // email or a present phone are secondary. A Firebase token carrying both email and
+    // phone means Firebase verified both belong to THIS user, so an email row and a
+    // phone row pointing at that user are the same person — we merge them into one.
+    type ReaderRow = { id: string; email: string | null; phone_number: string | null; name: string; firebase_uid: string | null; created_at: string };
+
     let reader = await db.prepare(
-      'SELECT id, email, name, firebase_uid FROM readers WHERE firebase_uid = ?'
-    ).bind(uid).first<{ id: string; email: string | null; name: string; firebase_uid: string | null }>();
+      'SELECT id, email, phone_number, name, firebase_uid, created_at FROM readers WHERE firebase_uid = ?'
+    ).bind(uid).first<ReaderRow>();
 
     if (!reader) {
-      const candidates: { id: string; email: string | null; name: string; firebase_uid: string | null }[] = [];
+      const candidates: ReaderRow[] = [];
       if (linkEmail) {
         const r = await db.prepare(
-          'SELECT id, email, name, firebase_uid FROM readers WHERE email = ?'
-        ).bind(linkEmail).first<{ id: string; email: string | null; name: string; firebase_uid: string | null }>();
+          'SELECT id, email, phone_number, name, firebase_uid, created_at FROM readers WHERE email = ?'
+        ).bind(linkEmail).first<ReaderRow>();
         if (r) candidates.push(r);
       }
       if (phone) {
         const r = await db.prepare(
-          'SELECT id, email, name, firebase_uid FROM readers WHERE phone_number = ?'
-        ).bind(phone).first<{ id: string; email: string | null; name: string; firebase_uid: string | null }>();
+          'SELECT id, email, phone_number, name, firebase_uid, created_at FROM readers WHERE phone_number = ?'
+        ).bind(phone).first<ReaderRow>();
         if (r) candidates.push(r);
       }
-      // Reject if the identifiers point at different readers, or at one already
-      // linked to another Firebase account.
-      const distinctIds = new Set(candidates.map((r) => r.id));
-      if (distinctIds.size > 1) {
-        return c.json(err(ErrorCode.CONFLICT, 'Account identifiers conflict. Please contact support.'), 409);
+
+      // Security guard (kept even with auto-merge): a candidate already bound to a
+      // DIFFERENT firebase_uid is a different Firebase identity — refuse rather than
+      // hijack it. Backfilling onto a row with no uid, or the same uid, is fine.
+      if (candidates.some((r) => r.firebase_uid && r.firebase_uid !== uid)) {
+        return c.json(err(ErrorCode.CONFLICT, 'This email or phone is already linked to a different account.'), 409);
       }
-      if (candidates.length && candidates[0].firebase_uid && candidates[0].firebase_uid !== uid) {
-        return c.json(err(ErrorCode.CONFLICT, 'This email or phone is linked to a different account.'), 409);
+
+      const distinct = [...new Map(candidates.map((r) => [r.id, r])).values()];
+      if (distinct.length > 1) {
+        // Two pre-existing rows, Firebase-confirmed same person -> merge into one.
+        // Survivor: the row holding an active subscription; else the older row.
+        let survivor = distinct[0];
+        let loser = distinct[1];
+        const activeFor = async (rid: string) => !!(await db.prepare(
+          "SELECT id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active' AND current_end > CURRENT_TIMESTAMP LIMIT 1"
+        ).bind(rid).first());
+        const aActive = await activeFor(survivor.id);
+        const bActive = await activeFor(loser.id);
+        if (bActive && !aActive) { [survivor, loser] = [loser, survivor]; }
+        else if (aActive === bActive && loser.created_at < survivor.created_at) { [survivor, loser] = [loser, survivor]; }
+
+        // Atomic: re-point the loser's subscriptions, delete the loser (freeing its
+        // UNIQUE email/phone), then backfill those identifiers onto the survivor.
+        await db.batch([
+          db.prepare('UPDATE reader_subscriptions SET reader_id = ?, updated_at = CURRENT_TIMESTAMP WHERE reader_id = ?').bind(survivor.id, loser.id),
+          db.prepare('DELETE FROM readers WHERE id = ?').bind(loser.id),
+          db.prepare('UPDATE readers SET email = COALESCE(email, ?), phone_number = COALESCE(phone_number, ?) WHERE id = ?').bind(loser.email, loser.phone_number, survivor.id),
+        ]);
+        reader = { ...survivor, email: survivor.email ?? loser.email, phone_number: survivor.phone_number ?? loser.phone_number };
+      } else {
+        reader = distinct[0] ?? null;
       }
-      reader = candidates[0] ?? null;
     }
 
     let readerId: string;
@@ -95,9 +119,11 @@ readerAuthRouter.post('/:slug/verify-firebase', async (c) => {
     if (reader) {
       readerId = reader.id;
       readerEmail = reader.email || email || '';
+      // Backfill the missing identifier from the token too (e.g. an email-only row
+      // logging in with a phone token gains its phone_number), and bind the uid.
       await db.prepare(
-        'UPDATE readers SET firebase_uid = ?, email_verified = ?, auth_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-      ).bind(uid, emailVerified, provider, readerId).run();
+        'UPDATE readers SET firebase_uid = ?, email = COALESCE(email, ?), phone_number = COALESCE(phone_number, ?), email_verified = ?, auth_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+      ).bind(uid, linkEmail, phone, emailVerified, provider, readerId).run();
     } else {
       readerId = crypto.randomUUID();
       await db.prepare(
