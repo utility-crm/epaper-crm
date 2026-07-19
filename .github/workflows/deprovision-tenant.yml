@@ -36,7 +36,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: ./scripts/deprovision.sh ${{ github.event.inputs.tenant_slug }}
-        
+
+      # Strip the tenant's {SLUG}_DB/_R2 bindings from the wrangler configs BEFORE
+      # deploying, so the workers below don't ship with a binding that points at the
+      # now-deleted D1/R2 (which would fail the deploy). Mirrors the provision flow,
+      # which injects bindings before deploy. The later Commit step re-derives the
+      # same edit from origin/main purely to persist it back to git.
+      - name: Remove Bindings
+        run: node scripts/remove-binding.js ${{ github.event.inputs.tenant_slug }}
+
       - name: Deploy Content Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

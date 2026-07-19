@@ -1,13 +1,22 @@
-import { Hono } from 'hono';
+import { Hono, Context, Next } from 'hono';
 import { Env, adminAuth } from './middleware';
 import { ok, err, ErrorCode, AdminJwtPayload, AdminRow } from '@epaper/types';
 import { signJwt } from './jwt';
 import { hashPassword, verifyPassword } from './password';
 
+type AdminCtx = Context<{ Bindings: Env; Variables: { adminId: string; adminRole: string } }>;
+
 export const adminAuthRouter = new Hono<{ Bindings: Env; Variables: { adminId: string; adminRole: string } }>();
 
-const requireSuperadmin = async (c: any, next: any) => {
+// Re-check privilege against the DB, not just the JWT: a 7-day token issued to an
+// admin who was since deleted or demoted must not still authorize privileged ops.
+const requireSuperadmin = async (c: AdminCtx, next: Next) => {
   if (c.var.adminRole !== 'superadmin') {
+    return c.json(err(ErrorCode.FORBIDDEN, 'Requires superadmin role'), 403);
+  }
+  const current = await c.env.CONTROL_DB.prepare('SELECT role FROM admins WHERE id = ?')
+    .bind(c.var.adminId).first<{ role: string }>();
+  if (!current || current.role !== 'superadmin') {
     return c.json(err(ErrorCode.FORBIDDEN, 'Requires superadmin role'), 403);
   }
   await next();
@@ -19,11 +28,6 @@ adminAuthRouter.get('/setup-status', async (c) => {
 });
 
 adminAuthRouter.post('/setup', async (c) => {
-  const countRes = await c.env.CONTROL_DB.prepare('SELECT count(*) as count FROM admins').first<{ count: number }>();
-  if ((countRes?.count ?? 0) > 0) {
-    return c.json(err(ErrorCode.CONFLICT, 'Setup already completed'), 409);
-  }
-
   const body = await c.req.json();
   const email = body.email;
   const password = body.password;
@@ -35,9 +39,18 @@ adminAuthRouter.post('/setup', async (c) => {
   const id = crypto.randomUUID();
   const hash = await hashPassword(password);
 
-  await c.env.CONTROL_DB.prepare(
-    'INSERT INTO admins (id, email, password_hash, role, is_setup_done) VALUES (?, ?, ?, ?, ?)'
-  ).bind(id, email, hash, 'superadmin', 1).run();
+  // Atomic first-admin guard: the row is inserted only if the table is still empty.
+  // Two concurrent setup calls can't both win — the second inserts 0 rows. (A prior
+  // count-then-insert check was racy: distinct emails both passed and created two superadmins.)
+  const res = await c.env.CONTROL_DB.prepare(
+    `INSERT INTO admins (id, email, password_hash, role, is_setup_done)
+     SELECT ?, ?, ?, 'superadmin', 1
+     WHERE NOT EXISTS (SELECT 1 FROM admins)`
+  ).bind(id, email, hash).run();
+
+  if (!res.meta.changes) {
+    return c.json(err(ErrorCode.CONFLICT, 'Setup already completed'), 409);
+  }
 
   const payload: AdminJwtPayload = {
     aud: 'crm',
@@ -120,10 +133,16 @@ adminAuthRouter.post('/admins', adminAuth, requireSuperadmin, async (c) => {
   const body = await c.req.json();
   const email = body.email;
   const password = body.password;
-  const role = body.role || 'admin';
+  const role = body.role ?? 'admin';
 
   if (!email || !password || password.length < 8) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid email or password (min 8 chars)'), 400);
+  }
+
+  // Only the two known admin roles may be assigned; reject anything else so a caller
+  // can't mint an account with an unrecognised (and thus unguarded) role string.
+  if (role !== 'admin' && role !== 'superadmin') {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid role'), 400);
   }
 
   const id = crypto.randomUUID();

@@ -55,31 +55,33 @@ export async function verifyJwt(token: string, secret: string): Promise<Record<s
   const [headerB64, payloadB64, signatureB64] = parts;
   const data = `${headerB64}.${payloadB64}`;
 
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['verify']
-  );
-
-  const isValid = await crypto.subtle.verify(
-    'HMAC',
-    key,
-    base64urlDecode(signatureB64),
-    encoder.encode(data)
-  );
-
-  if (!isValid) return null;
-
+  // Malformed base64url, bad key material, or a corrupt payload must all resolve to
+  // null (an invalid token), never a thrown 500. Keep decode + verify + parse together.
   try {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+
+    const isValid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      base64urlDecode(signatureB64),
+      encoder.encode(data)
+    );
+
+    if (!isValid) return null;
+
     const payloadStr = decoder.decode(base64urlDecode(payloadB64));
     const payload = JSON.parse(payloadStr) as Record<string, unknown>;
     if (typeof payload.exp === 'number' && Date.now() >= payload.exp * 1000) {
       return null;
     }
     return payload;
-  } catch (e) {
+  } catch {
     return null;
   }
 }

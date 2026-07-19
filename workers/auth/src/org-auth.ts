@@ -19,17 +19,27 @@ function slugify(text: string): string {
 
 orgAuthRouter.post('/signup', async (c) => {
   const body = await c.req.json();
-  const { orgName, name, email, password, plan = 'community', idToken } = body;
+  const { orgName, name, email, password, idToken } = body;
 
   if (!orgName || !name) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Missing organisation or name'), 400);
   }
 
+  // Signup always provisions the free tier. Paid plans are never trusted from the
+  // client here — they're set only by billing's verify-payment after a confirmed
+  // Razorpay charge. (Previously the client-supplied `plan` was persisted verbatim,
+  // letting a caller provision a paid tier with no billing authorization.)
+  const plan = 'community';
+
   let firebaseUid: string | null = null;
   let phoneNumber: string | null = null;
   let emailVerified = 0;
   let authProvider = 'password';
-  let resolvedEmail = email;
+  let resolvedEmail: string | null = email || null;
+  // Password is persisted only for the password-signup path. A Firebase account
+  // never stores a password here — credential enrolment for a Firebase user goes
+  // through a separate verified flow.
+  let passwordToStore: string | null = null;
 
   if (idToken) {
     const claims = await verifyFirebaseToken(idToken, c.env.FIREBASE_PROJECT_ID || 'epaperspace');
@@ -40,7 +50,9 @@ orgAuthRouter.post('/signup', async (c) => {
     phoneNumber = claims.phone_number || null;
     authProvider = claims.firebase?.sign_in_provider || 'unknown';
     emailVerified = claims.email_verified ? 1 : 0;
-    if (claims.email) resolvedEmail = claims.email;
+    // Identity comes only from the verified token — the client-supplied email and
+    // password are ignored on the Firebase path.
+    resolvedEmail = claims.email || null;
   } else {
     if (!email || !password || password.length < 8) {
       return c.json(err(ErrorCode.BAD_REQUEST, 'Invalid input or password too short'), 400);
@@ -48,6 +60,7 @@ orgAuthRouter.post('/signup', async (c) => {
     if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
       return c.json(err(ErrorCode.BAD_REQUEST, 'Password must contain uppercase and digit'), 400);
     }
+    passwordToStore = password;
   }
 
   if (!resolvedEmail && !phoneNumber) {
@@ -70,7 +83,7 @@ orgAuthRouter.post('/signup', async (c) => {
   const slugBase = slugify(orgName).slice(0, 32);
   const slug = `${slugBase}-${crypto.randomUUID().slice(0, 4)}`;
   const ownerId = crypto.randomUUID();
-  const hash = password ? await hashPassword(password) : null;
+  const hash = passwordToStore ? await hashPassword(passwordToStore) : null;
 
   await c.env.CONTROL_DB.batch([
     c.env.CONTROL_DB.prepare(
@@ -84,13 +97,29 @@ orgAuthRouter.post('/signup', async (c) => {
     ).bind(crypto.randomUUID(), tenantId, 'tenant.created', 'system', JSON.stringify({ slug, email: lookupKey }))
   ]);
 
-  c.executionCtx.waitUntil(
-    c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/trigger', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug })
-    })).catch(e => console.error('Provision trigger failed', e))
-  );
+  // Fire provisioning. A non-2xx response does NOT reject the fetch, so we must
+  // inspect res.ok explicitly — otherwise a failed trigger would leave the tenant
+  // stuck in 'pending' forever. On any failure (transport or HTTP) we flip the
+  // tenant to 'provision_failed', which the self-service /reprovision endpoint can
+  // retry. The final signup response is unaffected — provisioning is async.
+  c.executionCtx.waitUntil((async () => {
+    const markFailed = async (reason: string) => {
+      console.error(`Provision trigger failed for ${slug}: ${reason}`);
+      await c.env.CONTROL_DB.prepare(
+        "UPDATE tenants SET status = 'provision_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
+      ).bind(tenantId).run().catch(e => console.error('Failed to mark provision_failed', e));
+    };
+    try {
+      const res = await c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug })
+      }));
+      if (!res.ok) await markFailed(`HTTP ${res.status}`);
+    } catch (e) {
+      await markFailed(String(e));
+    }
+  })());
 
   const payload: OrgUserJwtPayload = {
     aud: 'tenant-portal',
@@ -119,10 +148,14 @@ orgAuthRouter.post('/org-login', async (c) => {
   let role: OrgUserJwtPayload['role'] = 'owner';
   let userId: string | undefined;
 
-  // Check pending_owners first (covers pending + provisioning states)
-  const owner = await c.env.CONTROL_DB.prepare(
-    'SELECT id, password_hash FROM pending_owners WHERE tenant_id = ?'
-  ).bind(tenant.id).first<Pick<PendingOwnerRow, 'id' | 'password_hash'>>();
+  // pending_owners only holds owners of not-yet-activated tenants; the row is deleted
+  // on activation. Scope the lookup to pending/provisioning so a stale row can never
+  // shadow the org_users credential path (and its old password) for an active tenant.
+  const owner = (tenant.status === 'pending' || tenant.status === 'provisioning')
+    ? await c.env.CONTROL_DB.prepare(
+        'SELECT id, password_hash FROM pending_owners WHERE tenant_id = ?'
+      ).bind(tenant.id).first<Pick<PendingOwnerRow, 'id' | 'password_hash'>>()
+    : null;
 
   if (owner) {
     userId = owner.id;

@@ -100,11 +100,37 @@ firebaseAuthRouter.post('/verify-org', async (c) => {
     ).bind(uid, provider, owner.id).run().catch(() => {});
   } else if (tenant.status === 'active') {
     // Active tenant: verify + link firebase_uid against the tenant's own D1 org_users table directly.
+    // Resolve identity deterministically — firebase_uid is primary; fall back to a verified
+    // email or present phone only when it uniquely maps to one org_user not already bound to a
+    // different uid. (Permissive OR-matching with empty-string binds could link the wrong user.)
+    const linkEmail = email && claims.email_verified ? email : null;
     try {
       const db = getTenantDb(c.env, tenant.slug);
-      const user = await db.prepare(
-        'SELECT id, email, role FROM org_users WHERE firebase_uid = ? OR (email IS NOT NULL AND email = ?) OR (phone_number IS NOT NULL AND phone_number = ?)'
-      ).bind(uid, email || '', phone || '').first<{ id: string; email: string | null; role: string }>();
+      let user = await db.prepare(
+        'SELECT id, email, role, firebase_uid FROM org_users WHERE firebase_uid = ?'
+      ).bind(uid).first<{ id: string; email: string | null; role: string; firebase_uid: string | null }>();
+
+      if (!user) {
+        const candidates: { id: string; email: string | null; role: string; firebase_uid: string | null }[] = [];
+        if (linkEmail) {
+          const r = await db.prepare('SELECT id, email, role, firebase_uid FROM org_users WHERE email = ?')
+            .bind(linkEmail).first<{ id: string; email: string | null; role: string; firebase_uid: string | null }>();
+          if (r) candidates.push(r);
+        }
+        if (phone) {
+          const r = await db.prepare('SELECT id, email, role, firebase_uid FROM org_users WHERE phone_number = ?')
+            .bind(phone).first<{ id: string; email: string | null; role: string; firebase_uid: string | null }>();
+          if (r) candidates.push(r);
+        }
+        const distinctIds = new Set(candidates.map((r) => r.id));
+        if (distinctIds.size > 1) {
+          return c.json(err(ErrorCode.CONFLICT, 'Account identifiers conflict. Please contact support.'), 409);
+        }
+        if (candidates.length && candidates[0].firebase_uid && candidates[0].firebase_uid !== uid) {
+          return c.json(err(ErrorCode.CONFLICT, 'This email or phone is linked to a different account.'), 409);
+        }
+        user = candidates[0] ?? null;
+      }
 
       if (user) {
         await db.prepare(
