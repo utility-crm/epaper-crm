@@ -67,9 +67,11 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
       const res = await portalApi.signup({
         orgName: orgName.trim(),
         name: name.trim(),
-        email: fallbackEmail || email || 'firebase-phone@epaperspace.com',
-        password: '', // optional when idToken is passed
-        plan: 'Free',
+        // Only send a real email. For phone-only signup we send none — the backend
+        // derives identity from the verified token and keys the tenant on the phone
+        // number. (Previously a hardcoded 'firebase-phone@epaperspace.com' was sent,
+        // which collided on the second phone-only signup since it's the tenant key.)
+        email: fallbackEmail || email || undefined,
         idToken,
       } as any);
 

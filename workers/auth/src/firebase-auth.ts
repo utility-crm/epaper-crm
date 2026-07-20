@@ -72,12 +72,17 @@ firebaseAuthRouter.post('/verify-org', async (c) => {
   const phone = claims.phone_number;
   const uid = claims.sub;
 
-  // Search tenants table by email or phone
+  // Resolve the tenant by its stored identifier. Signup writes tenants.email =
+  // (verified email || phone number), so a phone-only owner's tenant is keyed by
+  // their phone here. Try the email claim first, then fall back to the phone claim —
+  // the previous `if (email)`-only lookup 404'd every phone-only publisher.
   let tenant: Pick<TenantRow, 'id' | 'slug' | 'email' | 'status' | 'plan'> | null = null;
-  if (email) {
+  for (const key of [email, phone]) {
+    if (!key) continue;
     tenant = await c.env.CONTROL_DB.prepare(
       'SELECT id, slug, email, status, plan FROM tenants WHERE email = ?'
-    ).bind(email).first();
+    ).bind(key).first();
+    if (tenant) break;
   }
 
   if (!tenant) {

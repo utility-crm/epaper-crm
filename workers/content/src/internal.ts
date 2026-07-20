@@ -10,14 +10,23 @@ export const internalRouter = new Hono<{ Bindings: Record<string, unknown> }>();
 // Internal endpoint to migrate a pending owner into the org_users table upon tenant activation
 internalRouter.post('/internal/:slug/migrate-owner', async (c) => {
   const slug = c.req.param('slug');
-  const body = await c.req.json<{ id: string; email: string; name: string; password_hash: string; role: string }>();
-  
+  const body = await c.req.json<{
+    id: string; email: string | null; name: string; password_hash: string | null; role: string;
+    firebase_uid?: string | null; phone_number?: string | null; email_verified?: number; auth_provider?: string;
+  }>();
+
   try {
     const db = getTenantDb(c.env, slug);
+    // Carry the Firebase identity onto the org_users row too. Without these columns a
+    // Google/phone owner has no way to be resolved after activation (org-login/verify-org
+    // match on firebase_uid/phone_number), and email_verified would silently reset to 0.
     await db.prepare(
-      'INSERT OR REPLACE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
-    ).bind(body.id, body.email, body.password_hash, body.name, body.role).run();
-    
+      'INSERT OR REPLACE INTO org_users (id, email, password_hash, name, role, firebase_uid, phone_number, email_verified, auth_provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(
+      body.id, body.email, body.password_hash, body.name, body.role,
+      body.firebase_uid ?? null, body.phone_number ?? null, body.email_verified ?? 0, body.auth_provider ?? 'local'
+    ).run();
+
     return c.json(ok({ migrated: true }));
   } catch (e) {
     console.error(`Error migrating owner for ${slug}:`, e);
