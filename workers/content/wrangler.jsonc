@@ -26,6 +26,11 @@
       "binding": "SHOP_73BD_DB",
       "database_name": "epaper-shop-73bd",
       "database_id": "523bf3ed-150a-4631-bae5-593d15cbff87"
+    },
+    {
+      "binding": "SPEAK_THE_WORLD_4E40_DB",
+      "database_name": "epaper-speak-the-world-4e40",
+      "database_id": "cea194ce-af75-49ee-893e-c505fb6762d6"
     }
   ],
   "r2_buckets": [
@@ -40,6 +45,10 @@
     {
       "binding": "SHOP_73BD_R2",
       "bucket_name": "epaper-shop-73bd"
+    },
+    {
+      "binding": "SPEAK_THE_WORLD_4E40_R2",
+      "bucket_name": "epaper-speak-the-world-4e40"
     }
   ],
   "services": [
