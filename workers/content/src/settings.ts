@@ -24,9 +24,12 @@ settingsRouter.get('/:slug/settings', async (c) => {
     await db.prepare('ALTER TABLE tenant_settings ADD COLUMN footer_links TEXT DEFAULT null').run().catch(() => {});
     await db.prepare('ALTER TABLE tenant_settings ADD COLUMN social_links TEXT DEFAULT null').run().catch(() => {});
     await db.prepare('ALTER TABLE tenant_settings ADD COLUMN favicon_url TEXT DEFAULT null').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN reader_auth_otp_enabled INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN reader_auth_email_enabled INTEGER NOT NULL DEFAULT 1').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN reader_auth_otp_only INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
 
     const row = await db.prepare('SELECT * FROM tenant_settings WHERE id = ?').bind('singleton').first();
-    return c.json(ok(row ?? { id: 'singleton', org_name: null, logo_url: null, favicon_url: null, theme_id: 'modern', footer_links: null, social_links: null }));
+    return c.json(ok(row ?? { id: 'singleton', org_name: null, logo_url: null, favicon_url: null, theme_id: 'modern', footer_links: null, social_links: null, reader_auth_otp_enabled: 0, reader_auth_email_enabled: 1, reader_auth_otp_only: 0 }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant not found'), 403);
   }
@@ -53,15 +56,24 @@ settingsRouter.patch('/:slug/settings', async (c) => {
     await db.prepare('ALTER TABLE tenant_settings ADD COLUMN footer_links TEXT DEFAULT null').run().catch(() => {});
     await db.prepare('ALTER TABLE tenant_settings ADD COLUMN social_links TEXT DEFAULT null').run().catch(() => {});
     await db.prepare('ALTER TABLE tenant_settings ADD COLUMN favicon_url TEXT DEFAULT null').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN reader_auth_otp_enabled INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN reader_auth_email_enabled INTEGER NOT NULL DEFAULT 1').run().catch(() => {});
+    await db.prepare('ALTER TABLE tenant_settings ADD COLUMN reader_auth_otp_only INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
 
     await db.prepare("INSERT OR IGNORE INTO tenant_settings (id, theme_id) VALUES ('singleton', 'modern')").run();
 
     const footerLinksVal = body.footer_links !== undefined ? (typeof body.footer_links === 'string' ? body.footer_links : JSON.stringify(body.footer_links)) : null;
     const socialLinksVal = body.social_links !== undefined ? (typeof body.social_links === 'string' ? body.social_links : JSON.stringify(body.social_links)) : null;
 
+    // Reader-auth flags: accept only 0/1 when present, else leave unchanged (null -> COALESCE).
+    const toBit = (v: unknown): number | null => (v === undefined || v === null) ? null : (v ? 1 : 0);
+    const otpEnabled = toBit(body.reader_auth_otp_enabled);
+    const emailEnabled = toBit(body.reader_auth_email_enabled);
+    const otpOnly = toBit(body.reader_auth_otp_only);
+
     await db.prepare(
-      'UPDATE tenant_settings SET org_name = COALESCE(?, org_name), theme_id = COALESCE(?, theme_id), footer_links = COALESCE(?, footer_links), social_links = COALESCE(?, social_links), favicon_url = COALESCE(?, favicon_url), updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).bind(body.org_name ?? null, body.theme_id ?? null, footerLinksVal, socialLinksVal, body.favicon_url ?? null, 'singleton').run();
+      'UPDATE tenant_settings SET org_name = COALESCE(?, org_name), theme_id = COALESCE(?, theme_id), footer_links = COALESCE(?, footer_links), social_links = COALESCE(?, social_links), favicon_url = COALESCE(?, favicon_url), reader_auth_otp_enabled = COALESCE(?, reader_auth_otp_enabled), reader_auth_email_enabled = COALESCE(?, reader_auth_email_enabled), reader_auth_otp_only = COALESCE(?, reader_auth_otp_only), updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).bind(body.org_name ?? null, body.theme_id ?? null, footerLinksVal, socialLinksVal, body.favicon_url ?? null, otpEnabled, emailEnabled, otpOnly, 'singleton').run();
     return c.json(ok({ updated: true }));
   } catch (e) {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant not found'), 403);

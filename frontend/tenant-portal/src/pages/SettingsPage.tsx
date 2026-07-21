@@ -58,6 +58,11 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
     youtube: '',
   });
 
+  // Reader sign-in configuration. Defaults mirror the backend: OTP off, email on.
+  const [otpEnabled, setOtpEnabled] = useState(false);
+  const [emailEnabled, setEmailEnabled] = useState(true);
+  const [otpOnly, setOtpOnly] = useState(false);
+
   const load = useCallback(async () => {
     const res = await portalApi.getSettings(slug, token);
     if (res.ok && res.data) {
@@ -77,6 +82,9 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
           if (parsed && typeof parsed === 'object') setSocialLinks(prev => ({ ...prev, ...parsed }));
         } catch (_) {}
       }
+      setOtpEnabled((res.data.reader_auth_otp_enabled ?? 0) === 1);
+      setEmailEnabled((res.data.reader_auth_email_enabled ?? 1) === 1);
+      setOtpOnly((res.data.reader_auth_otp_only ?? 0) === 1);
     }
   }, [slug, token]);
 
@@ -118,6 +126,10 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
         theme_id: themeId,
         footer_links: JSON.stringify(footerLinks),
         social_links: JSON.stringify(socialLinks),
+        reader_auth_otp_enabled: otpEnabled ? 1 : 0,
+        reader_auth_email_enabled: emailEnabled ? 1 : 0,
+        // OTP-only is meaningful only when OTP is on; force off otherwise.
+        reader_auth_otp_only: (otpEnabled && otpOnly) ? 1 : 0,
       },
       token
     );
@@ -245,6 +257,63 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
               </button>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Reader Sign-in methods */}
+      <Card>
+        <CardContent className="p-6 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold">Reader Sign-in</h2>
+            <p className="text-sm text-muted-foreground">Choose how your readers can create accounts and sign in.</p>
+          </div>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-primary"
+              checked={emailEnabled}
+              onChange={e => { setEmailEnabled(e.target.checked); if (!e.target.checked) setOtpOnly(false); }}
+            />
+            <div>
+              <div className="text-sm font-medium">Email &amp; Google</div>
+              <div className="text-xs text-muted-foreground">Email + password sign-up and Google sign-in.</div>
+            </div>
+          </label>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-primary"
+              checked={otpEnabled}
+              onChange={e => { setOtpEnabled(e.target.checked); if (!e.target.checked) setOtpOnly(false); }}
+            />
+            <div>
+              <div className="text-sm font-medium">Mobile OTP (SMS)</div>
+              <div className="text-xs text-muted-foreground">Phone-number verification via SMS one-time code. SMS is billed to your account.</div>
+            </div>
+          </label>
+
+          {otpEnabled && (
+            <label className="flex items-start gap-3 cursor-pointer pl-7">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 accent-primary"
+                checked={otpOnly}
+                onChange={e => setOtpOnly(e.target.checked)}
+              />
+              <div>
+                <div className="text-sm font-medium">OTP-only sign-up</div>
+                <div className="text-xs text-muted-foreground">Ask readers only for name + phone number — no email. Disables the email/Google options above for readers.</div>
+              </div>
+            </label>
+          )}
+
+          {!emailEnabled && !otpEnabled && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
+              At least one sign-in method must be enabled, or readers won't be able to log in.
+            </div>
+          )}
         </CardContent>
       </Card>
 

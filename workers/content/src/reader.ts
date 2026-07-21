@@ -90,6 +90,9 @@ readerRouter.post('/:slug/signup', async (c) => {
   }
   try {
     const db = getTenantDb(c.env, slug);
+    if (!(await readerEmailAuthEnabled(db))) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'Email sign-up is not enabled for this publication.'), 403);
+    }
     const existing = await db.prepare('SELECT id FROM readers WHERE email = ?').bind(email).first();
     if (existing) return c.json(err(ErrorCode.CONFLICT, 'Email already registered'), 409);
 
@@ -110,6 +113,9 @@ readerRouter.post('/:slug/login', async (c) => {
   if (!email || !password) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing credentials'), 400);
   try {
     const db = getTenantDb(c.env, slug);
+    if (!(await readerEmailAuthEnabled(db))) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'Email sign-in is not enabled for this publication.'), 403);
+    }
     const reader = await db.prepare('SELECT id, email, password_hash, name FROM readers WHERE email = ?')
       .bind(email).first<{ id: string; email: string; password_hash: string; name: string }>();
     if (!reader || !(await verifyPassword(password, reader.password_hash))) {
@@ -121,6 +127,18 @@ readerRouter.post('/:slug/login', async (c) => {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }
 });
+
+// Is email+password reader auth enabled for this tenant? Defaults to true when the
+// config column is absent (un-migrated tenant) — mirrors the auth worker's default.
+async function readerEmailAuthEnabled(db: D1Database): Promise<boolean> {
+  try {
+    const row = await db.prepare('SELECT reader_auth_email_enabled FROM tenant_settings WHERE id = ?')
+      .bind('singleton').first<{ reader_auth_email_enabled: number }>();
+    return (row?.reader_auth_email_enabled ?? 1) === 1;
+  } catch {
+    return true;
+  }
+}
 
 async function signReaderToken(c: any, id: string, slug: string, email: string): Promise<string> {
   const payload: ReaderJwtPayload = { aud: 'reader', sub: id, tenantSlug: slug, email, exp: Math.floor(Date.now() / 1000) + 604800 };

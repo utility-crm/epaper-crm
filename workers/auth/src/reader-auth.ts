@@ -53,6 +53,29 @@ readerAuthRouter.post('/:slug/verify-firebase', async (c) => {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }
 
+  // Server-side enforcement of the publisher's reader-auth config. The dialog hides
+  // disabled methods, but a crafted request could still present, say, a phone token
+  // to a publisher who turned OTP off — so re-check here. Defaults (otp off, email on)
+  // apply when the columns don't exist yet on an un-migrated tenant.
+  try {
+    const cfg = await db.prepare(
+      'SELECT reader_auth_otp_enabled, reader_auth_email_enabled FROM tenant_settings WHERE id = ?'
+    ).bind('singleton').first<{ reader_auth_otp_enabled: number; reader_auth_email_enabled: number }>();
+    const otpEnabled = cfg?.reader_auth_otp_enabled ?? 0;
+    const emailEnabled = cfg?.reader_auth_email_enabled ?? 1;
+    // phone token -> OTP method; everything else (password, google.com, …) -> email/Google method.
+    const isPhoneMethod = provider === 'phone' || (!!phone && !email);
+    if (isPhoneMethod && !otpEnabled) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'Phone sign-in is not enabled for this publication.'), 403);
+    }
+    if (!isPhoneMethod && !emailEnabled) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'Email / Google sign-in is not enabled for this publication.'), 403);
+    }
+  } catch (e) {
+    // Missing columns / settings row -> fall back to defaults (don't block auth on a config read).
+    console.error('Reader auth config check failed (allowing default):', e);
+  }
+
   try {
     // Resolve identity deterministically. firebase_uid is the primary key; a verified
     // email or a present phone are secondary. A Firebase token carrying both email and
