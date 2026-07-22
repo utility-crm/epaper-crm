@@ -68,26 +68,46 @@ profileRouter.post('/add-phone', orgUserAuth, async (c) => {
   try {
     const { where } = await loadOwner(c);
 
+    // A single firebase_uid column can't represent two Firebase identities. If the
+    // owner already has a uid (e.g. from Google) and this phone token carries a
+    // DIFFERENT uid, the phone was verified as a separate Firebase user — storing it
+    // would let verify-org resolve the row by phone yet reject the mismatched uid, so
+    // the number could never actually log in. Only adopt the phone's uid when the row
+    // has none yet, or when it already matches (proper client-side account linking).
+    const conflictMsg = 'This phone number is already linked to another account.';
+    const mismatchMsg = 'Please verify this phone using your existing sign-in, then try again.';
+
     if (where === 'org_users') {
       const db = getTenantDb(c.env, c.var.tenantSlug);
-      // Reject if the number (or firebase_uid) is already on a DIFFERENT org_user.
       const clash = await db.prepare(
         'SELECT id FROM org_users WHERE (phone_number = ? OR firebase_uid = ?) AND id != ?'
       ).bind(phone, uid, c.var.userId).first();
-      if (clash) return c.json(err(ErrorCode.CONFLICT, 'This phone number is already linked to another account.'), 409);
+      if (clash) return c.json(err(ErrorCode.CONFLICT, conflictMsg), 409);
+
+      const self = await db.prepare('SELECT firebase_uid FROM org_users WHERE id = ?')
+        .bind(c.var.userId).first<{ firebase_uid: string | null }>();
+      if (self?.firebase_uid && self.firebase_uid !== uid) {
+        return c.json(err(ErrorCode.CONFLICT, mismatchMsg), 409);
+      }
 
       await db.prepare(
-        'UPDATE org_users SET phone_number = ?, firebase_uid = COALESCE(firebase_uid, ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        'UPDATE org_users SET phone_number = ?, firebase_uid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
       ).bind(phone, uid, c.var.userId).run();
     } else {
       // Pending tenant: keep the phone on the pending_owners row so it survives migration.
       const clash = await c.env.CONTROL_DB.prepare(
         'SELECT id FROM pending_owners WHERE (phone_number = ? OR firebase_uid = ?) AND id != ?'
       ).bind(phone, uid, c.var.userId).first();
-      if (clash) return c.json(err(ErrorCode.CONFLICT, 'This phone number is already linked to another account.'), 409);
+      if (clash) return c.json(err(ErrorCode.CONFLICT, conflictMsg), 409);
+
+      const self = await c.env.CONTROL_DB.prepare('SELECT firebase_uid FROM pending_owners WHERE id = ?')
+        .bind(c.var.userId).first<{ firebase_uid: string | null }>();
+      if (self?.firebase_uid && self.firebase_uid !== uid) {
+        return c.json(err(ErrorCode.CONFLICT, mismatchMsg), 409);
+      }
 
       await c.env.CONTROL_DB.prepare(
-        'UPDATE pending_owners SET phone_number = ?, firebase_uid = COALESCE(firebase_uid, ?) WHERE id = ?'
+        'UPDATE pending_owners SET phone_number = ?, firebase_uid = ? WHERE id = ?'
       ).bind(phone, uid, c.var.userId).run();
     }
 

@@ -75,60 +75,78 @@ export async function billTenantSms(
   // Window start: last billed marker, or epoch for a first-ever run.
   const since = tenant.sms_last_billed_at ?? '1970-01-01T00:00:00Z';
 
-  // Count only READER-stage sends — the OTP the publisher opted into for their readers.
-  // Publisher-stage SMS (the owner's own signup/login/add-phone) is not metered to them.
-  // stage lives in the details JSON blob written by auth/firebase-auth.ts.
+  // Count billable SMS since the last billed marker. auth.sms_billable is emitted by
+  // the auth worker only on a verified reader phone-token exchange (server-attributed,
+  // already reader-stage) — so no JSON filtering is needed here. Uses the dedicated
+  // idx_audit_billable index (see runSmsBillingSweep) rather than the tenant_id index,
+  // which SMS rows can't use (their tenant_id is null).
   const countRow = await env.CONTROL_DB.prepare(
     `SELECT COUNT(*) AS n FROM audit_log
-     WHERE action = 'auth.sms_send_requested' AND performed_by = ?
-       AND created_at > ? AND created_at <= ?
-       AND json_extract(details, '$.stage') = 'reader'`
+     WHERE action = 'auth.sms_billable' AND performed_by = ?
+       AND created_at > ? AND created_at <= ?`
   ).bind(tenant.slug, since, nowIso).first<{ n: number }>();
   const count = countRow?.n ?? 0;
-
-  if (count === 0) {
-    // Nothing to bill; still advance the marker so the window doesn't grow unbounded.
-    await env.CONTROL_DB.prepare('UPDATE tenants SET sms_last_billed_at = ? WHERE id = ?').bind(nowIso, tenant.id).run();
-    return `${tenant.slug}: 0 SMS, skipped`;
-  }
-
-  const { rate: usdInr, source: fxSource } = await fetchUsdInr(cfg.usdInrFallback);
-  const amountUsd = count * cfg.smsRateUsd;
-  const amountPaise = Math.round(amountUsd * usdInr * 100);
 
   // Idempotency key — one charge per tenant per calendar month.
   const idempotencyKey = `sms-${tenant.id}-${monthKey}`;
 
-  // Guard BEFORE calling Razorpay: if this cycle was already billed, don't create a
-  // second order. (The UNIQUE insert below is the hard backstop.)
-  const already = await env.CONTROL_DB.prepare(
-    'SELECT id FROM platform_billing_events WHERE razorpay_event_id = ?'
-  ).bind(idempotencyKey).first();
-  if (already) return `${tenant.slug}: cycle ${monthKey} already billed, skipped`;
+  const advanceMarker = () =>
+    env.CONTROL_DB.prepare('UPDATE tenants SET sms_last_billed_at = ? WHERE id = ?').bind(nowIso, tenant.id).run();
 
-  const order = await razorpayOrder(env, amountPaise, {
-    kind: 'sms_metered',
-    slug: tenant.slug,
-    cycle: monthKey,
-    sms_count: String(count),
-  });
+  const { rate: usdInr, source: fxSource } = await fetchUsdInr(cfg.usdInrFallback);
+  const amountPaise = Math.round(count * cfg.smsRateUsd * usdInr * 100);
 
-  // Record the charge. The exact FX rate + count are stamped on the row for audit.
-  // INSERT OR IGNORE on the UNIQUE razorpay_event_id makes concurrent runs safe.
-  const res = await env.CONTROL_DB.prepare(
+  // Free period: nothing metered, or a zero/sub-paise charge (e.g. rate set to 0).
+  // Record a zero-amount event for audit and advance the marker WITHOUT calling
+  // Razorpay — a 0-paise order would be rejected, stalling the window and causing a
+  // catch-up charge if the rate is later raised. This treats the period as free.
+  if (count === 0 || amountPaise <= 0) {
+    await env.CONTROL_DB.prepare(
+      'INSERT OR IGNORE INTO platform_billing_events (id, tenant_id, event_type, razorpay_event_id, amount_paise, payload) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(
+      crypto.randomUUID(), tenant.id, 'sms.metered', idempotencyKey, 0,
+      JSON.stringify({ order_id: null, sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey, free: true })
+    ).run();
+    await advanceMarker();
+    return `${tenant.slug}: ${count} SMS, ${amountPaise} paise (free period, no charge)`;
+  }
+
+  // RESERVE the cycle key BEFORE the external call. INSERT OR IGNORE on the UNIQUE
+  // razorpay_event_id means exactly one concurrent sweep wins the insert; the losers
+  // see 0 changes and skip without ever hitting Razorpay. This closes the race where
+  // two sweeps could both create orders and orphan one of them.
+  const reserve = await env.CONTROL_DB.prepare(
     'INSERT OR IGNORE INTO platform_billing_events (id, tenant_id, event_type, razorpay_event_id, amount_paise, payload) VALUES (?, ?, ?, ?, ?, ?)'
   ).bind(
     crypto.randomUUID(), tenant.id, 'sms.metered', idempotencyKey, amountPaise,
-    JSON.stringify({ order_id: order.id, sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey })
+    JSON.stringify({ order_id: null, status: 'pending', sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey })
   ).run();
-
-  if (!res.meta.changes) {
-    // Lost an idempotency race — another run inserted first. Order was created but the
-    // dedupe key already exists; leave the marker to that run.
-    return `${tenant.slug}: cycle ${monthKey} raced, skipped`;
+  if (!reserve.meta.changes) {
+    return `${tenant.slug}: cycle ${monthKey} already billed/reserved, skipped`;
   }
 
-  await env.CONTROL_DB.prepare('UPDATE tenants SET sms_last_billed_at = ? WHERE id = ?').bind(nowIso, tenant.id).run();
+  let order: { id: string };
+  try {
+    order = await razorpayOrder(env, amountPaise, {
+      kind: 'sms_metered', slug: tenant.slug, cycle: monthKey, sms_count: String(count),
+    });
+  } catch (e) {
+    // Order failed after we reserved the key. Release the reservation so a later run
+    // can retry this cycle, and do NOT advance the marker.
+    await env.CONTROL_DB.prepare('DELETE FROM platform_billing_events WHERE razorpay_event_id = ?')
+      .bind(idempotencyKey).run().catch(() => {});
+    throw e;
+  }
+
+  // Order created — finalize the reserved row with the order id.
+  await env.CONTROL_DB.prepare(
+    'UPDATE platform_billing_events SET payload = ? WHERE razorpay_event_id = ?'
+  ).bind(
+    JSON.stringify({ order_id: order.id, status: 'ordered', sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey }),
+    idempotencyKey
+  ).run();
+
+  await advanceMarker();
   return `${tenant.slug}: ${count} SMS -> ${amountPaise} paise (order ${order.id}, fx ${usdInr} via ${fxSource})`;
 }
 
@@ -136,6 +154,14 @@ export async function billTenantSms(
 export async function runSmsBillingSweep(env: SmsBillingEnv, nowIso: string, monthKey: string): Promise<void> {
   // Idempotent marker column (control DB may predate this).
   await env.CONTROL_DB.prepare('ALTER TABLE tenants ADD COLUMN sms_last_billed_at DATETIME').run().catch(() => {});
+
+  // Dedicated index for the metering count. SMS audit rows have a null tenant_id, so
+  // the existing idx_audit_log_tenant_id can't serve this query — without this index
+  // each tenant's COUNT would full-scan audit_log, which grows unbounded. Ordered
+  // (action, performed_by, created_at) to match the WHERE + range predicate exactly.
+  await env.CONTROL_DB.prepare(
+    'CREATE INDEX IF NOT EXISTS idx_audit_billable ON audit_log(action, performed_by, created_at)'
+  ).run().catch(() => {});
 
   const { results } = await env.CONTROL_DB.prepare(
     "SELECT id, slug, sms_last_billed_at FROM tenants WHERE status = 'active'"

@@ -55,25 +55,32 @@ readerAuthRouter.post('/:slug/verify-firebase', async (c) => {
 
   // Server-side enforcement of the publisher's reader-auth config. The dialog hides
   // disabled methods, but a crafted request could still present, say, a phone token
-  // to a publisher who turned OTP off — so re-check here. Defaults (otp off, email on)
-  // apply when the columns don't exist yet on an un-migrated tenant.
+  // to a publisher who turned OTP off — so re-check here.
+  //
+  // SELECT * (not named columns) so an un-migrated tenant whose flag columns don't
+  // exist yet yields `undefined` -> safe defaults (OTP off, email on) WITHOUT throwing.
+  // That leaves any thrown error as a genuine operational failure (D1 down, table
+  // missing), which we FAIL CLOSED on — never fall through and allow a disabled method.
+  let otpEnabled: number;
+  let emailEnabled: number;
   try {
     const cfg = await db.prepare(
-      'SELECT reader_auth_otp_enabled, reader_auth_email_enabled FROM tenant_settings WHERE id = ?'
-    ).bind('singleton').first<{ reader_auth_otp_enabled: number; reader_auth_email_enabled: number }>();
-    const otpEnabled = cfg?.reader_auth_otp_enabled ?? 0;
-    const emailEnabled = cfg?.reader_auth_email_enabled ?? 1;
-    // phone token -> OTP method; everything else (password, google.com, …) -> email/Google method.
-    const isPhoneMethod = provider === 'phone' || (!!phone && !email);
-    if (isPhoneMethod && !otpEnabled) {
-      return c.json(err(ErrorCode.FORBIDDEN, 'Phone sign-in is not enabled for this publication.'), 403);
-    }
-    if (!isPhoneMethod && !emailEnabled) {
-      return c.json(err(ErrorCode.FORBIDDEN, 'Email / Google sign-in is not enabled for this publication.'), 403);
-    }
+      'SELECT * FROM tenant_settings WHERE id = ?'
+    ).bind('singleton').first<Record<string, unknown>>();
+    otpEnabled = (cfg?.reader_auth_otp_enabled as number | undefined) ?? 0;
+    emailEnabled = (cfg?.reader_auth_email_enabled as number | undefined) ?? 1;
   } catch (e) {
-    // Missing columns / settings row -> fall back to defaults (don't block auth on a config read).
-    console.error('Reader auth config check failed (allowing default):', e);
+    console.error('Reader auth config read failed (rejecting):', e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Sign-in temporarily unavailable. Please try again.'), 503);
+  }
+
+  // phone token -> OTP method; everything else (password, google.com, …) -> email/Google method.
+  const isPhoneMethod = provider === 'phone' || (!!phone && !email);
+  if (isPhoneMethod && !otpEnabled) {
+    return c.json(err(ErrorCode.FORBIDDEN, 'Phone sign-in is not enabled for this publication.'), 403);
+  }
+  if (!isPhoneMethod && !emailEnabled) {
+    return c.json(err(ErrorCode.FORBIDDEN, 'Email / Google sign-in is not enabled for this publication.'), 403);
   }
 
   try {
@@ -155,6 +162,21 @@ readerAuthRouter.post('/:slug/verify-firebase', async (c) => {
     }
 
     const token = await signReaderToken(c.env.ORG_JWT_SECRET, readerId, slug, readerEmail);
+
+    // Record a BILLABLE SMS event only for a verified phone token. This is the one
+    // server-attributable signal: the token exists only because Firebase sent an OTP
+    // SMS and the reader confirmed it, and `slug` comes from the URL (gateway-routed),
+    // not a client-supplied body — so it can't be forged against another publication.
+    // (The public /audit/sms-send hook is rate-limiting/telemetry only, never billed.)
+    if (isPhoneMethod) {
+      await c.env.CONTROL_DB.prepare(
+        'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
+      ).bind(
+        crypto.randomUUID(), null, 'auth.sms_billable', slug,
+        JSON.stringify({ stage: 'reader', provider })
+      ).run().catch((e: unknown) => console.error('Failed to record billable SMS event:', e));
+    }
+
     return c.json(ok({ token, reader: { id: readerId, email: readerEmail, name } }));
   } catch (e) {
     // The publication exists (binding resolved); this is an operational failure

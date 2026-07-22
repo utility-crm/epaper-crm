@@ -65,8 +65,21 @@ settingsRouter.patch('/:slug/settings', async (c) => {
     const footerLinksVal = body.footer_links !== undefined ? (typeof body.footer_links === 'string' ? body.footer_links : JSON.stringify(body.footer_links)) : null;
     const socialLinksVal = body.social_links !== undefined ? (typeof body.social_links === 'string' ? body.social_links : JSON.stringify(body.social_links)) : null;
 
-    // Reader-auth flags: accept only 0/1 when present, else leave unchanged (null -> COALESCE).
-    const toBit = (v: unknown): number | null => (v === undefined || v === null) ? null : (v ? 1 : 0);
+    // Reader-auth flags: coerce to exactly 0 or 1, else leave unchanged (null -> COALESCE).
+    // Must NOT use plain truthiness — the strings "0"/"false" are truthy in JS and would
+    // enable a method the client asked to disable. Recognize real bools, 0/1 numbers, and
+    // canonical string forms; anything unrecognized is treated as "unchanged".
+    const toBit = (v: unknown): number | null => {
+      if (v === undefined || v === null) return null;
+      if (v === true || v === 1) return 1;
+      if (v === false || v === 0) return 0;
+      if (typeof v === 'string') {
+        const s = v.trim().toLowerCase();
+        if (s === '1' || s === 'true') return 1;
+        if (s === '0' || s === 'false') return 0;
+      }
+      return null; // unrecognized -> don't change the stored flag
+    };
     const otpEnabled = toBit(body.reader_auth_otp_enabled);
     const emailEnabled = toBit(body.reader_auth_email_enabled);
     const otpOnly = toBit(body.reader_auth_otp_only);
