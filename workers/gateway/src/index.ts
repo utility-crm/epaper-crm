@@ -46,7 +46,7 @@ app.all('/api/*', async (c) => {
   if (path.startsWith('/api/auth') && !isProvisioningAuthPath) {
     // Credential / token / firebase endpoints live on the isolated auth worker.
     targetWorker = c.env.AUTH_WORKER;
-  } else if (path.startsWith('/api/auth') || path.startsWith('/api/tenants') || path.startsWith('/api/audit') || path.startsWith('/api/domain') || path.startsWith('/api/tiers') || path.startsWith('/api/admin/billing')) {
+  } else if (path.startsWith('/api/auth') || path.startsWith('/api/tenants') || path.startsWith('/api/audit') || path.startsWith('/api/domain') || path.startsWith('/api/tiers') || path.startsWith('/api/admin/')) {
     // Remaining /api/auth/* here are the provisioning-lifecycle endpoints (admin-owned).
     targetWorker = c.env.ADMIN_WORKER;
   } else if (path.startsWith('/api/provision')) {

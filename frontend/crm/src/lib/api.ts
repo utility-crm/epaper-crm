@@ -44,7 +44,12 @@ export const crmApi = {
   getAdmins: () => apiFetch<any>('/api/auth/admins'),
   createAdmin: (body: any) => apiFetch<any>('/api/auth/admins', { method: 'POST', body: JSON.stringify(body) }),
   deleteAdmin: (id: string) => apiFetch<any>(`/api/auth/admins/${id}`, { method: 'DELETE' }),
-  
+
+  // Platform config (superadmin): metered SMS rate + FX fallback.
+  getPlatformConfig: () => apiFetch<any>('/api/admin/platform-config'),
+  updatePlatformConfig: (body: { sms_rate_usd: number; usd_inr_fallback?: number }) =>
+    apiFetch<any>('/api/admin/platform-config', { method: 'PATCH', body: JSON.stringify(body) }),
+
   // Tiers
   getTiers: () => apiFetch<any>('/api/tiers'),
   createTier: (body: any) => apiFetch<any>('/api/tiers', { method: 'POST', body: JSON.stringify(body) }),

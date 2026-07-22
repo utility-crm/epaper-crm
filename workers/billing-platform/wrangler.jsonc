@@ -10,6 +10,10 @@
       "database_name": "epaper-control",
       "database_id": "b0fff5dc-a1b6-4606-a3fc-10324e1b0df1"
     }
-  ]
+  ],
+  "triggers": {
+    // Metered SMS billing sweep — 1st of each month at 03:07 UTC (off-peak; idempotent per YYYY-MM).
+    "crons": ["7 3 1 * *"]
+  }
   // Note: secrets RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and RAZORPAY_WEBHOOK_SECRET should be set
 }

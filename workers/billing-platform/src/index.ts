@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { ok, err, ErrorCode } from '@epaper/types';
 import { verifySubscriptionSignature } from './razorpay';
 import { sendEmail, refundEmailHtml } from './email';
+import { runSmsBillingSweep } from './sms-billing';
 
 export interface Env {
   CONTROL_DB: D1Database;
@@ -653,4 +654,12 @@ app.delete('/internal/billing/platform/:slug/subscription', async (c) => {
 
 export default {
   fetch: app.fetch,
+  // Monthly SMS metering sweep. Cron is set in wrangler.jsonc (runs at month start);
+  // the idempotency key inside billTenantSms makes an accidental extra run a no-op.
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const monthKey = nowIso.slice(0, 7); // YYYY-MM
+    ctx.waitUntil(runSmsBillingSweep(env, nowIso, monthKey));
+  },
 };
