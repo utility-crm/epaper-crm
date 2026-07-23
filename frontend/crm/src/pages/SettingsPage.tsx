@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { crmApi } from '../lib/api';
 
-export function SettingsPage() {
+export function SettingsPage({ role }: { role: string }) {
+  const isSuperadmin = role === 'superadmin';
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,13 +15,15 @@ export function SettingsPage() {
   const [smsMsg, setSmsMsg] = useState({ text: '', type: '' });
 
   useEffect(() => {
+    // Only superadmins may read platform config; regular admins would just get a 403.
+    if (!isSuperadmin) return;
     crmApi.getPlatformConfig().then(res => {
       if (res.ok && res.data) {
         setSmsRate(String(res.data.sms_rate_usd ?? 0.10));
         setFxFallback(String(res.data.usd_inr_fallback ?? 88));
       }
     });
-  }, []);
+  }, [isSuperadmin]);
 
   const handleSmsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,6 +96,7 @@ export function SettingsPage() {
         </form>
       </div>
 
+      {isSuperadmin && (
       <div className="card" style={{ maxWidth: 500, marginTop: 24 }}>
         <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 4 }}>SMS Billing Rate</h2>
         <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted, #888)', marginBottom: 16 }}>
@@ -123,6 +127,7 @@ export function SettingsPage() {
           </button>
         </form>
       </div>
+      )}
     </div>
   );
 }

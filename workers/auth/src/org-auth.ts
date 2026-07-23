@@ -85,17 +85,30 @@ orgAuthRouter.post('/signup', async (c) => {
   const ownerId = crypto.randomUUID();
   const hash = passwordToStore ? await hashPassword(passwordToStore) : null;
 
-  await c.env.CONTROL_DB.batch([
-    c.env.CONTROL_DB.prepare(
-      'INSERT INTO tenants (id, slug, name, email, status, plan) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind(tenantId, slug, orgName, lookupKey, 'pending', plan),
-    c.env.CONTROL_DB.prepare(
-      'INSERT INTO pending_owners (id, tenant_id, name, password_hash, firebase_uid, phone_number, email_verified, auth_provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).bind(ownerId, tenantId, name, hash, firebaseUid, phoneNumber, emailVerified, authProvider),
-    c.env.CONTROL_DB.prepare(
-      'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
-    ).bind(crypto.randomUUID(), tenantId, 'tenant.created', 'system', JSON.stringify({ slug, email: lookupKey }))
-  ]);
+  try {
+    await c.env.CONTROL_DB.batch([
+      c.env.CONTROL_DB.prepare(
+        'INSERT INTO tenants (id, slug, name, email, status, plan) VALUES (?, ?, ?, ?, ?, ?)'
+      ).bind(tenantId, slug, orgName, lookupKey, 'pending', plan),
+      c.env.CONTROL_DB.prepare(
+        'INSERT INTO pending_owners (id, tenant_id, name, password_hash, firebase_uid, phone_number, email_verified, auth_provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(ownerId, tenantId, name, hash, firebaseUid, phoneNumber, emailVerified, authProvider),
+      c.env.CONTROL_DB.prepare(
+        'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
+      ).bind(crypto.randomUUID(), tenantId, 'tenant.created', 'system', JSON.stringify({ slug, email: lookupKey }))
+    ]);
+  } catch (e) {
+    // The pre-check above races with concurrent signups: two requests for the same
+    // email/phone can both pass the SELECT, then one loses the INSERT to a UNIQUE
+    // constraint (tenants.email / pending_owners.phone_number). Map that collision to
+    // the same 409 an existing account gets. Re-throw anything else — a real DB fault
+    // must not masquerade as a duplicate.
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/UNIQUE constraint failed/i.test(msg)) {
+      return c.json(err(ErrorCode.CONFLICT, 'Account already exists. Please login.'), 409);
+    }
+    throw e;
+  }
 
   // Fire provisioning. A non-2xx response does NOT reject the fetch, so we must
   // inspect res.ok explicitly — otherwise a failed trigger would leave the tenant

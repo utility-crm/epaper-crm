@@ -11,6 +11,8 @@ jobs:
   # they exist — otherwise the binding resolves to a missing service.
   deploy-workers:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         worker: [admin, auth, provision, content, billing-platform, billing-tenant]
@@ -34,6 +36,8 @@ jobs:
   # Deploy the gateway only after every worker it binds is live.
   deploy-gateway:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: deploy-workers
     steps:
       - uses: actions/checkout@v4

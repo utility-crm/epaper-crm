@@ -13,11 +13,25 @@ interface SmsBillingEnv {
   CONTROL_DB: D1Database;
   RAZORPAY_KEY_ID: string;
   RAZORPAY_KEY_SECRET: string;
+  // Optional access key for exchangerate.host (the free keyless tier was retired).
+  // When absent, the FX call is still attempted and falls back to the configured rate.
+  EXCHANGERATE_ACCESS_KEY?: string;
 }
 
 interface RateConfig {
   smsRateUsd: number;
   usdInrFallback: number;
+}
+
+// fetch() with an AbortController timeout so a hung external call can't stall the sweep.
+async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Read the superadmin-configured SMS rate + FX fallback. Defaults match platform-config.ts.
@@ -34,11 +48,14 @@ async function loadRateConfig(db: D1Database): Promise<RateConfig> {
   }
 }
 
-// Live USD->INR via exchangerate.host (free, keyless). Fall back to the configured rate
-// on any failure — billing must not silently skip because an FX call flaked.
-async function fetchUsdInr(fallback: number): Promise<{ rate: number; source: string }> {
+// Live USD->INR via exchangerate.host. Fall back to the configured rate on any failure
+// (timeout, HTTP error, missing/expired key, or no usable INR rate) — billing must not
+// silently skip because an FX call flaked.
+async function fetchUsdInr(fallback: number, accessKey?: string): Promise<{ rate: number; source: string }> {
   try {
-    const res = await fetch('https://api.exchangerate.host/latest?base=USD&symbols=INR');
+    const params = new URLSearchParams({ base: 'USD', symbols: 'INR' });
+    if (accessKey) params.set('access_key', accessKey);
+    const res = await fetchWithTimeout(`https://api.exchangerate.host/latest?${params.toString()}`, {}, 8000);
     if (res.ok) {
       const data = await res.json() as { rates?: { INR?: number } };
       const rate = data.rates?.INR;
@@ -55,11 +72,11 @@ async function fetchUsdInr(fallback: number): Promise<{ rate: number; source: st
 
 async function razorpayOrder(env: SmsBillingEnv, amountPaise: number, notes: Record<string, string>) {
   const auth = btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`);
-  const res = await fetch('https://api.razorpay.com/v1/orders', {
+  const res = await fetchWithTimeout('https://api.razorpay.com/v1/orders', {
     method: 'POST',
     headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ amount: amountPaise, currency: 'INR', notes }),
-  });
+  }, 8000);
   if (!res.ok) throw new Error(`Razorpay order failed: ${res.status} ${await res.text()}`);
   return await res.json() as { id: string };
 }
@@ -80,10 +97,16 @@ export async function billTenantSms(
   // already reader-stage) — so no JSON filtering is needed here. Uses the dedicated
   // idx_audit_billable index (see runSmsBillingSweep) rather than the tenant_id index,
   // which SMS rows can't use (their tenant_id is null).
+  //
+  // Normalize both sides with datetime(): audit_log.created_at is written as SQLite
+  // CURRENT_TIMESTAMP ('YYYY-MM-DD HH:MM:SS') while since/nowIso are ISO-8601 with a
+  // 'T' and 'Z'. A raw string compare would be wrong ('T' > ' '), so run both through
+  // datetime() to compare as real timestamps. Bounds unchanged: exclusive lower (>),
+  // inclusive upper (<=).
   const countRow = await env.CONTROL_DB.prepare(
     `SELECT COUNT(*) AS n FROM audit_log
      WHERE action = 'auth.sms_billable' AND performed_by = ?
-       AND created_at > ? AND created_at <= ?`
+       AND datetime(created_at) > datetime(?) AND datetime(created_at) <= datetime(?)`
   ).bind(tenant.slug, since, nowIso).first<{ n: number }>();
   const count = countRow?.n ?? 0;
 
@@ -93,7 +116,7 @@ export async function billTenantSms(
   const advanceMarker = () =>
     env.CONTROL_DB.prepare('UPDATE tenants SET sms_last_billed_at = ? WHERE id = ?').bind(nowIso, tenant.id).run();
 
-  const { rate: usdInr, source: fxSource } = await fetchUsdInr(cfg.usdInrFallback);
+  const { rate: usdInr, source: fxSource } = await fetchUsdInr(cfg.usdInrFallback, env.EXCHANGERATE_ACCESS_KEY);
   const amountPaise = Math.round(count * cfg.smsRateUsd * usdInr * 100);
 
   // Free period: nothing metered, or a zero/sub-paise charge (e.g. rate set to 0).

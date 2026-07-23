@@ -15,6 +15,8 @@ export interface Env {
   PLATFORM_SUPPORT_EMAIL?: string;
   // Resend (Svix) webhook signing secret, format "whsec_<base64>".
   RESEND_WEBHOOK_SECRET?: string;
+  // Optional exchangerate.host access key for the metered-SMS FX conversion.
+  EXCHANGERATE_ACCESS_KEY?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -660,6 +662,13 @@ export default {
     const now = new Date();
     const nowIso = now.toISOString();
     const monthKey = nowIso.slice(0, 7); // YYYY-MM
-    ctx.waitUntil(runSmsBillingSweep(env, nowIso, monthKey));
+    // Top-level catch: per-tenant errors are handled inside the sweep, but a setup or
+    // pre-loop failure (e.g. the ALTER/index/config reads) would otherwise become an
+    // unhandled rejection. waitUntil still holds the worker open until it settles.
+    ctx.waitUntil(
+      runSmsBillingSweep(env, nowIso, monthKey).catch(e =>
+        console.error('[sms-billing] sweep failed before/around tenant loop:', e)
+      )
+    );
   },
 };

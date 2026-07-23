@@ -43,7 +43,9 @@ jobs:
       # which injects bindings before deploy. The later Commit step re-derives the
       # same edit from origin/main purely to persist it back to git.
       - name: Remove Bindings
-        run: node scripts/remove-binding.js ${{ github.event.inputs.tenant_slug }}
+        env:
+          TENANT_SLUG: ${{ github.event.inputs.tenant_slug }}
+        run: node scripts/remove-binding.js "$TENANT_SLUG"
 
       - name: Deploy Content Worker
         env:

@@ -94,7 +94,7 @@ export default function App() {
             <Route path="/tenants" element={<TenantsPage />} />
             <Route path="/tenants/:slug" element={<TenantDetailPage />} />
             <Route path="/audit" element={<AuditLogPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings" element={<SettingsPage role={payload.role ?? 'admin'} />} />
             {payload.role === 'superadmin' && (
               <>
                 <Route path="/admins" element={<AdminsPage />} />
