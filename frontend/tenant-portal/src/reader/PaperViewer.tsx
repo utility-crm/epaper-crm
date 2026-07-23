@@ -614,7 +614,9 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
                   )}
                   <div className="mt-6 w-full max-w-md space-y-2 text-left">
                     {tierPlans.map(p => {
-                      const net = Math.round(p.price_paise * (1 - (p.offer_pct || 0) / 100));
+                      const discountPct = Math.max(0, Math.min(100, p.offer_pct || 0));
+                      const taxPct = Math.max(0, p.tax_percentage || 0);
+                      const finalPaise = Math.round(p.price_paise * (1 - discountPct / 100) * (1 + taxPct / 100));
                       return (
                         <button
                           key={p.id}
@@ -625,10 +627,11 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
                             <div className="text-sm font-semibold">{p.name}</div>
                             <div className="text-xs text-muted-foreground">
                               {p.tier_name} · {INTERVAL_LABEL[p.interval] ?? p.interval}
+                              {p.tax_percentage > 0 && ` · incl. ${p.tax_percentage}% tax`}
                             </div>
                           </div>
                           <div className="text-right">
-                            <div className="font-bold">{formatINR(net)}</div>
+                            <div className="font-bold">{formatINR(finalPaise)}</div>
                             {p.offer_pct > 0 && (
                               <div className="text-[0.65rem] text-green-400">
                                 {p.offer_label || `${p.offer_pct}% off`}

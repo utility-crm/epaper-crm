@@ -1,3 +1,4 @@
+import './polyfills';
 import * as pdfjsLib from 'pdfjs-dist';
 
 // Use Cloudflare CDN for the worker to avoid Vite bundling issues

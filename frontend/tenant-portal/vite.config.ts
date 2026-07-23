@@ -25,7 +25,10 @@ export default defineConfig({
   },
   build: {
     modulePreload: false,
-    target: 'esnext',
+    // Windows 7 tops out at Chrome 109 / Firefox ~115 (many newspaper offices
+    // still run it). Down-level newer syntax to what those parse. Method-level
+    // APIs newer than this floor are shimmed at runtime in src/lib/polyfills.ts.
+    target: ['chrome109', 'firefox115'],
     minify: false,
     cssCodeSplit: false,
   },

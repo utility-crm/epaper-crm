@@ -448,7 +448,7 @@ app.post('/api/billing/platform/:slug/subscription/cancel', async (c) => {
   }
 
   await c.env.CONTROL_DB.prepare(
-    "UPDATE tenants SET razorpay_plan_id = NULL, razorpay_sub_id = NULL, plan = 'community', updated_at = CURRENT_TIMESTAMP WHERE slug = ?"
+    "UPDATE tenants SET razorpay_plan_id = NULL, razorpay_sub_id = NULL, plan = 'Free', updated_at = CURRENT_TIMESTAMP WHERE slug = ?"
   ).bind(slug).run();
 
   return c.json(ok({ cancelled: true, at_cycle_end: false }));
@@ -648,7 +648,7 @@ app.delete('/internal/billing/platform/:slug/subscription', async (c) => {
   }
 
   await c.env.CONTROL_DB.prepare(
-    "UPDATE tenants SET razorpay_plan_id = NULL, razorpay_sub_id = NULL, plan = 'community', updated_at = CURRENT_TIMESTAMP WHERE slug = ?"
+    "UPDATE tenants SET razorpay_plan_id = NULL, razorpay_sub_id = NULL, plan = 'Free', updated_at = CURRENT_TIMESTAMP WHERE slug = ?"
   ).bind(slug).run();
 
   return c.json(ok({ cancelled: true }));

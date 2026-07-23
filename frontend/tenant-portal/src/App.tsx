@@ -1,3 +1,4 @@
+import './lib/polyfills';
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { LayoutDashboard, Newspaper, CreditCard, KeyRound, Globe, Building2, LogOut, Settings, ExternalLink, Users, ReceiptText } from 'lucide-react';
