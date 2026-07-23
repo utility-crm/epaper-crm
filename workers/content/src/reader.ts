@@ -20,7 +20,14 @@ async function getReader(c: any, slug: string): Promise<ReaderJwtPayload | null>
 
 // Does this reader hold an active subscription to the given tier right now?
 async function hasActiveSub(db: D1Database, readerId: string, tierId: string | null): Promise<boolean> {
-  if (!tierId) return false;
+  if (!tierId) {
+    const row = await db.prepare(
+      `SELECT id FROM reader_subscriptions
+       WHERE reader_id = ? AND status = 'active' AND datetime(current_end) > CURRENT_TIMESTAMP
+       LIMIT 1`
+    ).bind(readerId).first();
+    return !!row;
+  }
   const row = await db.prepare(
     `SELECT id FROM reader_subscriptions
      WHERE reader_id = ? AND tier_id = ? AND status = 'active' AND datetime(current_end) > CURRENT_TIMESTAMP
