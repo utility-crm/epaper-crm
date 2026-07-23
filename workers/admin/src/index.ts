@@ -1,23 +1,26 @@
 import { Hono } from 'hono';
 import { Env } from './middleware';
-import { adminAuthRouter } from './admin-auth';
 import { orgAuthRouter } from './org-auth';
 import { tenantsRouter } from './tenants';
 import { auditRouter } from './audit';
 import { domainRouter } from './domain';
 import { tiersRouter } from './tiers';
 import { billingRouter } from './billing';
+import { platformConfigRouter } from './platform-config';
 import { err, ErrorCode, ok } from '@epaper/types';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.route('/api/auth', adminAuthRouter);
+// Auth/credential endpoints now live in the dedicated epaper-auth worker.
+// Admin retains only the provisioning-lifecycle endpoints under /api/auth
+// (provision-status, reprovision, verify-provisioning) via orgAuthRouter.
 app.route('/api/auth', orgAuthRouter);
 app.route('/api/tenants', tenantsRouter);
 app.route('/api/audit', auditRouter);
 app.route('/api/domain', domainRouter);
 app.route('/api/tiers', tiersRouter);
 app.route('/api/admin/billing', billingRouter);
+app.route('/api/admin/platform-config', platformConfigRouter);
 
 app.get('/health', (c) => c.json(ok({ status: 'ok', worker: 'admin' })));
 

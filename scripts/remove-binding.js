@@ -27,3 +27,4 @@ function remove(file, slug) {
 
 remove('workers/content/wrangler.jsonc', slug);
 remove('workers/billing-tenant/wrangler.jsonc', slug);
+remove('workers/auth/wrangler.jsonc', slug);

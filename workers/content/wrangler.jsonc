@@ -67,6 +67,7 @@
     ]
   },
   "vars": {
-    "PUBLIC_API_BASE": "https://api.epaperspace.com"
+    "PUBLIC_API_BASE": "https://api.epaperspace.com",
+    "FIREBASE_PROJECT_ID": "epaperspace"
   }
 }

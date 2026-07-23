@@ -6,12 +6,39 @@ on:
       - main
 
 jobs:
-  # Deploy all Cloudflare Workers in parallel
+  # Deploy backend workers in parallel. Gateway is excluded here: it holds service
+  # bindings to these workers (AUTH_WORKER among them), so it must deploy only after
+  # they exist — otherwise the binding resolves to a missing service.
   deploy-workers:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
-        worker: [admin, provision, content, billing-platform, billing-tenant, gateway]
+        worker: [admin, auth, provision, content, billing-platform, billing-tenant]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy --workspace=workers/${{ matrix.worker }}
+
+  # Deploy the gateway only after every worker it binds is live.
+  deploy-gateway:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    needs: deploy-workers
     steps:
       - uses: actions/checkout@v4
 
@@ -24,17 +51,16 @@ jobs:
         run: npm ci
 
       - name: Build Gateway Shell
-        if: ${{ matrix.worker == 'gateway' }}
         env:
           VITE_CRM_REMOTE_URL: 'https://epaper-crm.pages.dev'
           VITE_PORTAL_REMOTE_URL: 'https://epaper-portal.pages.dev'
         run: npm run build --workspace=frontend/shell
 
-      - name: Deploy Worker
+      - name: Deploy Gateway
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npm run deploy --workspace=workers/${{ matrix.worker }}
+        run: npm run deploy --workspace=workers/gateway
 
   # Deploy Tenant Portal (epaper-portal.pages.dev)
   deploy-portal:

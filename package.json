@@ -12,6 +12,8 @@
     "dev:shell": "npm run dev --workspace=frontend/shell",
     "dev:crm": "npm run dev --workspace=frontend/crm",
     "dev:portal": "npm run dev --workspace=frontend/tenant-portal",
+    "dev:support": "npm run dev --workspace=frontend/support",
+    "dev:support-worker": "npm run dev --workspace=workers/support",
     "build:all": "npm run build --workspaces --if-present",
     "lint": "oxlint"
   },

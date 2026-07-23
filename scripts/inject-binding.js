@@ -40,3 +40,4 @@ function inject(file, slug, dbId) {
 
 inject('workers/content/wrangler.jsonc', slug, dbId);
 inject('workers/billing-tenant/wrangler.jsonc', slug, dbId);
+inject('workers/auth/wrangler.jsonc', slug, dbId);

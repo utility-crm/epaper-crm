@@ -6,9 +6,10 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useEffect } from 'react';
-import { ImageIcon, Upload, CheckCircle2, AlertTriangle, Crop } from 'lucide-react';
+import { ImageIcon, Upload, CheckCircle2, AlertTriangle, Crop, Phone } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { ImageCropModal } from '../components/ImageCropModal';
+import { PhoneAuthForm } from '../components/PhoneAuthForm';
 
 interface Props { slug: string; token: string; onSettingsChange?: (s: any) => void; }
 
@@ -58,6 +59,17 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
     youtube: '',
   });
 
+  // Reader sign-in configuration. Defaults mirror the backend: OTP off, email on.
+  const [otpEnabled, setOtpEnabled] = useState(false);
+  const [emailEnabled, setEmailEnabled] = useState(true);
+  const [otpOnly, setOtpOnly] = useState(false);
+
+  // Publisher's own profile (email/phone + verification state).
+  const [profile, setProfile] = useState<{ email: string | null; phone_number: string | null; email_verified: boolean } | null>(null);
+  const [showPhoneForm, setShowPhoneForm] = useState(false);
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
+
   const load = useCallback(async () => {
     const res = await portalApi.getSettings(slug, token);
     if (res.ok && res.data) {
@@ -77,6 +89,13 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
           if (parsed && typeof parsed === 'object') setSocialLinks(prev => ({ ...prev, ...parsed }));
         } catch (_) {}
       }
+      setOtpEnabled((res.data.reader_auth_otp_enabled ?? 0) === 1);
+      setEmailEnabled((res.data.reader_auth_email_enabled ?? 1) === 1);
+      setOtpOnly((res.data.reader_auth_otp_only ?? 0) === 1);
+    }
+    const prof = await portalApi.getProfile(token);
+    if (prof.ok && prof.data) {
+      setProfile({ email: prof.data.email ?? null, phone_number: prof.data.phone_number ?? null, email_verified: !!prof.data.email_verified });
     }
   }, [slug, token]);
 
@@ -118,6 +137,10 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
         theme_id: themeId,
         footer_links: JSON.stringify(footerLinks),
         social_links: JSON.stringify(socialLinks),
+        reader_auth_otp_enabled: otpEnabled ? 1 : 0,
+        reader_auth_email_enabled: emailEnabled ? 1 : 0,
+        // OTP-only is meaningful only when OTP is on; force off otherwise.
+        reader_auth_otp_only: (otpEnabled && otpOnly) ? 1 : 0,
       },
       token
     );
@@ -126,6 +149,16 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
     setSaved(true);
     onSettingsChange?.({ org_name: orgName, theme_id: themeId, logo_url: logoPreview });
     setTimeout(() => setSaved(false), 3000);
+  };
+
+  // Called by PhoneAuthForm once Firebase has verified the number (returns an ID token).
+  const handlePhoneVerified = async (idToken: string) => {
+    setPhoneBusy(true); setPhoneError('');
+    const res = await portalApi.addPhone(idToken, token);
+    setPhoneBusy(false);
+    if (!res.ok) { setPhoneError(res.error?.message ?? 'Failed to add phone number'); return; }
+    setProfile(prev => prev ? { ...prev, phone_number: res.data?.phone_number ?? prev.phone_number } : prev);
+    setShowPhoneForm(false);
   };
 
   const handleDeleteOrganization = async () => {
@@ -149,6 +182,57 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
         <h1 className="font-serif text-3xl font-700 tracking-tight">Settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">Configure your publication's branding for the reader-facing portal.</p>
       </div>
+
+      {/* Your Profile */}
+      <Card>
+        <CardContent className="p-6 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold">Your Profile</h2>
+            <p className="text-sm text-muted-foreground">Your account contact details.</p>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 text-sm">
+            <span className="text-muted-foreground">Email</span>
+            <span className="font-medium flex items-center gap-2">
+              {profile?.email || '—'}
+              {profile?.email && profile.email_verified && (
+                <CheckCircle2 className="h-4 w-4 text-green-600" aria-label="Verified" />
+              )}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 text-sm">
+            <span className="text-muted-foreground">Phone</span>
+            {profile?.phone_number ? (
+              <span className="font-medium flex items-center gap-2">
+                {profile.phone_number}
+                <CheckCircle2 className="h-4 w-4 text-green-600" aria-label="Verified" />
+              </span>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => { setShowPhoneForm(v => !v); setPhoneError(''); }}>
+                <Phone className="h-4 w-4 mr-2" />
+                {showPhoneForm ? 'Cancel' : 'Add phone'}
+              </Button>
+            )}
+          </div>
+
+          {showPhoneForm && !profile?.phone_number && (
+            <div className="rounded-lg border p-4">
+              <p className="text-xs text-muted-foreground mb-3">Verify a mobile number via SMS to add it to your account.</p>
+              {phoneError && (
+                <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500 mb-3">{phoneError}</div>
+              )}
+              <PhoneAuthForm
+                stage="publisher"
+                slug={slug}
+                onVerified={handlePhoneVerified}
+                onCancel={() => setShowPhoneForm(false)}
+              />
+              {phoneBusy && <p className="text-xs text-muted-foreground mt-2">Linking number…</p>}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Logo */}
       <Card>
@@ -245,6 +329,63 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
               </button>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Reader Sign-in methods */}
+      <Card>
+        <CardContent className="p-6 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold">Reader Sign-in</h2>
+            <p className="text-sm text-muted-foreground">Choose how your readers can create accounts and sign in.</p>
+          </div>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-primary"
+              checked={emailEnabled}
+              onChange={e => { setEmailEnabled(e.target.checked); if (!e.target.checked) setOtpOnly(false); }}
+            />
+            <div>
+              <div className="text-sm font-medium">Email &amp; Google</div>
+              <div className="text-xs text-muted-foreground">Email + password sign-up and Google sign-in.</div>
+            </div>
+          </label>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-primary"
+              checked={otpEnabled}
+              onChange={e => { setOtpEnabled(e.target.checked); if (!e.target.checked) setOtpOnly(false); }}
+            />
+            <div>
+              <div className="text-sm font-medium">Mobile OTP (SMS)</div>
+              <div className="text-xs text-muted-foreground">Phone-number verification via SMS one-time code. SMS is billed to your account.</div>
+            </div>
+          </label>
+
+          {otpEnabled && (
+            <label className="flex items-start gap-3 cursor-pointer pl-7">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 accent-primary"
+                checked={otpOnly}
+                onChange={e => setOtpOnly(e.target.checked)}
+              />
+              <div>
+                <div className="text-sm font-medium">OTP-only sign-up</div>
+                <div className="text-xs text-muted-foreground">Ask readers only for name + phone number — no email. Disables the email/Google options above for readers.</div>
+              </div>
+            </label>
+          )}
+
+          {!emailEnabled && !otpEnabled && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
+              At least one sign-in method must be enabled, or readers won't be able to log in.
+            </div>
+          )}
         </CardContent>
       </Card>
 

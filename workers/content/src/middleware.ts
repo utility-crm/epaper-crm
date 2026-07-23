@@ -5,6 +5,11 @@ import { verifyJwt } from './jwt';
 export interface Env {
   CONTROL_DB: D1Database;
   ORG_JWT_SECRET: string;
+  FIREBASE_PROJECT_ID?: string;
+  FIREBASE_CLIENT_EMAIL?: string;
+  FIREBASE_PRIVATE_KEY?: string;
+  FIREBASE_SERVICE_ACCOUNT?: string;
+  [key: string]: unknown;
 }
 
 export async function orgUserAuth(c: Context<{ Bindings: Env; Variables: { tenantId: string; tenantSlug: string; orgRole: OrgUserRole; userId: string } }>, next: Next) {

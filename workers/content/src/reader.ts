@@ -90,6 +90,9 @@ readerRouter.post('/:slug/signup', async (c) => {
   }
   try {
     const db = getTenantDb(c.env, slug);
+    if (!(await readerPasswordAuthEnabled(db))) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'Email sign-up is not enabled for this publication.'), 403);
+    }
     const existing = await db.prepare('SELECT id FROM readers WHERE email = ?').bind(email).first();
     if (existing) return c.json(err(ErrorCode.CONFLICT, 'Email already registered'), 409);
 
@@ -110,6 +113,9 @@ readerRouter.post('/:slug/login', async (c) => {
   if (!email || !password) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing credentials'), 400);
   try {
     const db = getTenantDb(c.env, slug);
+    if (!(await readerPasswordAuthEnabled(db))) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'Email sign-in is not enabled for this publication.'), 403);
+    }
     const reader = await db.prepare('SELECT id, email, password_hash, name FROM readers WHERE email = ?')
       .bind(email).first<{ id: string; email: string; password_hash: string; name: string }>();
     if (!reader || !(await verifyPassword(password, reader.password_hash))) {
@@ -121,6 +127,21 @@ readerRouter.post('/:slug/login', async (c) => {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }
 });
+
+// May a reader use email+password (signup/login) for this tenant? Mirrors the auth
+// worker's server-side policy (reader-auth.ts): password is an email-method credential,
+// so it's allowed only when email auth is enabled AND the tenant is not OTP-only.
+// Defaults to enabled when the config columns are absent (un-migrated tenant). FAILS
+// CLOSED on a read error (D1 down, table missing) — a crafted request must not slip
+// through password auth during OTP-only mode or an unreadable-settings outage.
+// SELECT * so missing flag columns yield undefined -> safe defaults without throwing.
+async function readerPasswordAuthEnabled(db: D1Database): Promise<boolean> {
+  const row = await db.prepare('SELECT * FROM tenant_settings WHERE id = ?')
+    .bind('singleton').first<Record<string, unknown>>();
+  const emailEnabled = ((row?.reader_auth_email_enabled as number | undefined) ?? 1) === 1;
+  const otpOnly = ((row?.reader_auth_otp_only as number | undefined) ?? 0) === 1;
+  return emailEnabled && !otpOnly;
+}
 
 async function signReaderToken(c: any, id: string, slug: string, email: string): Promise<string> {
   const payload: ReaderJwtPayload = { aud: 'reader', sub: id, tenantSlug: slug, email, exp: Math.floor(Date.now() / 1000) + 604800 };

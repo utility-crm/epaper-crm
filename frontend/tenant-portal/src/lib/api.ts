@@ -127,6 +127,10 @@ export const portalApi = {
   verifyDomain: (token: string) => apiFetch<any>(`/api/domain/verify`, { method: 'POST' }, token),
   removeDomain: (token: string) => apiFetch<any>(`/api/domain`, { method: 'DELETE' }, token),
 
+  // publisher self-service profile (auth worker)
+  getProfile: (token: string) => apiFetch<any>(`/api/auth/profile`, {}, token),
+  addPhone: (idToken: string, token: string) => apiFetch<any>(`/api/auth/add-phone`, { method: 'POST', body: JSON.stringify({ idToken }) }, token),
+
   // org settings & branding
   getSettings: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/settings`, {}, token),
   updateSettings: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/settings`, { method: 'PATCH', body: JSON.stringify(body) }, token),

@@ -14,6 +14,7 @@ const RefundPolicyPage = lazy(() => import('./pages/InfoLegalPages').then(m => (
 const DisclaimerPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ default: m.DisclaimerPage })));
 const SignupPage = lazy(() => import('./pages/SignupPage').then(m => ({ default: m.SignupPage })));
 const OrgLoginPage = lazy(() => import('./pages/OrgLoginPage').then(m => ({ default: m.OrgLoginPage })));
+const FirebaseAuthActionPage = lazy(() => import('./pages/FirebaseAuthActionPage').then(m => ({ default: m.FirebaseAuthActionPage })));
 const PaperAdminLoginPage = lazy(() => import('./pages/PaperAdminLoginPage').then(m => ({ default: m.PaperAdminLoginPage })));
 const ProvisioningScreen = lazy(() => import('./pages/ProvisioningScreen').then(m => ({ default: m.ProvisioningScreen })));
 const SuspendedScreen = lazy(() => import('./pages/SuspendedScreen').then(m => ({ default: m.SuspendedScreen })));
@@ -371,6 +372,7 @@ export default function App() {
           <Route path="/signup" element={<SignupPage onSignup={(t, s) => handleAuth(t, s, 'pending')} />} />
           <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
           <Route path="/login" element={<OrgLoginPage onLogin={handleAuth} />} />
+          <Route path="/auth/action" element={<FirebaseAuthActionPage />} />
           <Route path="/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
           <Route path="/read/:slug/admin/*" element={<PaperAdminLoginPage onLogin={(t, s, st) => handleAuth(t, s, st)} expectedSlug={expectedSlug} />} />
           <Route path="*" element={<Navigate to="/" />} />

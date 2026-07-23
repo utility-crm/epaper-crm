@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "epaper-support",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "SUPPORT_DB",
+      "database_name": "epaper-support-db",
+      "database_id": "epaper-support-db"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vectorize": [
+    {
+      "binding": "SUPPORT_KNOWLEDGE_INDEX",
+      "index_name": "epaper-support-knowledge",
+      "remote": true
+    }
+  ]
+}

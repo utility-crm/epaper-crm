@@ -16,8 +16,11 @@ tenantsRouter.patch('/internal/:slug/activate', async (c) => {
     return c.json(ok({ activated: false, reason: 'Tenant is pending deletion' }));
   }
   
-  // Find the pending owner
-  const pendingOwner = await c.env.CONTROL_DB.prepare('SELECT * FROM pending_owners WHERE tenant_id = ?').bind(tenant.id).first<{id: string; name: string; password_hash: string; role: string}>();
+  // Find the pending owner. pending_owners has no `role` column — the owner is always
+  // the owner. It DOES carry the Firebase identity (firebase_uid/phone_number/
+  // email_verified/auth_provider) captured at signup, which must survive activation or
+  // a Google/phone owner is locked out of their tenant once it goes active.
+  const pendingOwner = await c.env.CONTROL_DB.prepare('SELECT * FROM pending_owners WHERE tenant_id = ?').bind(tenant.id).first<{id: string; name: string; password_hash: string | null; firebase_uid: string | null; phone_number: string | null; email_verified: number; auth_provider: string}>();
 
   if (pendingOwner) {
     // Call the content worker to insert the owner into the tenant's new org_users table
@@ -29,7 +32,11 @@ tenantsRouter.patch('/internal/:slug/activate', async (c) => {
         email: tenant.email,
         name: pendingOwner.name,
         password_hash: pendingOwner.password_hash,
-        role: pendingOwner.role || 'owner'
+        role: 'owner',
+        firebase_uid: pendingOwner.firebase_uid,
+        phone_number: pendingOwner.phone_number,
+        email_verified: pendingOwner.email_verified,
+        auth_provider: pendingOwner.auth_provider
       })
     });
 
