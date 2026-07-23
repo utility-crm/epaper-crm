@@ -155,21 +155,28 @@ export async function billTenantSms(
     });
   } catch (e) {
     // Order failed after we reserved the key. Release the reservation so a later run
-    // can retry this cycle, and do NOT advance the marker.
+    // can retry this cycle, and do NOT advance the marker. Log a cleanup failure (the
+    // stale reservation would block the retry) but still propagate the original order
+    // error as the operative failure.
     await env.CONTROL_DB.prepare('DELETE FROM platform_billing_events WHERE razorpay_event_id = ?')
-      .bind(idempotencyKey).run().catch(() => {});
+      .bind(idempotencyKey).run()
+      .catch(delErr => console.error(`[sms-billing] ${tenant.slug}: failed to release reservation for cycle ${monthKey}:`, delErr));
     throw e;
   }
 
-  // Order created — finalize the reserved row with the order id.
-  await env.CONTROL_DB.prepare(
-    'UPDATE platform_billing_events SET payload = ? WHERE razorpay_event_id = ?'
-  ).bind(
-    JSON.stringify({ order_id: order.id, status: 'ordered', sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey }),
-    idempotencyKey
-  ).run();
+  // Order created — finalize the reserved row with the order id AND advance the marker
+  // in one batch, so a crash can't leave the row finalized but the billing window
+  // un-advanced (which would re-count the same SMS next run).
+  await env.CONTROL_DB.batch([
+    env.CONTROL_DB.prepare(
+      'UPDATE platform_billing_events SET payload = ? WHERE razorpay_event_id = ?'
+    ).bind(
+      JSON.stringify({ order_id: order.id, status: 'ordered', sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey }),
+      idempotencyKey
+    ),
+    env.CONTROL_DB.prepare('UPDATE tenants SET sms_last_billed_at = ? WHERE id = ?').bind(nowIso, tenant.id),
+  ]);
 
-  await advanceMarker();
   return `${tenant.slug}: ${count} SMS -> ${amountPaise} paise (order ${order.id}, fx ${usdInr} via ${fxSource})`;
 }
 
