@@ -155,9 +155,9 @@ export const readerApi = {
     }
     return apiFetch<any>(url);
   },
-  getTodayPaper: (slug: string) => apiFetch<any>(`/api/read/${slug}/today`),
+  getTodayPaper: (slug: string) => apiFetch<any>(`/api/read/${slug}/today`, { cache: 'no-store' }),
   getPublicEditions: (slug: string) => apiFetch<any>(`/api/read/${slug}/editions`),
-  getPaper: (slug: string, id: string, token?: string) => apiFetch<any>(`/api/read/${slug}/papers/${id}`, {}, token),
+  getPaper: (slug: string, id: string, token?: string) => apiFetch<any>(`/api/read/${slug}/papers/${id}`, { cache: 'no-store' }, token),
   getClickmasks: (slug: string, id: string) => apiFetch<any>(`/api/read/${slug}/papers/${id}/clickmasks`),
   getPlans: (slug: string) => apiFetch<any>(`/api/read/${slug}/plans`),
   pageUrl: (slug: string, id: string, n: number) => `${API_BASE}/api/read/${slug}/papers/${id}/pages/${n}`,
