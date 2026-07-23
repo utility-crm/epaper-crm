@@ -16,4 +16,7 @@
     "crons": ["7 3 1 * *"]
   }
   // Note: secrets RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and RAZORPAY_WEBHOOK_SECRET should be set
+  // via `wrangler secret put`. Optional: EXCHANGERATE_ACCESS_KEY — access key for
+  // exchangerate.host (the free keyless tier was retired). When unset, the FX lookup is
+  // still attempted and falls back to the configured usd_inr_fallback rate.
 }
