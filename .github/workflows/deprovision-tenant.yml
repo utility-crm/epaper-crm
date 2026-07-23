@@ -36,7 +36,17 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: ./scripts/deprovision.sh ${{ github.event.inputs.tenant_slug }}
-        
+
+      # Strip the tenant's {SLUG}_DB/_R2 bindings from the wrangler configs BEFORE
+      # deploying, so the workers below don't ship with a binding that points at the
+      # now-deleted D1/R2 (which would fail the deploy). Mirrors the provision flow,
+      # which injects bindings before deploy. The later Commit step re-derives the
+      # same edit from origin/main purely to persist it back to git.
+      - name: Remove Bindings
+        env:
+          TENANT_SLUG: ${{ github.event.inputs.tenant_slug }}
+        run: node scripts/remove-binding.js "$TENANT_SLUG"
+
       - name: Deploy Content Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -48,7 +58,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npm run deploy --workspace=workers/billing-tenant
-        
+
+      - name: Deploy Auth Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy --workspace=workers/auth
+
       - name: Commit and Push Wrangler Configs
         run: |
           git config --global user.name "github-actions[bot]"
@@ -57,7 +73,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             node scripts/remove-binding.js ${{ github.event.inputs.tenant_slug }}
-            git add workers/content/wrangler.jsonc workers/billing-tenant/wrangler.jsonc
+            git add workers/content/wrangler.jsonc workers/billing-tenant/wrangler.jsonc workers/auth/wrangler.jsonc
             git commit -m "chore: remove bindings for ${{ github.event.inputs.tenant_slug }}" || break
             if git push origin main; then
               break

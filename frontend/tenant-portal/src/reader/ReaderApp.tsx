@@ -71,7 +71,7 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
   const navigate = useNavigate();
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
-  const [orgSettings, setOrgSettings] = useState<{ org_name: string | null; logo_url: string | null; theme_id?: string } | null>(() => {
+  const [orgSettings, setOrgSettings] = useState<{ org_name: string | null; logo_url: string | null; theme_id?: string; reader_auth_otp_enabled?: number; reader_auth_email_enabled?: number; reader_auth_otp_only?: number } | null>(() => {
     if (typeof window !== 'undefined' && (window as any).__EPAPER_INITIAL_SETTINGS__) {
       return (window as any).__EPAPER_INITIAL_SETTINGS__;
     }

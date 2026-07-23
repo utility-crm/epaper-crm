@@ -3,8 +3,9 @@ import { Env } from './middleware';
 import { ok, err, ErrorCode, OrgUserJwtPayload, TenantRow, PendingOwnerRow } from '@epaper/types';
 import { signJwt } from './jwt';
 import { verifyFirebaseToken, FirebaseIdTokenClaims } from './verifyFirebaseToken';
+import { getTenantDb } from './db';
 
-export const firebaseAuthRouter = new Hono<{ Bindings: Env & { FIREBASE_PROJECT_ID?: string } }>();
+export const firebaseAuthRouter = new Hono<{ Bindings: Env }>();
 
 // Simple in-memory rate limiting map for SMS endpoints (IP -> { count, resetAt })
 const smsRateLimits = new Map<string, { count: number; resetAt: number }>();
@@ -71,12 +72,17 @@ firebaseAuthRouter.post('/verify-org', async (c) => {
   const phone = claims.phone_number;
   const uid = claims.sub;
 
-  // Search tenants table by email or phone
+  // Resolve the tenant by its stored identifier. Signup writes tenants.email =
+  // (verified email || phone number), so a phone-only owner's tenant is keyed by
+  // their phone here. Try the email claim first, then fall back to the phone claim —
+  // the previous `if (email)`-only lookup 404'd every phone-only publisher.
   let tenant: Pick<TenantRow, 'id' | 'slug' | 'email' | 'status' | 'plan'> | null = null;
-  if (email) {
+  for (const key of [email, phone]) {
+    if (!key) continue;
     tenant = await c.env.CONTROL_DB.prepare(
       'SELECT id, slug, email, status, plan FROM tenants WHERE email = ?'
-    ).bind(email).first();
+    ).bind(key).first();
+    if (tenant) break;
   }
 
   if (!tenant) {
@@ -98,24 +104,48 @@ firebaseAuthRouter.post('/verify-org', async (c) => {
       'UPDATE pending_owners SET firebase_uid = ?, email_verified = 1, auth_provider = ? WHERE id = ?'
     ).bind(uid, provider, owner.id).run().catch(() => {});
   } else if (tenant.status === 'active') {
-    // Active tenant: delegate to CONTENT_WORKER internal verification endpoint
+    // Active tenant: verify + link firebase_uid against the tenant's own D1 org_users table directly.
+    // Resolve identity deterministically — firebase_uid is primary; fall back to a verified
+    // email or present phone only when it uniquely maps to one org_user not already bound to a
+    // different uid. (Permissive OR-matching with empty-string binds could link the wrong user.)
+    const linkEmail = email && claims.email_verified ? email : null;
     try {
-      const res = await c.env.CONTENT_WORKER.fetch(
-        new Request(`http://content/internal/${tenant.slug}/verify-firebase-owner`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ claims })
-        })
-      );
-      if (res.ok) {
-        const data = await res.json() as { ok: boolean; data?: { valid: boolean; role: string; userId: string } };
-        if (data.ok && data.data?.valid) {
-          userId = data.data.userId;
-          role = (data.data.role as OrgUserJwtPayload['role']) ?? 'owner';
+      const db = getTenantDb(c.env, tenant.slug);
+      let user = await db.prepare(
+        'SELECT id, email, role, firebase_uid FROM org_users WHERE firebase_uid = ?'
+      ).bind(uid).first<{ id: string; email: string | null; role: string; firebase_uid: string | null }>();
+
+      if (!user) {
+        const candidates: { id: string; email: string | null; role: string; firebase_uid: string | null }[] = [];
+        if (linkEmail) {
+          const r = await db.prepare('SELECT id, email, role, firebase_uid FROM org_users WHERE email = ?')
+            .bind(linkEmail).first<{ id: string; email: string | null; role: string; firebase_uid: string | null }>();
+          if (r) candidates.push(r);
         }
+        if (phone) {
+          const r = await db.prepare('SELECT id, email, role, firebase_uid FROM org_users WHERE phone_number = ?')
+            .bind(phone).first<{ id: string; email: string | null; role: string; firebase_uid: string | null }>();
+          if (r) candidates.push(r);
+        }
+        const distinctIds = new Set(candidates.map((r) => r.id));
+        if (distinctIds.size > 1) {
+          return c.json(err(ErrorCode.CONFLICT, 'Account identifiers conflict. Please contact support.'), 409);
+        }
+        if (candidates.length && candidates[0].firebase_uid && candidates[0].firebase_uid !== uid) {
+          return c.json(err(ErrorCode.CONFLICT, 'This email or phone is linked to a different account.'), 409);
+        }
+        user = candidates[0] ?? null;
+      }
+
+      if (user) {
+        await db.prepare(
+          'UPDATE org_users SET firebase_uid = ?, email_verified = ?, auth_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).bind(uid, claims.email_verified ? 1 : 0, provider, user.id).run();
+        userId = user.id;
+        role = (user.role as OrgUserJwtPayload['role']) ?? 'owner';
       }
     } catch (e) {
-      console.error('Content worker firebase verify failed:', e);
+      console.error(`verify-org tenant DB lookup failed for ${tenant.slug}:`, e);
     }
   }
 

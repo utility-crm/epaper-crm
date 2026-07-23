@@ -4,12 +4,21 @@ import { ok, err, ErrorCode } from '@epaper/types';
 
 export interface Env {
   ADMIN_WORKER: Fetcher;
+  AUTH_WORKER: Fetcher;
   PROVISION_WORKER: Fetcher;
   CONTENT_WORKER: Fetcher;
   BILLING_PLATFORM_WORKER: Fetcher;
   BILLING_TENANT_WORKER: Fetcher;
   ALLOWED_ORIGIN: string;
 }
+
+// Auth-namespace paths that are NOT auth: provisioning-lifecycle endpoints stay on
+// the admin worker (they're coupled to PROVISION_WORKER + tenant lifecycle, not sessions).
+const ADMIN_OWNED_AUTH_PATHS = [
+  '/api/auth/provision-status',
+  '/api/auth/reprovision',
+  '/api/auth/verify-provisioning',
+];
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -32,10 +41,19 @@ app.all('/api/*', async (c) => {
   const path = new URL(c.req.url).pathname;
   let targetWorker: Fetcher | null = null;
   
-  if (path.startsWith('/api/auth') || path.startsWith('/api/tenants') || path.startsWith('/api/audit') || path.startsWith('/api/domain') || path.startsWith('/api/tiers') || path.startsWith('/api/admin/billing')) {
+  const isProvisioningAuthPath = ADMIN_OWNED_AUTH_PATHS.some((p) => path === p || path.startsWith(p + '/'));
+
+  if (path.startsWith('/api/auth') && !isProvisioningAuthPath) {
+    // Credential / token / firebase endpoints live on the isolated auth worker.
+    targetWorker = c.env.AUTH_WORKER;
+  } else if (path.startsWith('/api/auth') || path.startsWith('/api/tenants') || path.startsWith('/api/audit') || path.startsWith('/api/domain') || path.startsWith('/api/tiers') || path.startsWith('/api/admin/')) {
+    // Remaining /api/auth/* here are the provisioning-lifecycle endpoints (admin-owned).
     targetWorker = c.env.ADMIN_WORKER;
   } else if (path.startsWith('/api/provision')) {
     targetWorker = c.env.PROVISION_WORKER;
+  } else if (/^\/api\/read\/[^/]+\/verify-firebase\/?$/.test(path)) {
+    // Reader Firebase token-exchange is auth; all other /api/read stays on content.
+    targetWorker = c.env.AUTH_WORKER;
   } else if (path.startsWith('/api/content') || path.startsWith('/api/read')) {
     targetWorker = c.env.CONTENT_WORKER;
   } else if (path.startsWith('/api/billing/platform')) {

@@ -1,0 +1,42 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "epaper-auth",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "d1_databases": [
+    {
+      "binding": "CONTROL_DB",
+      "database_name": "epaper-control",
+      "database_id": "b0fff5dc-a1b6-4606-a3fc-10324e1b0df1"
+    },
+    {
+      "binding": "GUNJ_UTHI_RANBHERI_F453_DB",
+      "database_name": "epaper-gunj-uthi-ranbheri-f453",
+      "database_id": "8a007a8d-f465-4be9-bdc7-e1658fb5aa82"
+    },
+    {
+      "binding": "TEST_PAPER_9AE6_DB",
+      "database_name": "epaper-test-paper-9ae6",
+      "database_id": "ed6ad84f-acf0-4761-902e-03ad6c1b3631"
+    },
+    {
+      "binding": "SHOP_73BD_DB",
+      "database_name": "epaper-shop-73bd",
+      "database_id": "523bf3ed-150a-4631-bae5-593d15cbff87"
+    }
+  ],
+  "services": [
+    {
+      "binding": "PROVISION_WORKER",
+      "service": "epaper-provision"
+    }
+  ],
+  "vars": {
+    "FIREBASE_PROJECT_ID": "epaperspace"
+  }
+  // Note: secrets ADMIN_JWT_SECRET and ORG_JWT_SECRET must be set via `wrangler secret put`.
+  // Per-tenant {SLUG}_DB bindings above are appended by scripts/inject-binding.js at provision time.
+}

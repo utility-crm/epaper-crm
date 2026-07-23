@@ -10,6 +10,10 @@
       "service": "epaper-admin"
     },
     {
+      "binding": "AUTH_WORKER",
+      "service": "epaper-auth"
+    },
+    {
       "binding": "PROVISION_WORKER",
       "service": "epaper-provision"
     },
