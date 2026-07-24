@@ -79,6 +79,16 @@ jobs:
       - name: Build Tenant Portal
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          # Firebase reader/publisher auth (Google popup + phone OTP). Without these the
+          # bundle builds with an empty apiKey, firebase/lib returns a null `auth`, and
+          # signInWithPopup(null, …) throws "Cannot read properties of null (reading 'app')".
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
         run: npm run build --workspace=frontend/tenant-portal
 
       - name: Deploy to Cloudflare Pages (epaper-portal)

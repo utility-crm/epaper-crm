@@ -73,7 +73,11 @@ export function ReaderAuthDialog({ slug, initialMode = 'login', orgName, logoUrl
   const otpOnly = otpEnabled && (orgSettings?.reader_auth_otp_only ?? 0) === 1;
   // OTP-only hard-disables the email/Google surface regardless of the email flag.
   const showEmail = emailEnabled && !otpOnly;
-  const showGoogle = showEmail; // Google is part of the email/OAuth surface.
+  // Google/phone need a real Firebase app. If the build shipped without VITE_FIREBASE_*
+  // config, `auth` is null — never render a button that would call signInWith*(null, …).
+  const firebaseReady = !!auth;
+  const showGoogle = showEmail && firebaseReady; // Google is part of the email/OAuth surface.
+  const showPhone = otpEnabled && firebaseReady; // Phone OTP needs Firebase (recaptcha + signInWithPhoneNumber).
 
   const [authMethod, setAuthMethod] = useState<'PASSWORD' | 'PHONE'>(otpOnly ? 'PHONE' : 'PASSWORD');
   const [mode, setMode] = useState<'login' | 'signup'>(initialMode);
@@ -196,7 +200,7 @@ export function ReaderAuthDialog({ slug, initialMode = 'login', orgName, logoUrl
           )}
 
           {/* Only offer the method switch when BOTH surfaces are available. */}
-          {otpEnabled && showEmail && (
+          {showPhone && showEmail && (
             <button
               type="button"
               onClick={() => {
@@ -234,7 +238,7 @@ export function ReaderAuthDialog({ slug, initialMode = 'login', orgName, logoUrl
         )}
 
         {authMethod === 'PHONE' || !showEmail ? (
-          otpEnabled ? (
+          showPhone ? (
             <div className="rounded-xl border border-current/10 p-4">
               <PhoneAuthForm
                 stage="reader"
