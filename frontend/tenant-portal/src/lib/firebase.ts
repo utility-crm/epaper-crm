@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { 
   getAuth, 
   GoogleAuthProvider, 
@@ -10,7 +10,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   User,
-  ConfirmationResult
+  ConfirmationResult,
+  Auth
 } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -23,9 +24,16 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || '',
 };
 
-const app = firebaseConfig.apiKey ? (!getApps().length ? initializeApp(firebaseConfig) : getApp()) : null;
-const auth = app ? getAuth(app) : null as any;
-const googleProvider = app ? new GoogleAuthProvider() : null as any;
+const hasValidConfig = Boolean(
+  firebaseConfig.apiKey &&
+  firebaseConfig.authDomain &&
+  firebaseConfig.projectId &&
+  firebaseConfig.appId
+);
+
+const app: FirebaseApp | null = hasValidConfig ? (!getApps().length ? initializeApp(firebaseConfig) : getApp()) : null;
+const auth: Auth | null = app ? getAuth(app) : null;
+const googleProvider: GoogleAuthProvider | null = app ? new GoogleAuthProvider() : null;
 
 export {
   app,

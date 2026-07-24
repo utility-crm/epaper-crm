@@ -114,8 +114,7 @@ profileRouter.post('/add-phone', orgUserAuth, async (c) => {
       // activation may have copied pending_owners -> org_users and deleted the row
       // before this UPDATE landed. A 0-row update means the row is gone; write the
       // phone straight to the now-active org_users row so it isn't silently dropped.
-      // (If activation hasn't created the org_users row yet either, this is a no-op and
-      // the phone was already carried across by migrate-owner from the pending row.)
+      // (If activation hasn't created the org_users row yet either, return a transient conflict.)
       if (!upd.meta.changes) {
         const db = getTenantDb(c.env, c.var.tenantSlug);
         const clashActive = await db.prepare(
@@ -123,9 +122,12 @@ profileRouter.post('/add-phone', orgUserAuth, async (c) => {
         ).bind(phone, uid, c.var.userId).first();
         if (clashActive) return c.json(err(ErrorCode.CONFLICT, conflictMsg), 409);
 
-        await db.prepare(
+        const updateOrg = await db.prepare(
           'UPDATE org_users SET phone_number = ?, firebase_uid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
         ).bind(phone, uid, c.var.userId).run();
+        if (updateOrg.meta.changes === 0) {
+          return c.json(err(ErrorCode.CONFLICT, 'Account migration in progress, please try again.'), 409);
+        }
       }
     }
 

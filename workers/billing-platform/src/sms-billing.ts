@@ -70,12 +70,15 @@ async function fetchUsdInr(fallback: number, accessKey?: string): Promise<{ rate
   return { rate: fallback, source: 'fallback' };
 }
 
-async function razorpayOrder(env: SmsBillingEnv, amountPaise: number, notes: Record<string, string>) {
+async function razorpayOrder(env: SmsBillingEnv, amountPaise: number, notes: Record<string, string>, receipt?: string) {
   const auth = btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`);
+  const body: Record<string, unknown> = { amount: amountPaise, currency: 'INR', notes };
+  if (receipt) body.receipt = receipt;
+
   const res = await fetchWithTimeout('https://api.razorpay.com/v1/orders', {
     method: 'POST',
     headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount: amountPaise, currency: 'INR', notes }),
+    body: JSON.stringify(body),
   }, 8000);
   if (!res.ok) throw new Error(`Razorpay order failed: ${res.status} ${await res.text()}`);
   return await res.json() as { id: string };
@@ -137,7 +140,7 @@ export async function billTenantSms(
   // RESERVE the cycle key BEFORE the external call. The reservation is self-healing:
   //  - Fresh cycle: the INSERT wins and we hold the claim.
   //  - Orphaned 'pending' row (a prior run created an order-less reservation and its
-  //    cleanup DELETE failed): the ON CONFLICT ... DO UPDATE ... WHERE status='pending'
+  //    lease expired): the ON CONFLICT ... DO UPDATE ... WHERE status='pending' AND lease_expires_at < now
   //    RECLAIMS it by overwriting `id` with our token — so a failed cleanup can no
   //    longer block the cycle forever.
   //  - Finalized row ('ordered', or a terminal 'free' row with no status): the WHERE
@@ -145,6 +148,16 @@ export async function billTenantSms(
   // Concurrency stays safe: two sweeps racing the same key both upsert, the last write
   // wins `id`, and only the run whose token survived proceeds to Razorpay.
   const reservationId = crypto.randomUUID();
+  const leaseExpiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const receipt = idempotencyKey.length > 40
+    ? `${idempotencyKey.slice(0, 39 - monthKey.length)}-${monthKey}`
+    : idempotencyKey;
+
+  const payload = JSON.stringify({
+    order_id: null, status: 'pending', sms_count: count, sms_rate_usd: cfg.smsRateUsd,
+    usd_inr: usdInr, fx_source: fxSource, cycle: monthKey, lease_expires_at: leaseExpiresAt
+  });
+
   await env.CONTROL_DB.prepare(
     `INSERT INTO platform_billing_events (id, tenant_id, event_type, razorpay_event_id, amount_paise, payload)
      VALUES (?, ?, ?, ?, ?, ?)
@@ -152,10 +165,10 @@ export async function billTenantSms(
        id = excluded.id,
        amount_paise = excluded.amount_paise,
        payload = excluded.payload
-     WHERE json_extract(platform_billing_events.payload, '$.status') = 'pending'`
+     WHERE json_extract(platform_billing_events.payload, '$.status') = 'pending'
+       AND json_extract(platform_billing_events.payload, '$.lease_expires_at') < ?`
   ).bind(
-    reservationId, tenant.id, 'sms.metered', idempotencyKey, amountPaise,
-    JSON.stringify({ order_id: null, status: 'pending', sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey })
+    reservationId, tenant.id, 'sms.metered', idempotencyKey, amountPaise, payload, nowIso
   ).run();
 
   // Confirm WE hold the claim. If a finalized row already exists, or a concurrent run's
@@ -171,7 +184,7 @@ export async function billTenantSms(
   try {
     order = await razorpayOrder(env, amountPaise, {
       kind: 'sms_metered', slug: tenant.slug, cycle: monthKey, sms_count: String(count),
-    });
+    }, receipt);
   } catch (e) {
     // Order failed after we reserved the key. Best-effort release so the NEXT run can
     // retry immediately; if this DELETE also fails, the row stays 'pending' and a later
