@@ -63,23 +63,27 @@ readerAuthRouter.post('/:slug/verify-firebase', async (c) => {
   // missing), which we FAIL CLOSED on — never fall through and allow a disabled method.
   let otpEnabled: number;
   let emailEnabled: number;
+  let otpOnly: number;
   try {
     const cfg = await db.prepare(
       'SELECT * FROM tenant_settings WHERE id = ?'
     ).bind('singleton').first<Record<string, unknown>>();
     otpEnabled = (cfg?.reader_auth_otp_enabled as number | undefined) ?? 0;
     emailEnabled = (cfg?.reader_auth_email_enabled as number | undefined) ?? 1;
+    otpOnly = (cfg?.reader_auth_otp_only as number | undefined) ?? 0;
   } catch (e) {
     console.error('Reader auth config read failed (rejecting):', e);
     return c.json(err(ErrorCode.INTERNAL_ERROR, 'Sign-in temporarily unavailable. Please try again.'), 503);
   }
 
   // phone token -> OTP method; everything else (password, google.com, …) -> email/Google method.
+  // OTP-only mode disables every email/Google method even while the email flag is set,
+  // matching the password routes (content/reader.ts) and the reader UI.
   const isPhoneMethod = provider === 'phone' || (!!phone && !email);
   if (isPhoneMethod && !otpEnabled) {
     return c.json(err(ErrorCode.FORBIDDEN, 'Phone sign-in is not enabled for this publication.'), 403);
   }
-  if (!isPhoneMethod && !emailEnabled) {
+  if (!isPhoneMethod && (!emailEnabled || otpOnly)) {
     return c.json(err(ErrorCode.FORBIDDEN, 'Email / Google sign-in is not enabled for this publication.'), 403);
   }
 

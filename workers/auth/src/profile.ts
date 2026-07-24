@@ -106,9 +106,27 @@ profileRouter.post('/add-phone', orgUserAuth, async (c) => {
         return c.json(err(ErrorCode.CONFLICT, mismatchMsg), 409);
       }
 
-      await c.env.CONTROL_DB.prepare(
+      const upd = await c.env.CONTROL_DB.prepare(
         'UPDATE pending_owners SET phone_number = ?, firebase_uid = ? WHERE id = ?'
       ).bind(phone, uid, c.var.userId).run();
+
+      // Activation races this handler: loadOwner saw the tenant as still pending, but
+      // activation may have copied pending_owners -> org_users and deleted the row
+      // before this UPDATE landed. A 0-row update means the row is gone; write the
+      // phone straight to the now-active org_users row so it isn't silently dropped.
+      // (If activation hasn't created the org_users row yet either, this is a no-op and
+      // the phone was already carried across by migrate-owner from the pending row.)
+      if (!upd.meta.changes) {
+        const db = getTenantDb(c.env, c.var.tenantSlug);
+        const clashActive = await db.prepare(
+          'SELECT id FROM org_users WHERE (phone_number = ? OR firebase_uid = ?) AND id != ?'
+        ).bind(phone, uid, c.var.userId).first();
+        if (clashActive) return c.json(err(ErrorCode.CONFLICT, conflictMsg), 409);
+
+        await db.prepare(
+          'UPDATE org_users SET phone_number = ?, firebase_uid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).bind(phone, uid, c.var.userId).run();
+      }
     }
 
     return c.json(ok({ phone_number: phone }));

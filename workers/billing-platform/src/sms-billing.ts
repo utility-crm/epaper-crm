@@ -134,17 +134,36 @@ export async function billTenantSms(
     return `${tenant.slug}: ${count} SMS, ${amountPaise} paise (free period, no charge)`;
   }
 
-  // RESERVE the cycle key BEFORE the external call. INSERT OR IGNORE on the UNIQUE
-  // razorpay_event_id means exactly one concurrent sweep wins the insert; the losers
-  // see 0 changes and skip without ever hitting Razorpay. This closes the race where
-  // two sweeps could both create orders and orphan one of them.
-  const reserve = await env.CONTROL_DB.prepare(
-    'INSERT OR IGNORE INTO platform_billing_events (id, tenant_id, event_type, razorpay_event_id, amount_paise, payload) VALUES (?, ?, ?, ?, ?, ?)'
+  // RESERVE the cycle key BEFORE the external call. The reservation is self-healing:
+  //  - Fresh cycle: the INSERT wins and we hold the claim.
+  //  - Orphaned 'pending' row (a prior run created an order-less reservation and its
+  //    cleanup DELETE failed): the ON CONFLICT ... DO UPDATE ... WHERE status='pending'
+  //    RECLAIMS it by overwriting `id` with our token — so a failed cleanup can no
+  //    longer block the cycle forever.
+  //  - Finalized row ('ordered', or a terminal 'free' row with no status): the WHERE
+  //    fails, nothing is written, and the ownership check below sends us to skip.
+  // Concurrency stays safe: two sweeps racing the same key both upsert, the last write
+  // wins `id`, and only the run whose token survived proceeds to Razorpay.
+  const reservationId = crypto.randomUUID();
+  await env.CONTROL_DB.prepare(
+    `INSERT INTO platform_billing_events (id, tenant_id, event_type, razorpay_event_id, amount_paise, payload)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(razorpay_event_id) DO UPDATE SET
+       id = excluded.id,
+       amount_paise = excluded.amount_paise,
+       payload = excluded.payload
+     WHERE json_extract(platform_billing_events.payload, '$.status') = 'pending'`
   ).bind(
-    crypto.randomUUID(), tenant.id, 'sms.metered', idempotencyKey, amountPaise,
+    reservationId, tenant.id, 'sms.metered', idempotencyKey, amountPaise,
     JSON.stringify({ order_id: null, status: 'pending', sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey })
   ).run();
-  if (!reserve.meta.changes) {
+
+  // Confirm WE hold the claim. If a finalized row already exists, or a concurrent run's
+  // token overwrote ours, the stored id won't match — skip without hitting Razorpay.
+  const claim = await env.CONTROL_DB.prepare(
+    'SELECT id FROM platform_billing_events WHERE razorpay_event_id = ?'
+  ).bind(idempotencyKey).first<{ id: string }>();
+  if (claim?.id !== reservationId) {
     return `${tenant.slug}: cycle ${monthKey} already billed/reserved, skipped`;
   }
 
@@ -154,13 +173,13 @@ export async function billTenantSms(
       kind: 'sms_metered', slug: tenant.slug, cycle: monthKey, sms_count: String(count),
     });
   } catch (e) {
-    // Order failed after we reserved the key. Release the reservation so a later run
-    // can retry this cycle, and do NOT advance the marker. Log a cleanup failure (the
-    // stale reservation would block the retry) but still propagate the original order
-    // error as the operative failure.
-    await env.CONTROL_DB.prepare('DELETE FROM platform_billing_events WHERE razorpay_event_id = ?')
-      .bind(idempotencyKey).run()
-      .catch(delErr => console.error(`[sms-billing] ${tenant.slug}: failed to release reservation for cycle ${monthKey}:`, delErr));
+    // Order failed after we reserved the key. Best-effort release so the NEXT run can
+    // retry immediately; if this DELETE also fails, the row stays 'pending' and a later
+    // sweep reclaims it via the upsert above — the cycle is never permanently blocked.
+    // Scope the delete to OUR reservation id so a concurrent reclaim isn't clobbered.
+    await env.CONTROL_DB.prepare('DELETE FROM platform_billing_events WHERE razorpay_event_id = ? AND id = ?')
+      .bind(idempotencyKey, reservationId).run()
+      .catch(delErr => console.error(`[sms-billing] ${tenant.slug}: failed to release reservation for cycle ${monthKey} (will be reclaimed next sweep):`, delErr));
     throw e;
   }
 
