@@ -123,7 +123,7 @@ readerAuthRouter.post('/:slug/verify-firebase', async (c) => {
         let survivor = distinct[0];
         let loser = distinct[1];
         const activeFor = async (rid: string) => !!(await db.prepare(
-          "SELECT id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active' AND current_end > CURRENT_TIMESTAMP LIMIT 1"
+          "SELECT id FROM reader_subscriptions WHERE reader_id = ? AND status = 'active' AND datetime(substr(current_end, 1, 19)) > CURRENT_TIMESTAMP LIMIT 1"
         ).bind(rid).first());
         const aActive = await activeFor(survivor.id);
         const bActive = await activeFor(loser.id);
