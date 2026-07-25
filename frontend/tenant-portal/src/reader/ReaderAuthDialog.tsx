@@ -128,6 +128,7 @@ export function ReaderAuthDialog({ slug, initialMode = 'login', orgName, logoUrl
 
   const handleGoogleAuth = async () => {
     setError('');
+    if (!auth) { setError('Google sign-in is not available. Please use email or mobile.'); return; }
     setBusy(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
