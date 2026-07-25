@@ -85,7 +85,20 @@ jobs:
 
           for f in $(ls migrations/control/*.sql | sort); do
             echo "Applying $f to epaper-control..."
-            npx wrangler d1 execute epaper-control --remote --file="$f"
+            # No migration ledger: every file re-applies each deploy. CREATE ... IF NOT
+            # EXISTS no-ops, but a plain CREATE / ALTER ADD COLUMN throws once already
+            # applied. Skip those "already applied" errors; fail on anything else.
+            if APPLY_OUT=$(npx wrangler d1 execute epaper-control --remote --file="$f" 2>&1); then
+              echo "$APPLY_OUT"
+            else
+              if echo "$APPLY_OUT" | grep -qiE "duplicate column name|already exists"; then
+                echo "  [SKIP] $f already applied to epaper-control (idempotent re-run)"
+                continue
+              fi
+              echo "$APPLY_OUT"
+              echo "  [FAIL] Error applying $f to epaper-control"
+              exit 1
+            fi
           done
 
   migrate-tenants:
