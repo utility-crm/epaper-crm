@@ -3,8 +3,9 @@ import { getTenantDb, getTenantBucket } from './db';
 import { ok, err, ErrorCode, ReaderJwtPayload } from '@epaper/types';
 import { signJwt, verifyJwt } from './jwt';
 import { hashPassword, verifyPassword } from './password';
+import { sendEmail, escapeHtml } from './email';
 
-type ReaderEnv = { ORG_JWT_SECRET: string; PUBLIC_API_BASE?: string } & Record<string, unknown>;
+type ReaderEnv = { ORG_JWT_SECRET: string; PUBLIC_API_BASE?: string; RESEND_API_KEY?: string; RESEND_FROM?: string } & Record<string, unknown>;
 
 // Public reader-facing API. Mounted OUTSIDE the orgUserAuth guard: free content and
 // signup/login must work without a staff token. Premium pages are gated per-request.
@@ -103,12 +104,31 @@ readerRouter.post('/:slug/signup', async (c) => {
     const existing = await db.prepare('SELECT id FROM readers WHERE email = ?').bind(email).first();
     if (existing) return c.json(err(ErrorCode.CONFLICT, 'Email already registered'), 409);
 
+    // Verification email required — fail before creating the reader if unconfigured.
+    if (!c.env.PUBLIC_API_BASE) {
+      return c.json(err(ErrorCode.INTERNAL_ERROR, 'Server misconfiguration: PUBLIC_API_BASE not set'), 500);
+    }
+
     const id = crypto.randomUUID();
     await db.prepare('INSERT INTO readers (id, email, password_hash, name) VALUES (?, ?, ?, ?)')
       .bind(id, email, await hashPassword(password), name).run();
 
+    const pubName = (await db.prepare('SELECT org_name FROM tenant_settings WHERE id = ?').bind('singleton').first<{ org_name: string }>())?.org_name ?? slug;
+    const verifyExp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+    const verifyToken = await signJwt({ sub: id, aud: 'reader-verify', email, tenantSlug: slug, exp: verifyExp }, c.env.ORG_JWT_SECRET);
+    const verifyUrl = `${c.env.PUBLIC_API_BASE}/api/read/${slug}/verify-email?token=${verifyToken}`;
+    c.executionCtx.waitUntil(sendEmail(
+      (c.env as any).RESEND_API_KEY,
+      (c.env as any).RESEND_FROM,
+      {
+        to: email,
+        subject: `Verify your email — ${pubName}`,
+        html: `<p>Hi ${escapeHtml(name)},</p><p>Please verify your email to enable subscription payments: <a href="${verifyUrl}">${verifyUrl}</a></p><p>This link expires in 7 days.</p>`,
+      },
+    ));
+
     const token = await signReaderToken(c, id, slug, email);
-    return c.json(ok({ token, reader: { id, email, name } }), 201);
+    return c.json(ok({ token, reader: { id, email, name }, email_verified: false }), 201);
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }
@@ -130,6 +150,25 @@ readerRouter.post('/:slug/login', async (c) => {
     }
     const token = await signReaderToken(c, reader.id, slug, reader.email);
     return c.json(ok({ token, reader: { id: reader.id, email: reader.email, name: reader.name } }));
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+});
+
+readerRouter.get('/:slug/verify-email', async (c) => {
+  const slug = c.req.param('slug');
+  const token = c.req.query('token');
+  if (!token) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing token'), 400);
+  try {
+    const payload = await verifyJwt(token, c.env.ORG_JWT_SECRET);
+    if (!payload || payload.aud !== 'reader-verify' || payload.tenantSlug !== slug || typeof payload.sub !== 'string') {
+      return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid or expired verification link'), 401);
+    }
+    const db = getTenantDb(c.env, slug);
+    // Pre-0011 tenants may lack email_verified; add it (idempotent) before the UPDATE.
+    await db.prepare('ALTER TABLE readers ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
+    await db.prepare('UPDATE readers SET email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(payload.sub).run();
+    return c.html('<p>Email verified! You can now close this tab and subscribe.</p>');
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }
