@@ -280,6 +280,10 @@ app.post('/api/billing/tenant/:slug/reader/subscribe', async (c) => {
 
   try {
     const db = getTenantDb(c.env, slug);
+    const readerRow = await db.prepare('SELECT email_verified FROM readers WHERE id = ?').bind(reader.sub).first<{ email_verified: number }>();
+    if (readerRow && !readerRow.email_verified) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'Please verify your email before subscribing.'), 403);
+    }
     await ensureBillingColumns(db);
     const plan = await db.prepare(
       'SELECT id, tier_id, name, interval, price_paise, tax_percentage, offer_pct, razorpay_plan_id FROM plans WHERE id = ? AND active = 1'
