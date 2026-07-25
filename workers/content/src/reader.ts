@@ -92,24 +92,30 @@ async function verifyPageToken(secret: string, paperId: string, pageNo: number, 
 
 // Per-IP signup throttle backed by D1. Caps verification-email sends per IP in a
 // rolling window so the public signup route can't relay branded mail to arbitrary
-// addresses. Fails OPEN on a storage error — throttling must not break real signups.
+// addresses. Schema + indexes live in migration 0012; expired rows are swept by the
+// content worker's scheduled handler. This request path is limited to one atomic
+// insert-if-under-limit statement, so concurrent requests for the same IP can't both
+// pass the cap. Fails OPEN on a storage error — throttling must not break real signups.
 const SIGNUP_MAX_PER_WINDOW = 5;
 const SIGNUP_WINDOW_SEC = 60 * 60;
 async function allowSignup(db: D1Database, ip: string): Promise<boolean> {
   try {
-    await db.prepare(
-      'CREATE TABLE IF NOT EXISTS signup_throttle (ip TEXT NOT NULL, ts INTEGER NOT NULL)'
-    ).run();
     const now = Math.floor(Date.now() / 1000);
     const cutoff = now - SIGNUP_WINDOW_SEC;
-    await db.prepare('DELETE FROM signup_throttle WHERE ts < ?').bind(cutoff).run();
-    const row = await db.prepare('SELECT COUNT(*) AS n FROM signup_throttle WHERE ip = ? AND ts >= ?')
-      .bind(ip, cutoff).first<{ n: number }>();
-    if ((row?.n ?? 0) >= SIGNUP_MAX_PER_WINDOW) return false;
-    await db.prepare('INSERT INTO signup_throttle (ip, ts) VALUES (?, ?)').bind(ip, now).run();
+    // Single atomic statement: insert only while this IP is under the cap within the
+    // window. SQLite runs it as one statement, so no COUNT/INSERT race. changes===0
+    // means the cap was already reached (row not inserted) → deny.
+    const res = await db.prepare(
+      `INSERT INTO signup_throttle (ip, ts)
+       SELECT ?, ?
+       WHERE (SELECT COUNT(*) FROM signup_throttle WHERE ip = ? AND ts >= ?) < ?`
+    ).bind(ip, now, ip, cutoff, SIGNUP_MAX_PER_WINDOW).run();
+    return (res.meta?.changes ?? 0) > 0;
+  } catch (e) {
+    // Fail open, but surface it: a persistent D1 error silently disables the relay
+    // guard. No IP logged. Wire to Analytics Engine / alerting if one is added.
+    console.error('[signup-throttle] D1 error, failing open:', e instanceof Error ? e.name : 'unknown');
     return true;
-  } catch {
-    return true; // fail open
   }
 }
 

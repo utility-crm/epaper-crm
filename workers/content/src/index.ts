@@ -113,6 +113,9 @@ export default {
           try {
             const db = getTenantDb(env, t.slug);
             await db.prepare("UPDATE epapers SET status = 'published' WHERE status = 'draft' AND publish_type = 'scheduled' AND datetime(scheduled_at) <= datetime('now')").run();
+            // Sweep expired signup-throttle rows (1h window) so the table stays bounded
+            // without the request path doing cleanup.
+            await db.prepare("DELETE FROM signup_throttle WHERE ts < (unixepoch() - 3600)").run();
           } catch (e) {
             console.error(`Failed to run scheduled publish for ${t.slug}`, e);
           }
