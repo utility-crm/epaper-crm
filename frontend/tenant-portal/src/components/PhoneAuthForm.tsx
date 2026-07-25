@@ -28,6 +28,7 @@ export const PhoneAuthForm: React.FC<PhoneAuthFormProps> = ({
 
   // Initialize invisible reCAPTCHA only once guarded by ref
   useEffect(() => {
+    if (!auth) return; // Firebase not configured — mobile OTP unavailable
     if (!recaptchaVerifierRef.current && recaptchaContainerRef.current) {
       try {
         recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
@@ -82,6 +83,11 @@ export const PhoneAuthForm: React.FC<PhoneAuthFormProps> = ({
     const e164Regex = /^\+[1-9]\d{9,14}$/;
     if (!e164Regex.test(phone.trim())) {
       setError('Please enter a valid phone number with country code (e.g. +919876543210).');
+      return;
+    }
+
+    if (!auth) {
+      setError('Mobile sign-in is not available. Please use email or Google.');
       return;
     }
 
