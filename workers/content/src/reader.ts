@@ -90,6 +90,35 @@ async function verifyPageToken(secret: string, paperId: string, pageNo: number, 
 
 // --- Reader accounts ---
 
+// Per-IP signup throttle backed by D1. Caps verification-email sends per IP in a
+// rolling window so the public signup route can't relay branded mail to arbitrary
+// addresses. Schema + indexes live in migration 0012; expired rows are swept by the
+// content worker's scheduled handler. This request path is limited to one atomic
+// insert-if-under-limit statement, so concurrent requests for the same IP can't both
+// pass the cap. Fails OPEN on a storage error — throttling must not break real signups.
+const SIGNUP_MAX_PER_WINDOW = 5;
+const SIGNUP_WINDOW_SEC = 60 * 60;
+async function allowSignup(db: D1Database, ip: string): Promise<boolean> {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const cutoff = now - SIGNUP_WINDOW_SEC;
+    // Single atomic statement: insert only while this IP is under the cap within the
+    // window. SQLite runs it as one statement, so no COUNT/INSERT race. changes===0
+    // means the cap was already reached (row not inserted) → deny.
+    const res = await db.prepare(
+      `INSERT INTO signup_throttle (ip, ts)
+       SELECT ?, ?
+       WHERE (SELECT COUNT(*) FROM signup_throttle WHERE ip = ? AND ts >= ?) < ?`
+    ).bind(ip, now, ip, cutoff, SIGNUP_MAX_PER_WINDOW).run();
+    return (res.meta?.changes ?? 0) > 0;
+  } catch (e) {
+    // Fail open, but surface it: a persistent D1 error silently disables the relay
+    // guard. No IP logged. Wire to Analytics Engine / alerting if one is added.
+    console.error('[signup-throttle] D1 error, failing open:', e instanceof Error ? e.name : 'unknown');
+    return true;
+  }
+}
+
 readerRouter.post('/:slug/signup', async (c) => {
   const slug = c.req.param('slug');
   const { email, password, name } = await c.req.json();
@@ -101,6 +130,14 @@ readerRouter.post('/:slug/signup', async (c) => {
     if (!(await readerPasswordAuthEnabled(db))) {
       return c.json(err(ErrorCode.FORBIDDEN, 'Email sign-up is not enabled for this publication.'), 403);
     }
+
+    // Throttle the public signup relay: cap verification emails per IP per hour so
+    // it can't be used to spam arbitrary third-party addresses.
+    const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+    if (!(await allowSignup(db, ip))) {
+      return c.json(err(ErrorCode.RATE_LIMITED, 'Too many sign-up attempts. Please try again later.'), 429);
+    }
+
     const existing = await db.prepare('SELECT id FROM readers WHERE email = ?').bind(email).first();
     if (existing) return c.json(err(ErrorCode.CONFLICT, 'Email already registered'), 409);
 
