@@ -151,7 +151,19 @@ jobs:
                 *0003_*) echo "Skipping legacy migration $f"; continue ;;
               esac
               echo "  -> Applying $f to $DB_NAME..."
-              if ! npx wrangler d1 execute "$DB_NAME" --remote --file="$f"; then
+              # No per-DB migration ledger: every file is re-applied on each deploy.
+              # CREATE TABLE/INDEX IF NOT EXISTS no-op safely, but ALTER TABLE ADD COLUMN
+              # is not idempotent and throws once its migration has already run on a DB.
+              # Treat those "already applied" errors as a skip; fail on anything else.
+              # ponytail: no ledger, add a schema_migrations table if re-running all files each deploy gets slow.
+              if APPLY_OUT=$(npx wrangler d1 execute "$DB_NAME" --remote --file="$f" 2>&1); then
+                echo "$APPLY_OUT"
+              else
+                if echo "$APPLY_OUT" | grep -qiE "duplicate column name|already exists"; then
+                  echo "  [SKIP] $f already applied to $DB_NAME (idempotent re-run)"
+                  continue
+                fi
+                echo "$APPLY_OUT"
                 echo "  [FAIL] Error applying $f to $DB_NAME"
                 TENANT_FAILED=true
                 break
