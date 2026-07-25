@@ -31,7 +31,7 @@ async function hasActiveSub(db: D1Database, readerId: string, tierId: string | n
   }
   const row = await db.prepare(
     `SELECT id FROM reader_subscriptions
-     WHERE reader_id = ? AND tier_id = ? AND status = 'active' AND datetime(current_end) > CURRENT_TIMESTAMP
+     WHERE reader_id = ? AND tier_id = ? AND status = 'active' AND datetime(substr(current_end, 1, 19)) > CURRENT_TIMESTAMP
      LIMIT 1`
   ).bind(readerId, tierId).first();
   return !!row;
