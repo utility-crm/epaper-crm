@@ -280,8 +280,11 @@ app.post('/api/billing/tenant/:slug/reader/subscribe', async (c) => {
 
   try {
     const db = getTenantDb(c.env, slug);
+    // Pre-0011 tenants may lack email_verified; add it (idempotent) before the check.
+    await db.prepare('ALTER TABLE readers ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
     const readerRow = await db.prepare('SELECT email_verified FROM readers WHERE id = ?').bind(reader.sub).first<{ email_verified: number }>();
-    if (readerRow && !readerRow.email_verified) {
+    // Fail closed: reject if the reader row is missing OR the email is unverified.
+    if (!readerRow || !readerRow.email_verified) {
       return c.json(err(ErrorCode.FORBIDDEN, 'Please verify your email before subscribing.'), 403);
     }
     await ensureBillingColumns(db);

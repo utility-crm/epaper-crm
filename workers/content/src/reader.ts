@@ -3,7 +3,7 @@ import { getTenantDb, getTenantBucket } from './db';
 import { ok, err, ErrorCode, ReaderJwtPayload } from '@epaper/types';
 import { signJwt, verifyJwt } from './jwt';
 import { hashPassword, verifyPassword } from './password';
-import { sendEmail } from './email';
+import { sendEmail, escapeHtml } from './email';
 
 type ReaderEnv = { ORG_JWT_SECRET: string; PUBLIC_API_BASE?: string; RESEND_API_KEY?: string; RESEND_FROM?: string } & Record<string, unknown>;
 
@@ -109,17 +109,21 @@ readerRouter.post('/:slug/signup', async (c) => {
       .bind(id, email, await hashPassword(password), name).run();
 
     // Best-effort verification email — never blocks signup.
-    const pubName = (await db.prepare('SELECT name FROM tenant_settings WHERE id = 1').first<{ name: string }>())?.name ?? slug;
-    const verifyExp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-    const verifyToken = await signJwt({ sub: id, aud: 'reader-verify', email, tenantSlug: slug, exp: verifyExp }, c.env.ORG_JWT_SECRET);
-    const verifyUrl = `${c.env.PUBLIC_API_BASE ?? ''}/api/read/${slug}/verify-email?token=${verifyToken}`;
-    await sendEmail(
-      (c.env as any).RESEND_API_KEY,
-      (c.env as any).RESEND_FROM,
-      email,
-      `Verify your email — ${pubName}`,
-      `<p>Hi ${name},</p><p>Please verify your email to enable subscription payments: <a href="${verifyUrl}">${verifyUrl}</a></p><p>This link expires in 7 days.</p>`,
-    );
+    if (c.env.PUBLIC_API_BASE) {
+      const pubName = (await db.prepare('SELECT name FROM tenant_settings WHERE id = ?').bind('singleton').first<{ name: string }>())?.name ?? slug;
+      const verifyExp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+      const verifyToken = await signJwt({ sub: id, aud: 'reader-verify', email, tenantSlug: slug, exp: verifyExp }, c.env.ORG_JWT_SECRET);
+      const verifyUrl = `${c.env.PUBLIC_API_BASE}/api/read/${slug}/verify-email?token=${verifyToken}`;
+      c.executionCtx.waitUntil(sendEmail(
+        (c.env as any).RESEND_API_KEY,
+        (c.env as any).RESEND_FROM,
+        {
+          to: email,
+          subject: `Verify your email — ${escapeHtml(pubName)}`,
+          html: `<p>Hi ${escapeHtml(name)},</p><p>Please verify your email to enable subscription payments: <a href="${verifyUrl}">${verifyUrl}</a></p><p>This link expires in 7 days.</p>`,
+        },
+      ));
+    }
 
     const token = await signReaderToken(c, id, slug, email);
     return c.json(ok({ token, reader: { id, email, name }, email_verified: false }), 201);
