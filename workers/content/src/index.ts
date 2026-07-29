@@ -116,6 +116,8 @@ export default {
             // Sweep expired signup-throttle rows (1h window) so the table stays bounded
             // without the request path doing cleanup.
             await db.prepare("DELETE FROM signup_throttle WHERE ts < (unixepoch() - 3600)").run();
+            // Sweep consumed/expired reader auth tokens so the table stays bounded.
+            await db.prepare("DELETE FROM auth_tokens WHERE consumed_at IS NOT NULL OR datetime(expires_at) < datetime('now')").run().catch(() => {});
           } catch (e) {
             console.error(`Failed to run scheduled publish for ${t.slug}`, e);
           }

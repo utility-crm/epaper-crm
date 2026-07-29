@@ -78,8 +78,9 @@ export function AuthResetPage() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">New Password</label>
+                <label htmlFor="new-password" className="block text-xs font-semibold text-slate-700 mb-1.5">New Password</label>
                 <input
+                  id="new-password"
                   type="password"
                   required
                   value={password}
@@ -90,8 +91,9 @@ export function AuthResetPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Confirm Password</label>
+                <label htmlFor="confirm-password" className="block text-xs font-semibold text-slate-700 mb-1.5">Confirm Password</label>
                 <input
+                  id="confirm-password"
                   type="password"
                   required
                   value={confirm}

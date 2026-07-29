@@ -94,10 +94,13 @@ export async function sendSignupVerification(env: Env, tenant: TenantLite, email
 }
 
 verifyEmailRouter.post('/verify-email/send', async (c) => {
-  const { email } = await c.req.json().catch(() => ({ email: undefined }));
-  if (!email || typeof email !== 'string') {
+  const raw = await c.req.json().catch(() => ({ email: undefined }));
+  if (!raw.email || typeof raw.email !== 'string') {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Email required'), 400);
   }
+  // Canonicalize once: tenants/owners are stored lowercased (Firebase claims), so a
+  // casing variant must share the throttle key and match the stored records.
+  const email = raw.email.trim().toLowerCase();
 
   // Throttled callers get the same generic answer as everyone else — a distinct
   // "too many requests" reply would itself confirm the address is worth retrying.
@@ -136,10 +139,11 @@ verifyEmailRouter.post('/verify-email/confirm', async (c) => {
 });
 
 verifyEmailRouter.post('/password-reset/request', async (c) => {
-  const { email } = await c.req.json().catch(() => ({ email: undefined }));
-  if (!email || typeof email !== 'string') {
+  const raw = await c.req.json().catch(() => ({ email: undefined }));
+  if (!raw.email || typeof raw.email !== 'string') {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Email required'), 400);
   }
+  const email = raw.email.trim().toLowerCase();
 
   if (allowSend(`reset:${email}`)) {
     const tenant = await findTenant(c.env, email);

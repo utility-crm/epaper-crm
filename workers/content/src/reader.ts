@@ -151,11 +151,6 @@ readerRouter.post('/:slug/signup', async (c) => {
     const existing = await db.prepare('SELECT id FROM readers WHERE email = ?').bind(email).first();
     if (existing) return c.json(err(ErrorCode.CONFLICT, 'Email already registered'), 409);
 
-    // Verification email required — fail before creating the reader if unconfigured.
-    if (!c.env.PUBLIC_API_BASE) {
-      return c.json(err(ErrorCode.INTERNAL_ERROR, 'Server misconfiguration: PUBLIC_API_BASE not set'), 500);
-    }
-
     const id = crypto.randomUUID();
     await db.prepare('INSERT INTO readers (id, email, password_hash, name) VALUES (?, ?, ?, ?)')
       .bind(id, email, await hashPassword(password), name).run();
@@ -191,25 +186,6 @@ readerRouter.post('/:slug/login', async (c) => {
     }
     const token = await signReaderToken(c, reader.id, slug, reader.email);
     return c.json(ok({ token, reader: { id: reader.id, email: reader.email, name: reader.name } }));
-  } catch {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
-  }
-});
-
-readerRouter.get('/:slug/verify-email', async (c) => {
-  const slug = c.req.param('slug');
-  const token = c.req.query('token');
-  if (!token) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing token'), 400);
-  try {
-    const payload = await verifyJwt(token, c.env.ORG_JWT_SECRET);
-    if (!payload || payload.aud !== 'reader-verify' || payload.tenantSlug !== slug || typeof payload.sub !== 'string') {
-      return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid or expired verification link'), 401);
-    }
-    const db = getTenantDb(c.env, slug);
-    // Pre-0011 tenants may lack email_verified; add it (idempotent) before the UPDATE.
-    await db.prepare('ALTER TABLE readers ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
-    await db.prepare('UPDATE readers SET email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(payload.sub).run();
-    return c.html('<p>Email verified! You can now close this tab and subscribe.</p>');
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }
@@ -344,9 +320,13 @@ readerRouter.post('/:slug/password-reset/request', async (c) => {
     const row = await db.prepare('SELECT id, password_hash FROM readers WHERE email = ?')
       .bind(email).first<{ id: string; password_hash: string | null }>();
     // No stored password means a Google/phone reader: nothing to reset, and a reset
-    // link would only confuse them.
+    // link would only confuse them. Mail in the background so response time is identical
+    // whether or not an account exists — an awaited send would be a timing oracle.
     if (row?.password_hash) {
-      await mailReaderToken(c.env, db, slug, row.id, email, 'password_reset');
+      c.executionCtx?.waitUntil(
+        mailReaderToken(c.env, db, slug, row.id, email, 'password_reset')
+          .catch((e) => console.error('auth-mail: reader password-reset send failed:', e))
+      );
     }
   }
 

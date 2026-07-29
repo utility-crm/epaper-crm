@@ -183,9 +183,17 @@ export async function billTenantSms(
     }
     // Persist the order id onto the still-pending reservation NOW, before advancing the
     // marker. If the finalize batch below then fails, a reclaim finds this order_id and
-    // reuses it instead of creating a duplicate for the same SMS usage.
-    await env.CONTROL_DB.prepare('UPDATE platform_billing_events SET payload = ? WHERE razorpay_event_id = ?')
-      .bind(JSON.stringify({ ...basePayload, order_id: order.id, status: 'pending' }), idempotencyKey).run();
+    // reuses it instead of creating a duplicate for the same SMS usage. amount_paise is
+    // rewritten too so the column tracks the amount actually ordered (rate/fx may have
+    // moved since the original reserve).
+    const persisted = await env.CONTROL_DB.prepare('UPDATE platform_billing_events SET amount_paise = ?, payload = ? WHERE razorpay_event_id = ?')
+      .bind(amountPaise, JSON.stringify({ ...basePayload, order_id: order.id, status: 'pending' }), idempotencyKey).run();
+    // The reservation row must still exist before we finalize and advance the marker.
+    // If it vanished (0 rows), abort WITHOUT advancing so the cycle is retried next run
+    // rather than silently skipped (which would lose the charge for this SMS usage).
+    if (!persisted.meta.changes) {
+      throw new Error(`${tenant.slug}: reservation row missing for cycle ${monthKey}, aborting before marker advance`);
+    }
   }
 
   // Finalize the reserved row with the order id AND advance the marker in one batch,
@@ -193,8 +201,9 @@ export async function billTenantSms(
   // would re-count the same SMS next run).
   await env.CONTROL_DB.batch([
     env.CONTROL_DB.prepare(
-      'UPDATE platform_billing_events SET payload = ? WHERE razorpay_event_id = ?'
+      'UPDATE platform_billing_events SET amount_paise = ?, payload = ? WHERE razorpay_event_id = ?'
     ).bind(
+      amountPaise,
       JSON.stringify({ ...basePayload, order_id: order.id, status: 'ordered' }),
       idempotencyKey
     ),

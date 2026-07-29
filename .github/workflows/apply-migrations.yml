@@ -85,7 +85,20 @@ jobs:
 
           for f in $(ls migrations/control/*.sql | sort); do
             echo "Applying $f to epaper-control..."
-            npx wrangler d1 execute epaper-control --remote --file="$f"
+            # No migration ledger: every file re-applies each deploy. CREATE ... IF NOT
+            # EXISTS no-ops, but a plain CREATE / ALTER ADD COLUMN throws once already
+            # applied. Skip those "already applied" errors; fail on anything else.
+            if APPLY_OUT=$(npx wrangler d1 execute epaper-control --remote --file="$f" 2>&1); then
+              echo "$APPLY_OUT"
+            else
+              if echo "$APPLY_OUT" | grep -qiE "duplicate column name|already exists"; then
+                echo "  [SKIP] $f already applied to epaper-control (idempotent re-run)"
+                continue
+              fi
+              echo "$APPLY_OUT"
+              echo "  [FAIL] Error applying $f to epaper-control"
+              exit 1
+            fi
           done
 
   migrate-tenants:
@@ -151,7 +164,15 @@ jobs:
                 *0003_*) echo "Skipping legacy migration $f"; continue ;;
               esac
               echo "  -> Applying $f to $DB_NAME..."
-              if ! npx wrangler d1 execute "$DB_NAME" --remote --file="$f"; then
+              # Same "already applied" tolerance as the control loop above: no ledger
+              # here either, so a re-run must not fail on a migration that already landed.
+              if APPLY_OUT=$(npx wrangler d1 execute "$DB_NAME" --remote --file="$f" 2>&1); then
+                echo "$APPLY_OUT"
+              elif echo "$APPLY_OUT" | grep -qiE "duplicate column name|already exists"; then
+                echo "  [SKIP] $f already applied to $DB_NAME (idempotent re-run)"
+                continue
+              else
+                echo "$APPLY_OUT"
                 echo "  [FAIL] Error applying $f to $DB_NAME"
                 TENANT_FAILED=true
                 break

@@ -25,6 +25,11 @@ for DB in $DB_NAMES; do
   for MIGRATION in $(ls "$MIGRATIONS_DIR"/*.sql | sort); do
     NAME=$(basename "$MIGRATION")
 
+    # Skip legacy 0003 migrations, same as provisioning and the GitHub workflow do.
+    case "$NAME" in
+      *0003_*) echo "  skip  $NAME (legacy)"; continue ;;
+    esac
+
     RESULT=$(npx wrangler d1 execute "$DB" --remote \
       --command "SELECT name FROM _migrations WHERE name='$NAME';" \
       --json 2>/dev/null || echo "")
@@ -35,10 +40,16 @@ for DB in $DB_NAMES; do
     fi
 
     echo "  apply $NAME"
-    npx wrangler d1 execute "$DB" --remote --file="$MIGRATION"
-    npx wrangler d1 execute "$DB" --remote \
-      --command "INSERT OR IGNORE INTO _migrations (name) VALUES ('$NAME');" \
-      > /dev/null
+    # Apply the schema change and its ledger insert in ONE wrangler call: D1 runs a
+    # multi-statement file as a single transaction, so a crash can't leave the schema
+    # applied but the ledger un-updated (which would re-apply a non-idempotent migration
+    # next run). No explicit BEGIN/COMMIT is added, so files that manage their own
+    # transactions still work.
+    TMP=$(mktemp)
+    cat "$MIGRATION" > "$TMP"
+    printf "\nINSERT OR IGNORE INTO _migrations (name) VALUES ('%s');\n" "$NAME" >> "$TMP"
+    npx wrangler d1 execute "$DB" --remote --file="$TMP"
+    rm -f "$TMP"
     echo "  done  $NAME"
   done
 done

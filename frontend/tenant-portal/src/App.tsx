@@ -226,6 +226,8 @@ function AdminPortalRoutes({ slug, token }: { slug: string; token: string }) {
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('epaper:orgToken'));
   const [tenantStatus, setTenantStatus] = useState<string>(localStorage.getItem('epaper:tenantStatus') ?? 'pending');
+  // Not persisted: after a reload mid-provisioning the verify-mail line is just hidden.
+  const [verifyMailSent, setVerifyMailSent] = useState(false);
 
   function handleAuth(t: string, _slug: string, status: string) {
     localStorage.setItem('epaper:orgToken', t);
@@ -386,7 +388,7 @@ export default function App() {
           <Route path="/terms-and-conditions" element={<TermsConditionsPage />} />
           <Route path="/refund-policy" element={<RefundPolicyPage />} />
           <Route path="/disclaimer" element={<DisclaimerPage />} />
-          <Route path="/signup" element={<SignupPage onSignup={(t, s) => handleAuth(t, s, 'pending')} />} />
+          <Route path="/signup" element={<SignupPage onSignup={(t, s, mailed) => { setVerifyMailSent(!!mailed); handleAuth(t, s, 'pending'); }} />} />
           <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
           <Route path="/login" element={<OrgLoginPage onLogin={handleAuth} />} />
           <Route path="/auth/action" element={<FirebaseAuthActionPage />} />
@@ -405,7 +407,7 @@ export default function App() {
   }
 
   if (tenantStatus !== 'active') {
-    return <ProvisioningScreen token={activeToken} onActive={handleProvisioned} />;
+    return <ProvisioningScreen token={activeToken} onActive={handleProvisioned} verifyMailSent={verifyMailSent} />;
   }
 
   const basePrefix = getAdminBasePrefix(path);

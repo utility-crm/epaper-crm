@@ -135,11 +135,14 @@ npx wrangler secret put RESEND_API_KEY --name epaper-worker-auth
 npx wrangler secret put RESEND_API_KEY --name epaper-worker-content
 ```
 Plus non-secret vars in each worker's `wrangler.jsonc`:
-```toml
-[vars]
-AUTH_MAIL_DOMAIN = "e-auth.epaperspace.com"   # verified sending domain (rotatable)
-AUTH_LINK_BASE   = "https://portal.epaperspace.com"  # auth worker: publisher link host
-PUBLIC_APP_BASE  = "https://epaperspace.com"  # content worker: fallback reader link host
+```jsonc
+{
+  "vars": {
+    "AUTH_MAIL_DOMAIN": "e-auth.epaperspace.com",       // verified sending domain (rotatable)
+    "AUTH_LINK_BASE": "https://portal.epaperspace.com",  // auth worker: publisher link host
+    "PUBLIC_APP_BASE": "https://epaperspace.com"         // content worker: fallback reader link host
+  }
+}
 ```
 The sending domain must have SPF, DKIM and DMARC verified in Resend before any mail will deliver.
 Both `auth_tokens` tables must exist first: apply `migrations/control/0012_auth_tokens.sql` to

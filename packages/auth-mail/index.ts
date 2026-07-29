@@ -154,7 +154,7 @@ export async function sendAuthMail(env: AuthMailEnv, input: AuthMailInput): Prom
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      console.error('[auth-mail] Resend send failed', res.status, await res.text());
+      console.error('[auth-mail] Resend send failed', res.status);
       return false;
     }
     return true;

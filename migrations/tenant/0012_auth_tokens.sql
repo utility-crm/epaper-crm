@@ -19,3 +19,5 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_tokens_hash ON auth_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_auth_tokens_subject ON auth_tokens(purpose, subject);
+-- Supports the scheduled sweep that clears consumed/expired tokens.
+CREATE INDEX IF NOT EXISTS idx_auth_tokens_expiry ON auth_tokens(expires_at);

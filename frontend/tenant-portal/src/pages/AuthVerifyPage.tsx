@@ -92,8 +92,9 @@ export function AuthVerifyPage() {
               </div>
             ) : (
               <form onSubmit={handleResend} className="space-y-3 text-left">
-                <label className="block text-xs font-semibold text-slate-700">Work Email</label>
+                <label htmlFor="resend-email" className="block text-xs font-semibold text-slate-700">Work Email</label>
                 <input
+                  id="resend-email"
                   type="email"
                   required
                   value={resendEmail}

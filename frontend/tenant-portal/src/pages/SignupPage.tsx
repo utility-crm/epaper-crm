@@ -9,7 +9,7 @@ function slugify(text: string) {
   return text.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '').replace(/--+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-export function SignupPage({ onSignup }: { onSignup: (token: string, slug: string) => void }) {
+export function SignupPage({ onSignup }: { onSignup: (token: string, slug: string, verifyMailSent?: boolean) => void }) {
   const navigate = useNavigate();
   const [authMethod, setAuthMethod] = useState<'PASSWORD' | 'PHONE'>('PASSWORD');
   const [orgName, setOrgName] = useState('');
@@ -34,7 +34,7 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
       if (res.ok && res.data?.token) {
         // Verification mail is sent server-side by the auth worker (Resend) — Firebase
         // owns no identity for a password signup, so it can't mail for one.
-        onSignup(res.data.token, res.data.slug);
+        onSignup(res.data.token, res.data.slug, true);
       } else {
         const errorMsg = res.error?.message ?? 'Signup failed';
         if (errorMsg === 'Account already exists. Please login.') {
@@ -70,7 +70,8 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
       } as any);
 
       if (res.ok && res.data?.token) {
-        onSignup(res.data.token, res.data.slug);
+        // Google / phone identities are already verified by Firebase — no mail is sent.
+        onSignup(res.data.token, res.data.slug, false);
       } else {
         const errorMsg = res.error?.message ?? 'Signup failed';
         if (errorMsg === 'Account already exists. Please login.') {

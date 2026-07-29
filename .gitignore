@@ -36,3 +36,6 @@ dist-ssr
 # Service account & secrets
 secrets/
 *-adminsdk-*.json
+
+# Claude Code scratch worktrees (each is its own git checkout — never a gitlink here)
+.claude/worktrees/

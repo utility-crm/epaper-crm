@@ -112,9 +112,12 @@ export function ReaderAccount({ slug, basePath = '', session, orgName, onRequire
                 disabled={busy}
                 onClick={async () => {
                   setBusy(true);
-                  await readerApi.sendVerifyEmail(slug, session.token);
-                  setBusy(false);
-                  setVerifySent(true);
+                  try {
+                    const res = await readerApi.sendVerifyEmail(slug, session.token);
+                    if (res.ok) setVerifySent(true);
+                  } finally {
+                    setBusy(false);
+                  }
                 }}
                 className="font-semibold underline disabled:opacity-50"
               >
