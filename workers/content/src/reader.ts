@@ -293,7 +293,7 @@ readerRouter.post('/:slug/verify-email/send', async (c) => {
 
   if (allowSend(`reader-verify:${slug}:${reader.sub}`)) {
     const row = await db.prepare('SELECT email, email_verified FROM readers WHERE id = ?')
-      .bind(reader.sub).first<{ email: string | null; email_verified: number }>();
+      .bind(reader.sub).first<{ email: string | null; email_verified: number }>().catch(() => null);
     if (row?.email && !row.email_verified) {
       await mailReaderToken(c.env, db, slug, reader.sub, row.email, 'verify_email');
     }
@@ -394,12 +394,13 @@ readerRouter.get('/:slug/me', async (c) => {
     const db = getTenantDb(c.env, slug);
     const subs = await db.prepare(
       `SELECT id, tier_id, plan_id, status, current_end FROM reader_subscriptions
-       WHERE reader_id = ? AND status = 'active' AND current_end > CURRENT_TIMESTAMP`
+       WHERE reader_id = ? AND status = 'active' AND datetime(current_end) > CURRENT_TIMESTAMP`
     ).bind(reader.sub).all();
     // email_verified drives the dismissible "verify your email" banner only — nothing
-    // on the reader side is gated on it.
+    // on the reader side is gated on it. A pre-0011 tenant lacking the column must
+    // still get its account page, so a failed read just means "no banner".
     const row = await db.prepare('SELECT email_verified FROM readers WHERE id = ?')
-      .bind(reader.sub).first<{ email_verified: number }>();
+      .bind(reader.sub).first<{ email_verified: number }>().catch(() => null);
     return c.json(ok({
       reader: { id: reader.sub, email: reader.email, emailVerified: !!row?.email_verified },
       subscriptions: subs.results,
