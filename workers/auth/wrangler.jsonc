@@ -18,11 +18,6 @@
       "database_id": "8a007a8d-f465-4be9-bdc7-e1658fb5aa82"
     },
     {
-      "binding": "TEST_PAPER_9AE6_DB",
-      "database_name": "epaper-test-paper-9ae6",
-      "database_id": "ed6ad84f-acf0-4761-902e-03ad6c1b3631"
-    },
-    {
       "binding": "SHOP_73BD_DB",
       "database_name": "epaper-shop-73bd",
       "database_id": "523bf3ed-150a-4631-bae5-593d15cbff87"
@@ -41,12 +36,7 @@
   ],
   "vars": {
     "FIREBASE_PROJECT_ID": "epaperspace",
-    // Auth mail rides its own subdomain, isolated from the transactional/marketing
-    // sender. Rotate this one value to move off a compromised domain — no rebuild.
     "AUTH_MAIL_DOMAIN": "e-auth.epaperspace.com",
-    // Where verification / reset links land (publisher portal).
     "AUTH_LINK_BASE": "https://epaperspace.com"
   }
-  // Note: secrets ADMIN_JWT_SECRET, ORG_JWT_SECRET and RESEND_API_KEY must be set via `wrangler secret put`.
-  // Per-tenant {SLUG}_DB bindings above are appended by scripts/inject-binding.js at provision time.
 }

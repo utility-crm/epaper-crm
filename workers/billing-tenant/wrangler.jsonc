@@ -13,11 +13,6 @@
       "database_id": "8a007a8d-f465-4be9-bdc7-e1658fb5aa82"
     },
     {
-      "binding": "TEST_PAPER_9AE6_DB",
-      "database_name": "epaper-test-paper-9ae6",
-      "database_id": "ed6ad84f-acf0-4761-902e-03ad6c1b3631"
-    },
-    {
       "binding": "SHOP_73BD_DB",
       "database_name": "epaper-shop-73bd",
       "database_id": "523bf3ed-150a-4631-bae5-593d15cbff87"
