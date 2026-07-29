@@ -57,6 +57,9 @@ jobs:
       - name: Inject Bindings
         run: node scripts/inject-binding.js ${{ github.event.inputs.tenant_slug }} ${{ steps.provision.outputs.db_id }}
 
+      - name: Validate Bindings
+        run: node scripts/validate-bindings.js
+
       - name: Deploy Content Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -83,6 +86,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             node scripts/inject-binding.js ${{ github.event.inputs.tenant_slug }} ${{ steps.provision.outputs.db_id }}
+            node scripts/validate-bindings.js
             git add workers/content/wrangler.jsonc workers/billing-tenant/wrangler.jsonc workers/auth/wrangler.jsonc
             git commit -m "chore: inject bindings for ${{ github.event.inputs.tenant_slug }}" || break
             if git push origin main; then

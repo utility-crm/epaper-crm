@@ -6,6 +6,23 @@ on:
       - main
 
 jobs:
+  # Verify that every tenant _DB binding is present in all three wrangler configs
+  # before deploying anything. A missing binding causes silent 401s at runtime.
+  validate-bindings:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate tenant bindings are consistent across workers
+        run: node scripts/validate-bindings.js
+
   # Deploy backend workers in parallel. Gateway is excluded here: it holds service
   # bindings to these workers (AUTH_WORKER among them), so it must deploy only after
   # they exist — otherwise the binding resolves to a missing service.
@@ -13,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    needs: validate-bindings
     strategy:
       matrix:
         worker: [admin, auth, provision, content, billing-platform, billing-tenant]
