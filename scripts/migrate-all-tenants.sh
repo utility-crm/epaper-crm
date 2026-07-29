@@ -18,9 +18,10 @@ cfg.d1_databases
 for DB in $DB_NAMES; do
   echo "=== $DB ==="
 
-  npx wrangler d1 execute "$DB" --remote \
-    --command "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);" \
-    > /dev/null
+  # Schema-verified baseline: creates _migrations and records the migrations whose
+  # schema objects already exist, so DBs migrated before the ledger existed are not
+  # re-run through non-idempotent DDL. Idempotent, so it runs every time.
+  npx wrangler d1 execute "$DB" --remote --file=scripts/baseline/tenant.sql > /dev/null
 
   for MIGRATION in $(ls "$MIGRATIONS_DIR"/*.sql | sort); do
     NAME=$(basename "$MIGRATION")

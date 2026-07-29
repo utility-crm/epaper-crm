@@ -85,9 +85,14 @@ jobs:
 
           # Migration ledger, same as scripts/migrate-all-tenants.sh: a file is applied
           # once and skipped only when it is recorded in _migrations.
-          npx wrangler d1 execute epaper-control --remote \
-            --command "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);" \
-            > /dev/null
+          #
+          # The baseline creates the ledger and records the migrations whose schema
+          # objects are already present, so databases migrated before the ledger
+          # existed are not re-run through non-idempotent DDL. It marks nothing on
+          # faith and records nothing on a fresh database. Idempotent, so it runs
+          # every time rather than needing a one-shot flag.
+          echo "Baselining _migrations ledger from current schema..."
+          npx wrangler d1 execute epaper-control --remote --file=scripts/baseline/control.sql > /dev/null
 
           for f in $(ls migrations/control/*.sql | sort); do
             NAME=$(basename "$f")
@@ -174,9 +179,8 @@ jobs:
             echo "Migrating Tenant Database: $DB_NAME"
             echo "================================================="
 
-            npx wrangler d1 execute "$DB_NAME" --remote \
-              --command "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);" \
-              > /dev/null
+            # Same schema-verified baseline as the control job, per tenant DB.
+            npx wrangler d1 execute "$DB_NAME" --remote --file=scripts/baseline/tenant.sql > /dev/null
 
             TENANT_FAILED=false
             for f in $(ls migrations/tenant/*.sql | sort); do
