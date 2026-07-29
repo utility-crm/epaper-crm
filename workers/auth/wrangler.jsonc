@@ -26,6 +26,11 @@
       "binding": "SPEAK_THE_WORLD_4E40_DB",
       "database_name": "epaper-speak-the-world-4e40",
       "database_id": "cea194ce-af75-49ee-893e-c505fb6762d6"
+    },
+    {
+      "binding": "TEST_ORG_EF7C_DB",
+      "database_name": "epaper-test-org-ef7c",
+      "database_id": "55d37959-d056-4184-806f-b1825986af9d"
     }
   ],
   "services": [
