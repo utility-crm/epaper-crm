@@ -15,6 +15,8 @@ const DisclaimerPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ 
 const SignupPage = lazy(() => import('./pages/SignupPage').then(m => ({ default: m.SignupPage })));
 const OrgLoginPage = lazy(() => import('./pages/OrgLoginPage').then(m => ({ default: m.OrgLoginPage })));
 const FirebaseAuthActionPage = lazy(() => import('./pages/FirebaseAuthActionPage').then(m => ({ default: m.FirebaseAuthActionPage })));
+const AuthVerifyPage = lazy(() => import('./pages/AuthVerifyPage').then(m => ({ default: m.AuthVerifyPage })));
+const AuthResetPage = lazy(() => import('./pages/AuthResetPage').then(m => ({ default: m.AuthResetPage })));
 const PaperAdminLoginPage = lazy(() => import('./pages/PaperAdminLoginPage').then(m => ({ default: m.PaperAdminLoginPage })));
 const ProvisioningScreen = lazy(() => import('./pages/ProvisioningScreen').then(m => ({ default: m.ProvisioningScreen })));
 const SuspendedScreen = lazy(() => import('./pages/SuspendedScreen').then(m => ({ default: m.SuspendedScreen })));
@@ -336,6 +338,21 @@ export default function App() {
     return (
       <Suspense fallback={<FallbackLoader />}>
         <ReaderApp />
+      </Suspense>
+    );
+  }
+
+  // Publisher verification / reset links, mailed by the auth worker. Handled before
+  // the token branch so a publisher who is already signed in can still redeem a link
+  // instead of being bounced to the dashboard by the catch-all route. Reader links
+  // live under a custom domain or /read/:slug and are served by ReaderApp above.
+  if (path === '/auth/verify' || path === '/auth/reset') {
+    return (
+      <Suspense fallback={<FallbackLoader />}>
+        <Routes>
+          <Route path="/auth/verify" element={<AuthVerifyPage />} />
+          <Route path="/auth/reset" element={<AuthResetPage />} />
+        </Routes>
       </Suspense>
     );
   }

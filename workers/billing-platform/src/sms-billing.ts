@@ -134,6 +134,8 @@ export async function billTenantSms(
     return `${tenant.slug}: ${count} SMS, ${amountPaise} paise (free period, no charge)`;
   }
 
+  const basePayload = { sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey };
+
   // RESERVE the cycle key BEFORE the external call. INSERT OR IGNORE on the UNIQUE
   // razorpay_event_id means exactly one concurrent sweep wins the insert; the losers
   // see 0 changes and skip without ever hitting Razorpay. This closes the race where
@@ -142,36 +144,58 @@ export async function billTenantSms(
     'INSERT OR IGNORE INTO platform_billing_events (id, tenant_id, event_type, razorpay_event_id, amount_paise, payload) VALUES (?, ?, ?, ?, ?, ?)'
   ).bind(
     crypto.randomUUID(), tenant.id, 'sms.metered', idempotencyKey, amountPaise,
-    JSON.stringify({ order_id: null, status: 'pending', sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey })
+    JSON.stringify({ ...basePayload, order_id: null, status: 'pending' })
   ).run();
+
+  // RECLAIM: a prior attempt already reserved this cycle. If it fully finalized
+  // (status 'ordered' — set only by the batch below, which also advances the marker),
+  // it's genuinely done, so skip. Otherwise it stalled after reserving (e.g. the
+  // finalize batch failed); reuse any order it already created so we don't bill the
+  // same SMS with a second Razorpay order.
+  let reclaimedOrderId: string | null = null;
   if (!reserve.meta.changes) {
-    return `${tenant.slug}: cycle ${monthKey} already billed/reserved, skipped`;
+    const row = await env.CONTROL_DB.prepare('SELECT payload FROM platform_billing_events WHERE razorpay_event_id = ?')
+      .bind(idempotencyKey).first<{ payload: string }>();
+    const prior = row ? JSON.parse(row.payload) as { status?: string; order_id?: string | null } : null;
+    if (prior?.status === 'ordered') {
+      return `${tenant.slug}: cycle ${monthKey} already billed, skipped`;
+    }
+    reclaimedOrderId = prior?.order_id ?? null;
   }
 
   let order: { id: string };
-  try {
-    order = await razorpayOrder(env, amountPaise, {
-      kind: 'sms_metered', slug: tenant.slug, cycle: monthKey, sms_count: String(count),
-    });
-  } catch (e) {
-    // Order failed after we reserved the key. Release the reservation so a later run
-    // can retry this cycle, and do NOT advance the marker. Log a cleanup failure (the
-    // stale reservation would block the retry) but still propagate the original order
-    // error as the operative failure.
-    await env.CONTROL_DB.prepare('DELETE FROM platform_billing_events WHERE razorpay_event_id = ?')
-      .bind(idempotencyKey).run()
-      .catch(delErr => console.error(`[sms-billing] ${tenant.slug}: failed to release reservation for cycle ${monthKey}:`, delErr));
-    throw e;
+  if (reclaimedOrderId) {
+    order = { id: reclaimedOrderId };
+  } else {
+    try {
+      order = await razorpayOrder(env, amountPaise, {
+        kind: 'sms_metered', slug: tenant.slug, cycle: monthKey, sms_count: String(count),
+      });
+    } catch (e) {
+      // Order failed. Only release a reservation WE just created; a reclaimed pending
+      // row stays put so the next run retries it. Do NOT advance the marker either way.
+      if (reserve.meta.changes) {
+        await env.CONTROL_DB.prepare('DELETE FROM platform_billing_events WHERE razorpay_event_id = ?')
+          .bind(idempotencyKey).run()
+          .catch(delErr => console.error(`[sms-billing] ${tenant.slug}: failed to release reservation for cycle ${monthKey}:`, delErr));
+      }
+      throw e;
+    }
+    // Persist the order id onto the still-pending reservation NOW, before advancing the
+    // marker. If the finalize batch below then fails, a reclaim finds this order_id and
+    // reuses it instead of creating a duplicate for the same SMS usage.
+    await env.CONTROL_DB.prepare('UPDATE platform_billing_events SET payload = ? WHERE razorpay_event_id = ?')
+      .bind(JSON.stringify({ ...basePayload, order_id: order.id, status: 'pending' }), idempotencyKey).run();
   }
 
-  // Order created — finalize the reserved row with the order id AND advance the marker
-  // in one batch, so a crash can't leave the row finalized but the billing window
-  // un-advanced (which would re-count the same SMS next run).
+  // Finalize the reserved row with the order id AND advance the marker in one batch,
+  // so a crash can't leave the row finalized but the billing window un-advanced (which
+  // would re-count the same SMS next run).
   await env.CONTROL_DB.batch([
     env.CONTROL_DB.prepare(
       'UPDATE platform_billing_events SET payload = ? WHERE razorpay_event_id = ?'
     ).bind(
-      JSON.stringify({ order_id: order.id, status: 'ordered', sms_count: count, sms_rate_usd: cfg.smsRateUsd, usd_inr: usdInr, fx_source: fxSource, cycle: monthKey }),
+      JSON.stringify({ ...basePayload, order_id: order.id, status: 'ordered' }),
       idempotencyKey
     ),
     env.CONTROL_DB.prepare('UPDATE tenants SET sms_last_billed_at = ? WHERE id = ?').bind(nowIso, tenant.id),

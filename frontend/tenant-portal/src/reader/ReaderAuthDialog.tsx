@@ -82,6 +82,7 @@ export function ReaderAuthDialog({ slug, initialMode = 'login', orgName, logoUrl
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [resetMsg, setResetMsg] = useState('');
   const [logoError, setLogoError] = useState(false);
 
   const themeKey = (orgSettings?.theme_id ?? 'modern') as keyof typeof THEMES;
@@ -96,6 +97,16 @@ export function ReaderAuthDialog({ slug, initialMode = 'login', orgName, logoUrl
     setBusy(false);
     if (!res.ok || !res.data) { setError(res.error?.message ?? 'Failed'); return; }
     onAuth({ token: res.data.token, reader: res.data.reader });
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) { setError('Enter your email address first, then choose "Forgot password".'); return; }
+    setError(''); setBusy(true);
+    const res = await readerApi.requestPasswordReset(slug, email);
+    setBusy(false);
+    // Generic either way — the reply never reveals whether that address is registered.
+    if (res.ok) setResetMsg(res.data?.message ?? 'If that address has an account, a reset link is on its way.');
+    else setError(res.error?.message ?? 'Could not send a reset link.');
   };
 
   const handleFirebaseToken = async (idToken: string) => {
@@ -234,6 +245,10 @@ export function ReaderAuthDialog({ slug, initialMode = 'login', orgName, logoUrl
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400 mb-4">{error}</div>
         )}
 
+        {resetMsg && (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 mb-4">{resetMsg}</div>
+        )}
+
         {authMethod === 'PHONE' || !showEmail ? (
           otpEnabled ? (
             <div className="rounded-xl border border-current/10 p-4">
@@ -276,6 +291,18 @@ export function ReaderAuthDialog({ slug, initialMode = 'login', orgName, logoUrl
                 className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-colors ${theme.border}`}
                 value={password} onChange={e => setPassword(e.target.value)} required placeholder="••••••••"
               />
+              {mode === 'login' && (
+                <div className="text-right">
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    disabled={busy}
+                    className={`text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 ${theme.subtext}`}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
             </div>
 
             <button

@@ -21,11 +21,18 @@ export function ReaderAccount({ slug, basePath = '', session, orgName, onRequire
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  // Soft verification: this only drives a dismissible banner. Nothing a reader can do
+  // — read, subscribe, sign in — depends on it.
+  const [unverified, setUnverified] = useState(false);
+  const [verifySent, setVerifySent] = useState(false);
 
   useEffect(() => {
     if (!session) { setLoading(false); return; }
     readerApi.me(slug, session.token).then(res => {
-      if (res.ok && res.data) setSubs(res.data.subscriptions ?? []);
+      if (res.ok && res.data) {
+        setSubs(res.data.subscriptions ?? []);
+        setUnverified(res.data.reader?.emailVerified === false);
+      }
       setLoading(false);
     });
   }, [slug, session]);
@@ -94,6 +101,30 @@ export function ReaderAccount({ slug, basePath = '', session, orgName, onRequire
 
       {msg && <div className="mt-4 rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-2.5 text-sm text-green-600">{msg}</div>}
       {error && <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-500">{error}</div>}
+
+      {unverified && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700">
+          <span>{verifySent ? 'Verification email sent — check your inbox.' : 'Your email address isn’t verified yet.'}</span>
+          <span className="flex items-center gap-3">
+            {!verifySent && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  await readerApi.sendVerifyEmail(slug, session.token);
+                  setBusy(false);
+                  setVerifySent(true);
+                }}
+                className="font-semibold underline disabled:opacity-50"
+              >
+                Send link
+              </button>
+            )}
+            <button type="button" onClick={() => setUnverified(false)} className="font-semibold underline">Dismiss</button>
+          </span>
+        </div>
+      )}
 
       <Card className="mt-6">
         <CardContent className="p-6">

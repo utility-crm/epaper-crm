@@ -144,6 +144,10 @@ export function ProvisioningScreen({ token, onActive }: ProvisioningScreenProps)
         <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: 12 }}>Setting Up Your Organisation</h1>
         <p style={{ color: 'var(--color-text-secondary)', marginBottom: 40, lineHeight: 1.6 }}>
           We're provisioning your isolated database and storage. This usually takes 60–90 seconds. Sit tight!
+          <br />
+          <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+            Meanwhile, check your inbox — we've emailed you a link to verify your address.
+          </span>
         </p>
 
         {/* Progress bar */}

@@ -3,9 +3,19 @@ import { getTenantDb, getTenantBucket } from './db';
 import { ok, err, ErrorCode, ReaderJwtPayload } from '@epaper/types';
 import { signJwt, verifyJwt } from './jwt';
 import { hashPassword, verifyPassword } from './password';
-import { sendEmail, escapeHtml } from './email';
+import { mintToken, consumeToken, sendAuthMail, allowSend, type TokenPurpose } from '@epaper/auth-mail';
 
-type ReaderEnv = { ORG_JWT_SECRET: string; PUBLIC_API_BASE?: string; RESEND_API_KEY?: string; RESEND_FROM?: string } & Record<string, unknown>;
+type ReaderEnv = {
+  ORG_JWT_SECRET: string;
+  PUBLIC_API_BASE?: string;
+  // Auth mail (packages/auth-mail): sending subdomain is a var so it can be rotated
+  // without a rebuild; PUBLIC_APP_BASE is the reader link base for publications
+  // with no verified custom domain.
+  RESEND_API_KEY?: string;
+  AUTH_MAIL_DOMAIN?: string;
+  PUBLIC_APP_BASE?: string;
+  CONTROL_DB: D1Database;
+} & Record<string, unknown>;
 
 // Public reader-facing API. Mounted OUTSIDE the orgUserAuth guard: free content and
 // signup/login must work without a staff token. Premium pages are gated per-request.
@@ -150,19 +160,13 @@ readerRouter.post('/:slug/signup', async (c) => {
     await db.prepare('INSERT INTO readers (id, email, password_hash, name) VALUES (?, ?, ?, ?)')
       .bind(id, email, await hashPassword(password), name).run();
 
-    const pubName = (await db.prepare('SELECT org_name FROM tenant_settings WHERE id = ?').bind('singleton').first<{ org_name: string }>())?.org_name ?? slug;
-    const verifyExp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-    const verifyToken = await signJwt({ sub: id, aud: 'reader-verify', email, tenantSlug: slug, exp: verifyExp }, c.env.ORG_JWT_SECRET);
-    const verifyUrl = `${c.env.PUBLIC_API_BASE}/api/read/${slug}/verify-email?token=${verifyToken}`;
-    c.executionCtx.waitUntil(sendEmail(
-      (c.env as any).RESEND_API_KEY,
-      (c.env as any).RESEND_FROM,
-      {
-        to: email,
-        subject: `Verify your email — ${pubName}`,
-        html: `<p>Hi ${escapeHtml(name)},</p><p>Please verify your email to enable subscription payments: <a href="${verifyUrl}">${verifyUrl}</a></p><p>This link expires in 7 days.</p>`,
-      },
-    ));
+    // Mail the verification link in the background. Signup stays soft: a slow or
+    // failing send must not delay the response, and must not land in the catch below
+    // where a created account would be reported as "publication not found".
+    c.executionCtx?.waitUntil(
+      mailReaderToken(c.env, db, slug, id, email, 'verify_email')
+        .catch((e) => console.error('auth-mail: reader signup verification send failed:', e))
+    );
 
     const token = await signReaderToken(c, id, slug, email);
     return c.json(ok({ token, reader: { id, email, name }, email_verified: false }), 201);
@@ -231,6 +235,157 @@ async function signReaderToken(c: any, id: string, slug: string, email: string):
   return signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);
 }
 
+// ── Reader email verification + password reset ───────────────────────────────
+// Tokens live in THIS publication's database keyed by reader id (see
+// packages/auth-mail), so a link minted for one paper cannot act on another.
+//
+// Verification is deliberately SOFT: confirming an address records the flag and
+// nothing else — reading, signing in and subscribing never depend on it. Only the
+// password credential path is involved; Google/phone readers arrive pre-verified
+// from Firebase and have no password to reset.
+
+const GENERIC_SEND = 'If that address has an account, an email is on its way.';
+
+// Where the publication's own front door is. Read from the tenant record rather than
+// the request's Origin/Referer: those are caller-controlled, and trusting them would
+// let someone plant their own host in a link we send under the publisher's name.
+// Mirrors the public-link rule the portal shows publishers (OrgDashboard).
+async function readerMailTarget(env: ReaderEnv, slug: string): Promise<{ brandName: string; base: string }> {
+  const row = await env.CONTROL_DB.prepare(
+    'SELECT name, custom_domain, domain_verified FROM tenants WHERE slug = ?'
+  ).bind(slug).first<{ name: string; custom_domain: string | null; domain_verified: number }>();
+  const base = row?.custom_domain && row.domain_verified
+    ? `https://${row.custom_domain}`
+    : `${env.PUBLIC_APP_BASE || 'https://epaperspace.com'}/read/${slug}`;
+  return { brandName: row?.name || 'ePaper', base };
+}
+
+async function mailReaderToken(
+  env: ReaderEnv,
+  db: D1Database,
+  slug: string,
+  readerId: string,
+  email: string,
+  purpose: TokenPurpose,
+): Promise<void> {
+  const code = await mintToken(db, { purpose, subject: readerId, slug });
+  const { brandName, base } = await readerMailTarget(env, slug);
+  await sendAuthMail(env, {
+    to: email,
+    slug,
+    brandName,
+    purpose,
+    url: `${base}/auth/${purpose === 'verify_email' ? 'verify' : 'reset'}?code=${code}`,
+  });
+}
+
+readerRouter.post('/:slug/verify-email/send', async (c) => {
+  const slug = c.req.param('slug');
+  const reader = await getReader(c, slug);
+  if (!reader) return c.json(err(ErrorCode.UNAUTHORIZED, 'Not signed in'), 401);
+
+  let db: D1Database;
+  try {
+    db = getTenantDb(c.env, slug);
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+
+  if (allowSend(`reader-verify:${slug}:${reader.sub}`)) {
+    const row = await db.prepare('SELECT email, email_verified FROM readers WHERE id = ?')
+      .bind(reader.sub).first<{ email: string | null; email_verified: number }>();
+    if (row?.email && !row.email_verified) {
+      await mailReaderToken(c.env, db, slug, reader.sub, row.email, 'verify_email');
+    }
+  }
+
+  return c.json(ok({ message: GENERIC_SEND }));
+});
+
+readerRouter.post('/:slug/verify-email/confirm', async (c) => {
+  const slug = c.req.param('slug');
+  const { code } = await c.req.json().catch(() => ({ code: undefined }));
+
+  let db: D1Database;
+  try {
+    db = getTenantDb(c.env, slug);
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+
+  const claim = await consumeToken(db, code, 'verify_email');
+  if (!claim) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'This link is invalid, expired, or already used. Request a new one.'), 400);
+  }
+
+  await db.prepare('UPDATE readers SET email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .bind(claim.subject).run();
+
+  return c.json(ok({ verified: true }));
+});
+
+readerRouter.post('/:slug/password-reset/request', async (c) => {
+  const slug = c.req.param('slug');
+  const { email } = await c.req.json().catch(() => ({ email: undefined }));
+  if (!email || typeof email !== 'string') return c.json(err(ErrorCode.BAD_REQUEST, 'Email required'), 400);
+
+  let db: D1Database;
+  try {
+    db = getTenantDb(c.env, slug);
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+  // A publication that has switched off password auth has no password flow at all.
+  if (!(await readerPasswordAuthEnabled(db))) {
+    return c.json(err(ErrorCode.FORBIDDEN, 'Email sign-in is not enabled for this publication.'), 403);
+  }
+
+  if (allowSend(`reader-reset:${slug}:${email}`)) {
+    const row = await db.prepare('SELECT id, password_hash FROM readers WHERE email = ?')
+      .bind(email).first<{ id: string; password_hash: string | null }>();
+    // No stored password means a Google/phone reader: nothing to reset, and a reset
+    // link would only confuse them.
+    if (row?.password_hash) {
+      await mailReaderToken(c.env, db, slug, row.id, email, 'password_reset');
+    }
+  }
+
+  // Same answer either way — this endpoint must not reveal who has an account here.
+  return c.json(ok({ message: 'If that address has an account, a reset link is on its way.' }));
+});
+
+readerRouter.post('/:slug/password-reset/confirm', async (c) => {
+  const slug = c.req.param('slug');
+  const { code, newPassword } = await c.req.json().catch(() => ({ code: undefined, newPassword: undefined }));
+
+  // Matches the minimum /:slug/signup enforces, so a reset cannot set a password
+  // that signup would have rejected.
+  if (typeof newPassword !== 'string' || newPassword.length < 8) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Password must be at least 8 characters'), 400);
+  }
+
+  let db: D1Database;
+  try {
+    db = getTenantDb(c.env, slug);
+  } catch {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
+  }
+  if (!(await readerPasswordAuthEnabled(db))) {
+    return c.json(err(ErrorCode.FORBIDDEN, 'Email sign-in is not enabled for this publication.'), 403);
+  }
+
+  // Checked before the code is spent, so a rejected password leaves the link usable.
+  const claim = await consumeToken(db, code, 'password_reset');
+  if (!claim) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'This link is invalid, expired, or already used. Request a new one.'), 400);
+  }
+
+  await db.prepare('UPDATE readers SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .bind(await hashPassword(newPassword), claim.subject).run();
+
+  return c.json(ok({ reset: true }));
+});
+
 readerRouter.get('/:slug/me', async (c) => {
   const slug = c.req.param('slug');
   const reader = await getReader(c, slug);
@@ -241,7 +396,14 @@ readerRouter.get('/:slug/me', async (c) => {
       `SELECT id, tier_id, plan_id, status, current_end FROM reader_subscriptions
        WHERE reader_id = ? AND status = 'active' AND current_end > CURRENT_TIMESTAMP`
     ).bind(reader.sub).all();
-    return c.json(ok({ reader: { id: reader.sub, email: reader.email }, subscriptions: subs.results }));
+    // email_verified drives the dismissible "verify your email" banner only — nothing
+    // on the reader side is gated on it.
+    const row = await db.prepare('SELECT email_verified FROM readers WHERE id = ?')
+      .bind(reader.sub).first<{ email_verified: number }>();
+    return c.json(ok({
+      reader: { id: reader.sub, email: reader.email, emailVerified: !!row?.email_verified },
+      subscriptions: subs.results,
+    }));
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }

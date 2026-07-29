@@ -5,6 +5,7 @@ import { signJwt } from './jwt';
 import { hashPassword, verifyPassword } from './password';
 import { verifyFirebaseToken } from './verifyFirebaseToken';
 import { getTenantDb } from './db';
+import { sendSignupVerification } from './verify-email';
 
 export const orgAuthRouter = new Hono<{ Bindings: Env; Variables: { tenantId: string; tenantSlug: string; orgRole: string } }>();
 
@@ -108,6 +109,15 @@ orgAuthRouter.post('/signup', async (c) => {
       return c.json(err(ErrorCode.CONFLICT, 'Account already exists. Please login.'), 409);
     }
     throw e;
+  }
+
+  // A password signup starts unverified, so mail the first verification link. The
+  // Firebase paths skip this: Google/phone identities arrive already verified.
+  // Sent in the background — a slow or failing Resend call must not delay signup.
+  if (passwordToStore && resolvedEmail) {
+    c.executionCtx.waitUntil(
+      sendSignupVerification(c.env, { id: tenantId, slug, name: orgName, status: 'pending' }, resolvedEmail)
+    );
   }
 
   // Fire provisioning. A non-2xx response does NOT reject the fetch, so we must
