@@ -31,9 +31,15 @@ for DB in $DB_NAMES; do
       *0003_*) echo "  skip  $NAME (legacy)"; continue ;;
     esac
 
-    RESULT=$(npx wrangler d1 execute "$DB" --remote \
+    # Fail closed: only a successful query that returns no row means "not applied".
+    # A network, auth, or SQL failure must abort, never fall through to re-applying a
+    # non-idempotent migration.
+    if ! RESULT=$(npx wrangler d1 execute "$DB" --remote \
       --command "SELECT name FROM _migrations WHERE name='$NAME';" \
-      --json 2>/dev/null || echo "")
+      --json); then
+      echo "  ERROR ledger lookup failed for $NAME on $DB — aborting" >&2
+      exit 1
+    fi
 
     if echo "$RESULT" | grep -q "\"$NAME\""; then
       echo "  skip  $NAME"
@@ -47,6 +53,7 @@ for DB in $DB_NAMES; do
     # next run). No explicit BEGIN/COMMIT is added, so files that manage their own
     # transactions still work.
     TMP=$(mktemp)
+    trap 'rm -f "$TMP"' EXIT
     cat "$MIGRATION" > "$TMP"
     printf "\nINSERT OR IGNORE INTO _migrations (name) VALUES ('%s');\n" "$NAME" >> "$TMP"
     npx wrangler d1 execute "$DB" --remote --file="$TMP"

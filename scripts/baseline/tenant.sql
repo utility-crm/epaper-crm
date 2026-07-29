@@ -7,9 +7,12 @@
 -- Guards read sqlite_master only (its stored `sql` text is rewritten by ADD COLUMN
 -- and RENAME TO), so no PRAGMA support is required from D1.
 --
--- 0003_restructure_epapers.sql is the historical boundary: the apply loops skip it as
--- legacy, so it is baselined whenever the epapers table exists to keep the ledger a
--- true record of what the loops will and will not run.
+-- 0003_restructure_epapers.sql is deliberately NOT baselined. Its only schema effect
+-- is CREATE TABLE IF NOT EXISTS epapers, which is a no-op on any database that ran
+-- 0001_init.sql (that file already creates epapers), so no schema state distinguishes
+-- "0003 ran" from "0003 never ran" and any guard here would be a guess. The apply
+-- loops skip it as legacy regardless, so leaving it out of the ledger changes nothing
+-- they do.
 --
 -- Idempotent: INSERT OR IGNORE plus per-migration existence checks. Safe to re-run.
 CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);
@@ -20,9 +23,6 @@ SELECT '0001_init.sql'
 UNION ALL
 SELECT '0002_stats.sql'
   WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='tenant_stats')
-UNION ALL
-SELECT '0003_restructure_epapers.sql'
-  WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='epapers')
 UNION ALL
 SELECT '0004_reader_subscriptions.sql'
   WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='readers')
