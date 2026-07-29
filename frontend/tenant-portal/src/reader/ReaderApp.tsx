@@ -9,6 +9,7 @@ import { TodayRedirect } from './TodayRedirect';
 import { ReaderFooter } from './ReaderFooter';
 import { ReaderInfoPage } from './ReaderInfoPage';
 import { ReaderAccount } from './ReaderAccount';
+import { ReaderAuthActionPage } from './ReaderAuthActionPage';
 import { Button } from '../components/ui/button';
 import { Newspaper, ShieldAlert } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -187,6 +188,9 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
           <Route path="terms" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="terms" />} />
           <Route path="about" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="about" />} />
           <Route path="contact" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="contact" />} />
+          {/* Landing pages for the verification / reset links mailed to readers. */}
+          <Route path="auth/verify" element={<ReaderAuthActionPage slug={slug} basePath={basePath} mode="verify" />} />
+          <Route path="auth/reset" element={<ReaderAuthActionPage slug={slug} basePath={basePath} mode="reset" />} />
           <Route path="*" element={<Navigate to={basePath || '/'} replace />} />
         </Routes>
       </main>

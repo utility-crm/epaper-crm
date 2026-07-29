@@ -83,9 +83,49 @@ jobs:
           echo "Migrating Control Database: epaper-control"
           echo "================================================="
 
+          # Migration ledger, same as scripts/migrate-all-tenants.sh: a file is applied
+          # once and skipped only when it is recorded in _migrations.
+          #
+          # The baseline creates the ledger and records the migrations whose schema
+          # objects are already present, so databases migrated before the ledger
+          # existed are not re-run through non-idempotent DDL. It marks nothing on
+          # faith and records nothing on a fresh database. Idempotent, so it runs
+          # every time rather than needing a one-shot flag.
+          echo "Baselining _migrations ledger from current schema..."
+          npx wrangler d1 execute epaper-control --remote --file=scripts/baseline/control.sql > /dev/null
+
           for f in $(ls migrations/control/*.sql | sort); do
-            echo "Applying $f to epaper-control..."
-            npx wrangler d1 execute epaper-control --remote --file="$f"
+            NAME=$(basename "$f")
+
+            # Fail closed: only a successful query returning no row means "not applied".
+            # A network, auth, or SQL failure must abort, never fall through to
+            # re-applying a non-idempotent migration.
+            if ! LEDGER=$(npx wrangler d1 execute epaper-control --remote \
+              --command "SELECT name FROM _migrations WHERE name='$NAME';" \
+              --json); then
+              echo "  [FAIL] Ledger lookup failed for $NAME on epaper-control"
+              exit 1
+            fi
+            if echo "$LEDGER" | grep -q "\"$NAME\""; then
+              echo "  [SKIP] $NAME already recorded in _migrations"
+              continue
+            fi
+
+            echo "Applying $NAME to epaper-control..."
+            # Schema change and its ledger insert go in ONE wrangler call: D1 runs a
+            # multi-statement file as a single transaction, so a failed or partially
+            # applied file never gets recorded as complete.
+            TMP=$(mktemp)
+            cat "$f" > "$TMP"
+            printf "\nINSERT OR IGNORE INTO _migrations (name) VALUES ('%s');\n" "$NAME" >> "$TMP"
+            if npx wrangler d1 execute epaper-control --remote --file="$TMP"; then
+              rm -f "$TMP"
+              echo "  [OK] $NAME"
+            else
+              rm -f "$TMP"
+              echo "  [FAIL] Error applying $NAME to epaper-control"
+              exit 1
+            fi
           done
 
   migrate-tenants:
@@ -145,14 +185,42 @@ jobs:
             echo "Migrating Tenant Database: $DB_NAME"
             echo "================================================="
 
+            # Same schema-verified baseline as the control job, per tenant DB.
+            npx wrangler d1 execute "$DB_NAME" --remote --file=scripts/baseline/tenant.sql > /dev/null
+
             TENANT_FAILED=false
             for f in $(ls migrations/tenant/*.sql | sort); do
-              case "$f" in
-                *0003_*) echo "Skipping legacy migration $f"; continue ;;
+              NAME=$(basename "$f")
+              case "$NAME" in
+                *0003_*) echo "  [SKIP] $NAME (legacy)"; continue ;;
               esac
-              echo "  -> Applying $f to $DB_NAME..."
-              if ! npx wrangler d1 execute "$DB_NAME" --remote --file="$f"; then
-                echo "  [FAIL] Error applying $f to $DB_NAME"
+
+              # Fail closed, same as the control loop: a lookup failure must not be
+              # read as "not applied". Counts as a tenant failure, not a re-apply.
+              if ! LEDGER=$(npx wrangler d1 execute "$DB_NAME" --remote \
+                --command "SELECT name FROM _migrations WHERE name='$NAME';" \
+                --json); then
+                echo "  [FAIL] Ledger lookup failed for $NAME on $DB_NAME"
+                TENANT_FAILED=true
+                break
+              fi
+              if echo "$LEDGER" | grep -q "\"$NAME\""; then
+                echo "  [SKIP] $NAME already recorded in _migrations"
+                continue
+              fi
+
+              echo "  -> Applying $NAME to $DB_NAME..."
+              # Same one-transaction apply+record as the control loop: a failed or
+              # partially applied file is never marked complete.
+              TMP=$(mktemp)
+              cat "$f" > "$TMP"
+              printf "\nINSERT OR IGNORE INTO _migrations (name) VALUES ('%s');\n" "$NAME" >> "$TMP"
+              if npx wrangler d1 execute "$DB_NAME" --remote --file="$TMP"; then
+                rm -f "$TMP"
+                echo "  [OK] $NAME"
+              else
+                rm -f "$TMP"
+                echo "  [FAIL] Error applying $NAME to $DB_NAME"
                 TENANT_FAILED=true
                 break
               fi

@@ -10,6 +10,11 @@ export interface Env {
   ORG_JWT_SECRET: string;
   // Firebase project for ID-token verification (RS256 against Google JWKS).
   FIREBASE_PROJECT_ID?: string;
+  // Auth mail (see packages/auth-mail): Resend key is a secret; the sending subdomain
+  // and link base are plain vars so a compromised domain can be rotated without a rebuild.
+  RESEND_API_KEY?: string;
+  AUTH_MAIL_DOMAIN?: string;
+  AUTH_LINK_BASE?: string;
   // Fired only by /signup to kick off tenant provisioning.
   PROVISION_WORKER: Fetcher;
   // Per-tenant {SLUG}_DB bindings are injected dynamically at provision time; read via getTenantDb.

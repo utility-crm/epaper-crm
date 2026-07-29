@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { portalApi } from '../lib/api';
-import { auth, googleProvider, signInWithPopup, sendEmailVerification } from '../lib/firebase';
+import { auth, googleProvider, signInWithPopup } from '../lib/firebase';
 import { PhoneAuthForm } from '../components/PhoneAuthForm';
 import { Phone, Mail, Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
 
@@ -9,7 +9,7 @@ function slugify(text: string) {
   return text.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '').replace(/--+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-export function SignupPage({ onSignup }: { onSignup: (token: string, slug: string) => void }) {
+export function SignupPage({ onSignup }: { onSignup: (token: string, slug: string, verifyMailSent?: boolean) => void }) {
   const navigate = useNavigate();
   const [authMethod, setAuthMethod] = useState<'PASSWORD' | 'PHONE'>('PASSWORD');
   const [orgName, setOrgName] = useState('');
@@ -32,15 +32,9 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
     try {
       const res = await portalApi.signup({ orgName, name, email, password, plan: 'Free' });
       if (res.ok && res.data?.token) {
-        // Send optional Firebase verification mail if configured
-        try {
-          if (auth.currentUser && auth.currentUser.email === email) {
-            await sendEmailVerification(auth.currentUser);
-          }
-        } catch (e) {
-          console.error('Failed to trigger Firebase email verification:', e);
-        }
-        onSignup(res.data.token, res.data.slug);
+        // Verification mail is sent server-side by the auth worker (Resend) — Firebase
+        // owns no identity for a password signup, so it can't mail for one.
+        onSignup(res.data.token, res.data.slug, true);
       } else {
         const errorMsg = res.error?.message ?? 'Signup failed';
         if (errorMsg === 'Account already exists. Please login.') {
@@ -76,7 +70,8 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
       } as any);
 
       if (res.ok && res.data?.token) {
-        onSignup(res.data.token, res.data.slug);
+        // Google / phone identities are already verified by Firebase — no mail is sent.
+        onSignup(res.data.token, res.data.slug, false);
       } else {
         const errorMsg = res.error?.message ?? 'Signup failed';
         if (errorMsg === 'Account already exists. Please login.') {

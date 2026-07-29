@@ -4,6 +4,9 @@ import { portalApi } from '../lib/api';
 interface ProvisioningScreenProps {
   token: string;
   onActive: () => void;
+  // True only for email+password signups — Google / phone identities are already
+  // verified by Firebase and are never mailed, so the line must not claim otherwise.
+  verifyMailSent?: boolean;
 }
 
 const STEPS = [
@@ -25,7 +28,7 @@ function randomStep(status: string) {
   return Math.floor(Math.random() * 3) + 2;
 }
 
-export function ProvisioningScreen({ token, onActive }: ProvisioningScreenProps) {
+export function ProvisioningScreen({ token, onActive, verifyMailSent }: ProvisioningScreenProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [status, setStatus] = useState('pending');
@@ -144,6 +147,14 @@ export function ProvisioningScreen({ token, onActive }: ProvisioningScreenProps)
         <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: 12 }}>Setting Up Your Organisation</h1>
         <p style={{ color: 'var(--color-text-secondary)', marginBottom: 40, lineHeight: 1.6 }}>
           We're provisioning your isolated database and storage. This usually takes 60–90 seconds. Sit tight!
+          {verifyMailSent && (
+            <>
+              <br />
+              <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                Meanwhile, check your inbox — we've emailed you a link to verify your address.
+              </span>
+            </>
+          )}
         </p>
 
         {/* Progress bar */}

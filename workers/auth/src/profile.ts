@@ -106,9 +106,30 @@ profileRouter.post('/add-phone', orgUserAuth, async (c) => {
         return c.json(err(ErrorCode.CONFLICT, mismatchMsg), 409);
       }
 
-      await c.env.CONTROL_DB.prepare(
+      const upd = await c.env.CONTROL_DB.prepare(
         'UPDATE pending_owners SET phone_number = ?, firebase_uid = ? WHERE id = ?'
       ).bind(phone, uid, c.var.userId).run();
+
+      // Activation may have migrated the row into org_users between loadOwner and now.
+      // If so this UPDATE hit 0 rows and would silently drop the phone; re-apply it to
+      // the tenant DB. Only a genuine "row nowhere" case is a retryable conflict.
+      // NOTE: skips a clash re-check in this race fallback (tiny window; the row
+      // just migrated), add if phone-uniqueness races become a real concern.
+      if (!upd.meta.changes) {
+        let db: D1Database;
+        try {
+          db = getTenantDb(c.env, c.var.tenantSlug);
+        } catch {
+          // Tenant DB binding absent = still provisioning. Same retryable conflict.
+          return c.json(err(ErrorCode.CONFLICT, 'Account is still provisioning, please retry.'), 409);
+        }
+        const moved = await db.prepare(
+          'UPDATE org_users SET phone_number = ?, firebase_uid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).bind(phone, uid, c.var.userId).run();
+        if (!moved.meta.changes) {
+          return c.json(err(ErrorCode.CONFLICT, 'Account is still provisioning, please retry.'), 409);
+        }
+      }
     }
 
     return c.json(ok({ phone_number: phone }));

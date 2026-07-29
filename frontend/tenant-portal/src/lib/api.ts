@@ -34,6 +34,14 @@ export const portalApi = {
   verifyProvisioning: (token: string) => apiFetch<{ status: string; recovered?: boolean }>('/api/auth/verify-provisioning', { method: 'POST' }, token),
   retriggerProvisioning: (token: string) => apiFetch<{ reprovisioning: boolean }>('/api/auth/reprovision', { method: 'POST' }, token),
 
+  // email verification + password reset (mail sent by the auth worker via Resend).
+  // The request endpoints answer generically whether or not the address exists —
+  // show their `message` verbatim so the UI doesn't leak who has an account.
+  sendVerifyEmail: (email: string) => apiFetch<{ message: string }>('/api/auth/verify-email/send', { method: 'POST', body: JSON.stringify({ email }) }),
+  confirmVerifyEmail: (code: string) => apiFetch<{ slug: string; email: string }>('/api/auth/verify-email/confirm', { method: 'POST', body: JSON.stringify({ code }) }),
+  requestPasswordReset: (email: string) => apiFetch<{ message: string }>('/api/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email }) }),
+  confirmPasswordReset: (code: string, newPassword: string) => apiFetch<{ slug: string }>('/api/auth/password-reset/confirm', { method: 'POST', body: JSON.stringify({ code, newPassword }) }),
+
   // editions
   getEditions: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/editions`, {}, token),
   createEdition: (slug: string, body: any, token: string) => apiFetch<any>(`/api/content/${slug}/editions`, { method: 'POST', body: JSON.stringify(body) }, token),
@@ -158,6 +166,12 @@ export const readerApi = {
   signup: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/signup`, { method: 'POST', body: JSON.stringify(body) }),
   login: (slug: string, body: any) => apiFetch<any>(`/api/read/${slug}/login`, { method: 'POST', body: JSON.stringify(body) }),
   me: (slug: string, token: string) => apiFetch<any>(`/api/read/${slug}/me`, {}, token),
+  // Reader email verification + password reset. Verification is soft — nothing on the
+  // reader side is gated on it; the request endpoints answer generically.
+  sendVerifyEmail: (slug: string, token: string) => apiFetch<{ message: string }>(`/api/read/${slug}/verify-email/send`, { method: 'POST' }, token),
+  confirmVerifyEmail: (slug: string, code: string) => apiFetch<{ verified: boolean }>(`/api/read/${slug}/verify-email/confirm`, { method: 'POST', body: JSON.stringify({ code }) }),
+  requestPasswordReset: (slug: string, email: string) => apiFetch<{ message: string }>(`/api/read/${slug}/password-reset/request`, { method: 'POST', body: JSON.stringify({ email }) }),
+  confirmPasswordReset: (slug: string, code: string, newPassword: string) => apiFetch<{ reset: boolean }>(`/api/read/${slug}/password-reset/confirm`, { method: 'POST', body: JSON.stringify({ code, newPassword }) }),
   cancelSubscription: (slug: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/reader/subscription/cancel`, { method: 'POST' }, token),
   deleteAccount: (slug: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/reader/account`, { method: 'DELETE' }, token),
   getPapers: (slug: string, filters?: { edition_id?: string; start_date?: string; end_date?: string; page?: number; limit?: number }) => {

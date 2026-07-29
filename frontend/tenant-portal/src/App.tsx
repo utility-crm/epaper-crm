@@ -15,6 +15,8 @@ const DisclaimerPage = lazy(() => import('./pages/InfoLegalPages').then(m => ({ 
 const SignupPage = lazy(() => import('./pages/SignupPage').then(m => ({ default: m.SignupPage })));
 const OrgLoginPage = lazy(() => import('./pages/OrgLoginPage').then(m => ({ default: m.OrgLoginPage })));
 const FirebaseAuthActionPage = lazy(() => import('./pages/FirebaseAuthActionPage').then(m => ({ default: m.FirebaseAuthActionPage })));
+const AuthVerifyPage = lazy(() => import('./pages/AuthVerifyPage').then(m => ({ default: m.AuthVerifyPage })));
+const AuthResetPage = lazy(() => import('./pages/AuthResetPage').then(m => ({ default: m.AuthResetPage })));
 const PaperAdminLoginPage = lazy(() => import('./pages/PaperAdminLoginPage').then(m => ({ default: m.PaperAdminLoginPage })));
 const ProvisioningScreen = lazy(() => import('./pages/ProvisioningScreen').then(m => ({ default: m.ProvisioningScreen })));
 const SuspendedScreen = lazy(() => import('./pages/SuspendedScreen').then(m => ({ default: m.SuspendedScreen })));
@@ -224,6 +226,8 @@ function AdminPortalRoutes({ slug, token }: { slug: string; token: string }) {
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('epaper:orgToken'));
   const [tenantStatus, setTenantStatus] = useState<string>(localStorage.getItem('epaper:tenantStatus') ?? 'pending');
+  // Not persisted: after a reload mid-provisioning the verify-mail line is just hidden.
+  const [verifyMailSent, setVerifyMailSent] = useState(false);
 
   function handleAuth(t: string, _slug: string, status: string) {
     localStorage.setItem('epaper:orgToken', t);
@@ -340,6 +344,21 @@ export default function App() {
     );
   }
 
+  // Publisher verification / reset links, mailed by the auth worker. Handled before
+  // the token branch so a publisher who is already signed in can still redeem a link
+  // instead of being bounced to the dashboard by the catch-all route. Reader links
+  // live under a custom domain or /read/:slug and are served by ReaderApp above.
+  if (path === '/auth/verify' || path === '/auth/reset') {
+    return (
+      <Suspense fallback={<FallbackLoader />}>
+        <Routes>
+          <Route path="/auth/verify" element={<AuthVerifyPage />} />
+          <Route path="/auth/reset" element={<AuthResetPage />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
   const readAdminMatch = path.match(/^\/read\/([^/]+)\/(admin|wp-admin|portal)/);
   const expectedSlug = readAdminMatch ? readAdminMatch[1] : (isCustomDomain ? domainSlug : null);
 
@@ -369,7 +388,7 @@ export default function App() {
           <Route path="/terms-and-conditions" element={<TermsConditionsPage />} />
           <Route path="/refund-policy" element={<RefundPolicyPage />} />
           <Route path="/disclaimer" element={<DisclaimerPage />} />
-          <Route path="/signup" element={<SignupPage onSignup={(t, s) => handleAuth(t, s, 'pending')} />} />
+          <Route path="/signup" element={<SignupPage onSignup={(t, s, mailed) => { setVerifyMailSent(!!mailed); handleAuth(t, s, 'pending'); }} />} />
           <Route path="/publisher-signup" element={<Navigate to="/signup" replace />} />
           <Route path="/login" element={<OrgLoginPage onLogin={handleAuth} />} />
           <Route path="/auth/action" element={<FirebaseAuthActionPage />} />
@@ -388,7 +407,7 @@ export default function App() {
   }
 
   if (tenantStatus !== 'active') {
-    return <ProvisioningScreen token={activeToken} onActive={handleProvisioned} />;
+    return <ProvisioningScreen token={activeToken} onActive={handleProvisioned} verifyMailSent={verifyMailSent} />;
   }
 
   const basePrefix = getAdminBasePrefix(path);

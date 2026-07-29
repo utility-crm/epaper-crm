@@ -68,6 +68,10 @@
   },
   "vars": {
     "PUBLIC_API_BASE": "https://api.epaperspace.com",
-    "FIREBASE_PROJECT_ID": "epaperspace"
+    "FIREBASE_PROJECT_ID": "epaperspace",
+    // Reader auth mail: own sending subdomain, rotatable without a rebuild.
+    "AUTH_MAIL_DOMAIN": "e-auth.epaperspace.com",
+    // Fallback reader link base for publications with no verified custom domain.
+    "PUBLIC_APP_BASE": "https://epaperspace.com"
   }
 }
