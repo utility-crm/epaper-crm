@@ -28,7 +28,7 @@ concurrency:
 jobs:
   detect-changes:
     name: Detect Changed Migration Categories
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       control: ${{ steps.filter.outputs.control }}
       tenant: ${{ steps.filter.outputs.tenant }}
@@ -58,7 +58,7 @@ jobs:
 
   migrate-control:
     name: Apply Control Migrations (epaper-control)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: detect-changes
     if: |
       needs.detect-changes.outputs.control == 'true' ||
@@ -130,7 +130,7 @@ jobs:
 
   migrate-tenants:
     name: Apply Tenant Migrations (epaper-<slug>)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [detect-changes, migrate-control]
     if: |
       always() &&
