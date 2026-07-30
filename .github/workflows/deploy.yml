@@ -9,7 +9,7 @@ jobs:
   # Verify that every tenant _DB binding is present in all three wrangler configs
   # before deploying anything. A missing binding causes silent 401s at runtime.
   validate-bindings:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
     steps:
@@ -27,7 +27,7 @@ jobs:
   # bindings to these workers (AUTH_WORKER among them), so it must deploy only after
   # they exist — otherwise the binding resolves to a missing service.
   deploy-workers:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
     needs: validate-bindings
@@ -53,7 +53,7 @@ jobs:
 
   # Deploy the gateway only after every worker it binds is live.
   deploy-gateway:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
     needs: deploy-workers
@@ -82,7 +82,7 @@ jobs:
 
   # Deploy Tenant Portal (epaper-portal.pages.dev)
   deploy-portal:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
 
@@ -123,7 +123,7 @@ jobs:
 
   # Deploy CRM (epaper-crm.pages.dev)
   deploy-crm:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
 
