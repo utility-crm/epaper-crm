@@ -23,13 +23,16 @@ export const requireSuperadmin = async (c: AdminCtx, next: Next) => {
 
 // Idempotent: create the singleton config table + seed one row. CREATE TABLE IF NOT
 // EXISTS is safe to run repeatedly (unlike ADD COLUMN), so no migration file needed.
+//
+// sms_daily_cap / sms_disabled are deliberately NOT in this CREATE — migration 0013 owns
+// them via ADD COLUMN, which throws if this function already created a table containing
+// them, failing the migration. One owner per column means the two paths can run in either
+// order: whichever gets there first, the other is a no-op.
 export async function ensurePlatformConfig(db: D1Database) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS platform_config (
     id TEXT PRIMARY KEY DEFAULT 'singleton',
     sms_rate_usd REAL NOT NULL DEFAULT 0.10,
     usd_inr_fallback REAL NOT NULL DEFAULT 88.0,
-    sms_daily_cap INTEGER NOT NULL DEFAULT 50,
-    sms_disabled INTEGER NOT NULL DEFAULT 0,
     updated_by TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`).run().catch(() => {});

@@ -42,7 +42,11 @@ type SubRow = {
 
 // Same defensive pattern as ensureBillingColumns: a tenant DB that hasn't taken
 // migration 0013 yet must not 500 the first grant.
+const grantColumnsReady = new WeakSet<D1Database>();
+
 export async function ensureGrantColumns(db: D1Database) {
+  if (grantColumnsReady.has(db)) return;
+  grantColumnsReady.add(db);
   await db.prepare("ALTER TABLE reader_subscriptions ADD COLUMN grant_type TEXT NOT NULL DEFAULT 'razorpay'").run().catch(() => {});
   await db.prepare('ALTER TABLE reader_subscriptions ADD COLUMN granted_by TEXT').run().catch(() => {});
   await db.prepare('ALTER TABLE reader_subscriptions ADD COLUMN grant_note TEXT').run().catch(() => {});
