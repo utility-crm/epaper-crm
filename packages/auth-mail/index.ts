@@ -155,9 +155,12 @@ export async function sendAuthMail(env: AuthMailEnv, input: AuthMailInput): Prom
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    // Body carries Resend's reason (unverified domain, bad key, suppressed address) —
-    // the status alone is rarely enough to tell those apart from the logs.
-    throw new Error(`[auth-mail] Resend send failed ${res.status}: ${await res.text().catch(() => '')}`);
+    // Status only: callers log this exception, and Resend's body can carry recipient or
+    // delivery detail that must not land in worker logs. `name` is Resend's stable error
+    // slug (e.g. "validation_error"), which is enough to tell the failure modes apart.
+    const errBody = (await res.json().catch(() => null)) as { name?: unknown } | null;
+    const name = typeof errBody?.name === 'string' ? errBody.name.slice(0, 64) : '';
+    throw new Error(`[auth-mail] Resend send failed ${res.status}${name ? ` (${name})` : ''}`);
   }
 }
 

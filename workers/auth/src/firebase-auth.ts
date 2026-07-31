@@ -10,6 +10,10 @@ export const firebaseAuthRouter = new Hono<{ Bindings: Env }>();
 // Simple in-memory rate limiting map for SMS endpoints (IP -> { count, resetAt })
 const smsRateLimits = new Map<string, { count: number; resetAt: number }>();
 
+// Last platform_config row this isolate read. The kill switch is evaluated against this
+// when CONTROL_DB is unreachable, so an outage cannot silently re-enable SMS.
+let lastSmsCfg: { sms_disabled: number; sms_daily_cap: number } | null = null;
+
 firebaseAuthRouter.post('/audit/sms-send', async (c) => {
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
   const now = Date.now();
@@ -19,7 +23,7 @@ firebaseAuthRouter.post('/audit/sms-send', async (c) => {
     if (now > limitRecord.resetAt) {
       smsRateLimits.set(ip, { count: 1, resetAt: now + 3600_000 });
     } else if (limitRecord.count >= 5) {
-      return c.json(err(ErrorCode.FORBIDDEN, 'Too many SMS attempts. Please wait before retrying.'), 429);
+      return c.json(err(ErrorCode.RATE_LIMITED, 'Too many SMS attempts. Please wait before retrying.'), 429);
     } else {
       limitRecord.count += 1;
     }
@@ -27,47 +31,66 @@ firebaseAuthRouter.post('/audit/sms-send', async (c) => {
     smsRateLimits.set(ip, { count: 1, resetAt: now + 3600_000 });
   }
 
+  // Platform SMS controls. Firebase sends the OTP straight from the browser, so the only
+  // lever the platform has is refusing the audit/billing record the client waits on before
+  // it calls Firebase. The kill switch is read outside the fail-open block below: on a
+  // CONTROL_DB error we keep the last value this isolate saw, so an outage cannot turn SMS
+  // back on. Everything else stays fail-open — a broken CONTROL_DB must not take reader
+  // login down with it.
+  let cfg = lastSmsCfg;
+  try {
+    const row = await c.env.CONTROL_DB.prepare(
+      'SELECT sms_disabled, sms_daily_cap FROM platform_config WHERE id = ?'
+    ).bind('singleton').first<{ sms_disabled: number; sms_daily_cap: number }>();
+    if (row) { cfg = row; lastSmsCfg = row; }
+  } catch (e) {
+    console.error('Failed to read SMS platform config:', e);
+  }
+
+  if (cfg?.sms_disabled) {
+    return c.json(err(ErrorCode.RATE_LIMITED, 'SMS verification is temporarily disabled. Please contact support.'), 429);
+  }
+
   try {
     const body = await c.req.json().catch(() => ({}));
     const phonePrefix = typeof body.phonePrefix === 'string' ? body.phonePrefix.slice(0, 6) + 'XXXX' : 'unknown';
     const slug = typeof body.slug === 'string' ? body.slug : 'system';
 
-    // Platform SMS controls. Firebase sends the OTP straight from the browser, so the
-    // only lever the platform has is refusing the audit/billing record the client waits
-    // on before it calls Firebase. Fail-open if this whole block throws: a broken
-    // CONTROL_DB must not take reader login down with it.
-    const cfg = await c.env.CONTROL_DB.prepare(
-      'SELECT sms_disabled, sms_daily_cap FROM platform_config WHERE id = ?'
-    ).bind('singleton').first<{ sms_disabled: number; sms_daily_cap: number }>();
-
-    if (cfg?.sms_disabled) {
-      return c.json(err(ErrorCode.FORBIDDEN, 'SMS verification is temporarily disabled. Please contact support.'), 429);
-    }
-
     // tenant_id resolved from CONTROL_DB, never taken from the body — otherwise a caller
-    // picks whose daily budget it spends (and every row landed with tenant_id = NULL).
-    const tenant = await c.env.CONTROL_DB.prepare('SELECT id FROM tenants WHERE slug = ?')
-      .bind(slug).first<{ id: string }>();
-    const tenantId = tenant?.id ?? null;
-
-    const used = await c.env.CONTROL_DB.prepare(
-      "SELECT COUNT(*) AS n FROM audit_log WHERE action = 'auth.sms_send_requested'" +
-      " AND tenant_id IS ? AND created_at >= datetime('now', 'start of day')"
-    ).bind(tenantId).first<{ n: number }>();
-
-    if ((used?.n ?? 0) >= (cfg?.sms_daily_cap ?? 50)) {
-      return c.json(err(ErrorCode.FORBIDDEN, 'Daily SMS limit reached for this publication. Please contact support.'), 429);
+    // picks whose daily budget it spends. 'system' is the publisher-signup/login lane,
+    // which has no tenant yet, and NULL is its own bucket. Any other slug that does not
+    // resolve is rejected rather than folded into that bucket: invented slugs must not be
+    // able to drain the platform lane's cap.
+    let tenantId: string | null = null;
+    if (slug !== 'system') {
+      const tenant = await c.env.CONTROL_DB.prepare('SELECT id FROM tenants WHERE slug = ?')
+        .bind(slug).first<{ id: string }>();
+      if (!tenant) {
+        return c.json(err(ErrorCode.NOT_FOUND, 'Unknown publication'), 404);
+      }
+      tenantId = tenant.id;
     }
 
-    await c.env.CONTROL_DB.prepare(
-      'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
+    // Count and insert in one statement: a separate SELECT then INSERT is check-then-act,
+    // and concurrent requests all read the same count and pass the cap. `changes === 0`
+    // means the guard rejected the row, i.e. the daily cap is spent.
+    const res = await c.env.CONTROL_DB.prepare(
+      "INSERT INTO audit_log (id, tenant_id, action, performed_by, details)" +
+      " SELECT ?, ?, 'auth.sms_send_requested', ?, ?" +
+      " WHERE (SELECT COUNT(*) FROM audit_log WHERE action = 'auth.sms_send_requested'" +
+      "   AND tenant_id IS ? AND created_at >= datetime('now', 'start of day')) < ?"
     ).bind(
       crypto.randomUUID(),
       tenantId,
-      'auth.sms_send_requested',
       slug,
-      JSON.stringify({ ip, phonePrefix, stage: body.stage || 'reader' })
+      JSON.stringify({ ip, phonePrefix, stage: body.stage || 'reader' }),
+      tenantId,
+      cfg?.sms_daily_cap ?? 50,
     ).run();
+
+    if (!res.meta?.changes) {
+      return c.json(err(ErrorCode.RATE_LIMITED, 'Daily SMS limit reached for this publication. Please contact support.'), 429);
+    }
   } catch (e) {
     console.error('Failed to log SMS audit event:', e);
   }
@@ -166,12 +189,16 @@ firebaseAuthRouter.post('/verify-org', async (c) => {
       }
 
       if (user) {
+        // Grants are read before the session is committed: loadPermissions throws on a
+        // real D1 failure, and falling back to role would widen a narrowed user for the
+        // 7-day life of the token. A throw here lands in the catch below and 401s.
+        const perms = await loadPermissions(db, user.id);
         await db.prepare(
           'UPDATE org_users SET firebase_uid = ?, email_verified = ?, auth_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
         ).bind(uid, claims.email_verified ? 1 : 0, provider, user.id).run();
         userId = user.id;
         role = (user.role as OrgUserJwtPayload['role']) ?? 'owner';
-        permissions = await loadPermissions(db, user.id);
+        permissions = perms;
       }
     } catch (e) {
       console.error(`verify-org tenant DB lookup failed for ${tenant.slug}:`, e);

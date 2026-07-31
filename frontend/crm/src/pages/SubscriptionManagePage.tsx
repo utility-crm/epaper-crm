@@ -10,9 +10,11 @@ import { crmApi } from '../lib/api';
 // UTC rather than guessing, so the inputs are labelled UTC and prefilled from the ISO
 // value verbatim.
 
-// ISO -> value a `datetime-local` input accepts, in UTC.
+// ISO -> value a `datetime-local` input accepts, in UTC. Immediate cancellation stamps
+// current_end with SQLite's CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS"), so normalise the
+// space separator to "T" before slicing or the input silently rejects the value.
 function toLocalInput(iso: string | null | undefined): string {
-  return iso ? iso.slice(0, 16) : '';
+  return iso ? iso.replace(' ', 'T').slice(0, 16) : '';
 }
 
 function plusDays(n: number): string {
@@ -67,6 +69,11 @@ export function SubscriptionManagePage() {
   const grant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reader) return;
+    // Same rule the worker enforces — reject here so the operator sees it without a round trip.
+    // Bare `datetime-local` values are UTC, matching how the worker pins them.
+    if (Date.parse(`${endAt}Z`) <= Date.parse(`${startAt}Z`)) {
+      return setMsg({ text: 'End must be later than start', type: 'error' });
+    }
     setBusy(true);
     const res = await crmApi.grantSubscription(slug, {
       reader_id: reader.id, start_at: startAt, end_at: endAt, note: note.trim() || undefined,
@@ -114,15 +121,15 @@ export function SubscriptionManagePage() {
         <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 16 }}>Find Reader</h2>
         <form onSubmit={lookup} style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 200px' }}>
-            <label className="label">Publication</label>
-            <select className="input" value={slug} onChange={e => { setSlug(e.target.value); setReader(null); setSubs([]); }}>
+            <label className="label" htmlFor="sub-slug">Publication</label>
+            <select id="sub-slug" className="input" value={slug} onChange={e => { setSlug(e.target.value); setReader(null); setSubs([]); }}>
               <option value="">Select…</option>
               {tenants.map(t => <option key={t.slug} value={t.slug}>{t.name} ({t.slug})</option>)}
             </select>
           </div>
           <div style={{ flex: '1 1 220px' }}>
-            <label className="label">Reader email</label>
-            <input type="email" className="input" value={email} onChange={e => setEmail(e.target.value)} placeholder="reader@example.com" />
+            <label className="label" htmlFor="sub-email">Reader email</label>
+            <input id="sub-email" type="email" className="input" value={email} onChange={e => setEmail(e.target.value)} placeholder="reader@example.com" />
           </div>
           <button type="submit" className="btn-primary" disabled={busy}>{busy ? 'Working…' : 'Look Up'}</button>
         </form>
@@ -141,17 +148,17 @@ export function SubscriptionManagePage() {
             <form onSubmit={grant} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 200px' }}>
-                  <label className="label">Start (UTC)</label>
-                  <input type="datetime-local" required className="input" value={startAt} onChange={e => setStartAt(e.target.value)} />
+                  <label className="label" htmlFor="sub-start">Start (UTC)</label>
+                  <input id="sub-start" type="datetime-local" required className="input" value={startAt} onChange={e => setStartAt(e.target.value)} />
                 </div>
                 <div style={{ flex: '1 1 200px' }}>
-                  <label className="label">End (UTC)</label>
-                  <input type="datetime-local" required className="input" value={endAt} onChange={e => setEndAt(e.target.value)} />
+                  <label className="label" htmlFor="sub-end">End (UTC)</label>
+                  <input id="sub-end" type="datetime-local" required className="input" value={endAt} onChange={e => setEndAt(e.target.value)} />
                 </div>
               </div>
               <div>
-                <label className="label">Note (why — cash receipt no., cheque, enterprise deal)</label>
-                <input type="text" maxLength={500} className="input" value={note} onChange={e => setNote(e.target.value)} />
+                <label className="label" htmlFor="sub-note">Note (why — cash receipt no., cheque, enterprise deal)</label>
+                <input id="sub-note" type="text" maxLength={500} className="input" value={note} onChange={e => setNote(e.target.value)} />
               </div>
               <button type="submit" className="btn-primary" disabled={busy} style={{ alignSelf: 'flex-start' }}>
                 {busy ? 'Saving…' : 'Grant Access'}
@@ -185,7 +192,10 @@ export function SubscriptionManagePage() {
                       <td style={{ padding: '10px 8px 10px 0' }}>{s.status}</td>
                       <td style={{ padding: '10px 8px 10px 0' }}>
                         {s.grant_type === 'manual' ? (
+                          // Keyed on the stored value so the input remounts after lookup() —
+                          // otherwise a clamped or rejected date leaves the typed value on screen.
                           <input type="datetime-local" className="input" style={{ padding: '4px 6px', fontSize: '0.8rem' }}
+                            key={s.current_end}
                             defaultValue={toLocalInput(s.current_end)}
                             onBlur={e => { const v = e.target.value; if (v && v !== toLocalInput(s.current_end)) patch(s.id, { end_at: v }); }} />
                         ) : (

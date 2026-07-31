@@ -12,7 +12,9 @@ interface Props { slug: string; token: string; }
 
 // ISO -> value a `datetime-local` input accepts. The worker pins a bare datetime-local
 // to UTC rather than guessing a zone, so these fields are labelled and read as UTC.
-const toInput = (iso?: string | null) => (iso ? iso.slice(0, 16) : '');
+// Normalise SQLite's "YYYY-MM-DD HH:MM:SS" (written by CURRENT_TIMESTAMP on immediate
+// cancellation) to the "T"-separated shape the input accepts before slicing.
+const toInput = (iso?: string | null) => (iso ? iso.replace(' ', 'T').slice(0, 16) : '');
 const plusDays = (n: number) => new Date(Date.now() + n * 86400_000).toISOString().slice(0, 16);
 
 // Same rule as may() in workers/billing-tenant/src/admin-grants.ts — an explicit
@@ -89,12 +91,15 @@ export function UserManagementPage({ slug, token }: Props) {
     setGrantFor({ id: u.id, name: u.name, email: u.email });
     setGrantForm({ start_at: plusDays(0), end_at: plusDays(30), note: '' });
     const res = await portalApi.listReaderSubscriptions(slug, u.id, token);
-    setGrantSubs(res.ok && res.data ? res.data.items ?? [] : []);
+    // A failed lookup must not read as "this reader has no subscriptions".
+    if (res.ok && res.data) setGrantSubs(res.data.items ?? []);
+    else { setGrantSubs([]); setError(res.error?.message ?? 'Failed to load subscriptions'); }
   };
 
   const refreshGrantSubs = async (readerId: string) => {
     const res = await portalApi.listReaderSubscriptions(slug, readerId, token);
     if (res.ok && res.data) setGrantSubs(res.data.items ?? []);
+    else setError(res.error?.message ?? 'Failed to reload subscriptions');
     load();
   };
 
@@ -268,7 +273,9 @@ export function UserManagementPage({ slug, token }: Props) {
                         <td className="px-3 py-2">{s.status}</td>
                         <td className="px-3 py-2">
                           {s.grant_type === 'manual' ? (
-                            <Input type="datetime-local" className="h-8 text-xs" defaultValue={toInput(s.current_end)}
+                            // Keyed on the stored value so refreshGrantSubs remounts the input —
+                            // otherwise a rejected or normalised date leaves the typed value on screen.
+                            <Input key={s.current_end} type="datetime-local" className="h-8 text-xs" defaultValue={toInput(s.current_end)}
                               onBlur={e => { const v = e.target.value; if (v && v !== toInput(s.current_end)) patchGrant(s.id, { end_at: v }); }} />
                           ) : (
                             // Razorpay dates belong to the mandate — the next charged webhook

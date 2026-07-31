@@ -59,8 +59,13 @@ export async function loadPermissions(db: D1Database, userId: string): Promise<s
     const r = await db.prepare('SELECT permissions FROM org_users WHERE id = ?')
       .bind(userId).first<{ permissions: string | null }>();
     return parsePermissions(r?.permissions);
-  } catch {
-    return undefined;
+  } catch (e) {
+    // Only an unmigrated tenant DB (0013 not applied) may fall back to role. A transient
+    // D1 failure must not silently widen a narrowing grant into a 7-day owner/admin token.
+    const m = e instanceof Error ? e.message : String(e);
+    if (/no such column/i.test(m)) return undefined;
+    console.error('loadPermissions failed', { userId, error: m });
+    throw e;
   }
 }
 

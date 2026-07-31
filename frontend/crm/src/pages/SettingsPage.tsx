@@ -39,7 +39,8 @@ export function SettingsPage({ role }: { role: string }) {
     if (fallback !== undefined && (!isFinite(fallback) || fallback <= 0)) {
       return setSmsMsg({ text: 'FX fallback must be a positive number', type: 'error' });
     }
-    const cap = smsCap.trim() === '' ? undefined : parseInt(smsCap, 10);
+    // Number(), not parseInt(): parseInt('1e2') is 1, silently saving the wrong cap.
+    const cap = smsCap.trim() === '' ? undefined : Number(smsCap);
     if (cap !== undefined && (!Number.isInteger(cap) || cap < 0)) {
       return setSmsMsg({ text: 'Daily cap must be a non-negative whole number', type: 'error' });
     }

@@ -192,10 +192,14 @@ orgAuthRouter.post('/org-login', async (c) => {
         'SELECT id, email, password_hash, name, role FROM org_users WHERE email = ?'
       ).bind(email).first<Pick<OrgUserRow, 'id' | 'email' | 'password_hash' | 'name' | 'role'>>();
       if (user && user.password_hash && await verifyPassword(password, user.password_hash)) {
+        // Grants are read before the login is accepted: loadPermissions throws on a real
+        // D1 failure, and falling back to role would widen a narrowed user for the 7-day
+        // life of the token. A throw here lands in the catch below and 401s.
+        const perms = await loadPermissions(db, user.id);
         valid = true;
         userId = user.id;
         role = (user.role as OrgUserJwtPayload['role']) ?? 'owner';
-        permissions = await loadPermissions(db, user.id);
+        permissions = perms;
       }
     } catch (e) {
       // Tenant DB binding missing/unavailable — fall through to 401.
