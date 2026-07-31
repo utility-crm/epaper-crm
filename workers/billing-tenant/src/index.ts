@@ -737,6 +737,13 @@ app.route('/', grantsRouter);
 // the expiry notice when access actually lapses.
 const RENEWAL_WARN_DAYS = 3;
 
+// Warnings mailed per tenant per tick. Each row is a sequential Resend call plus an
+// UPDATE, and the scheduled handler walks every tenant in one waitUntil — an unbounded
+// first batch (every active subscription in the window, all unstamped) would exhaust the
+// invocation budget and starve the tenants after it. At a half-hourly cron a bounded
+// slice still drains long before the 3-day window closes.
+const RENEWAL_MAIL_BATCH = 200;
+
 /**
  * Expire subscriptions whose paid-through date has passed.
  *
@@ -769,8 +776,11 @@ async function sweepRenewalMail(env: Env, db: D1Database, slug: string, expiredI
      FROM reader_subscriptions s JOIN readers r ON r.id = s.reader_id
      WHERE s.status='active' AND s.renewal_notified_at IS NULL AND r.email IS NOT NULL
        AND datetime(substr(s.current_end, 1, 19)) > datetime('now')
-       AND datetime(substr(s.current_end, 1, 19)) <= datetime('now', ?)`
-  ).bind(`+${RENEWAL_WARN_DAYS} days`).all<{ id: string; current_end: string; email: string }>();
+       AND datetime(substr(s.current_end, 1, 19)) <= datetime('now', ?)
+     ORDER BY datetime(substr(s.current_end, 1, 19))
+     LIMIT ?`
+  ).bind(`+${RENEWAL_WARN_DAYS} days`, RENEWAL_MAIL_BATCH)
+    .all<{ id: string; current_end: string; email: string }>();
 
   for (const row of soon.results ?? []) {
     const sent = await sendRenewalMail(env.RESEND_API_KEY, env.RESEND_DOMAIN, {

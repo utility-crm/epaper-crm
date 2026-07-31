@@ -23,7 +23,8 @@ const plusDays = (n: number) => new Date(Date.now() + n * 86400_000).toISOString
 function mayGrant(token: string): boolean {
   try {
     const p = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-    if (Array.isArray(p.permissions)) return p.permissions.includes('grant_subs');
+    // Empty array = unconfigured column, so fall back to role, matching may().
+    if (Array.isArray(p.permissions) && p.permissions.length) return p.permissions.includes('grant_subs');
     return p.role === 'owner' || p.role === 'admin';
   } catch { return false; }
 }

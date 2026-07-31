@@ -39,13 +39,15 @@ export async function adminAuth(c: Context<{ Bindings: Env; Variables: { adminId
 }
 
 // ABAC: org_users.permissions is JSON TEXT. A malformed value must not 500 a login,
-// so parse defensively and treat anything that isn't a string array as "no explicit
-// grant" (undefined), which falls back to role in can()/may().
+// so parse defensively and treat anything that isn't a non-empty string array as "no
+// explicit grant" (undefined), which falls back to role in can()/may(). An empty array
+// is "unconfigured", not "denied everything" — nothing writes that column yet, and
+// reading it as a deny-all would lock an owner out of their own portal.
 export function parsePermissions(raw: unknown): string[] | undefined {
   if (typeof raw !== 'string') return undefined;
   try {
     const v = JSON.parse(raw);
-    return Array.isArray(v) && v.every((s) => typeof s === 'string') ? v : undefined;
+    return Array.isArray(v) && v.length && v.every((s) => typeof s === 'string') ? v : undefined;
   } catch {
     return undefined;
   }
@@ -76,7 +78,7 @@ export async function loadPermissions(db: D1Database, userId: string): Promise<s
  */
 export function can(c: Context<{ Variables: { orgRole?: OrgUserRole; permissions?: string[] } }>, perm: string): boolean {
   const perms = c.var.permissions;
-  if (perms) return perms.includes(perm);
+  if (perms?.length) return perms.includes(perm);
   return c.var.orgRole === 'owner' || c.var.orgRole === 'admin';
 }
 
@@ -97,7 +99,11 @@ export async function orgUserAuth(c: Context<{ Bindings: Env; Variables: { tenan
   c.set('orgRole', payload.role as OrgUserRole);
   c.set('userId', payload.userId);
   // Left unset when the claim is absent so can() falls back to role — tokens minted
-  // before ABAC existed must keep working until they expire.
-  if (Array.isArray(payload.permissions)) c.set('permissions', payload.permissions as string[]);
+  // before ABAC existed must keep working until they expire. Same shape rule as
+  // parsePermissions: a non-empty array of strings, or no explicit grant at all.
+  if (Array.isArray(payload.permissions) && payload.permissions.length
+      && payload.permissions.every((s) => typeof s === 'string')) {
+    c.set('permissions', payload.permissions as string[]);
+  }
   await next();
 }

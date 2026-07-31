@@ -67,6 +67,17 @@ function toIso(v: unknown): string | null {
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
 
+// getTenantDb throws only for an unresolvable slug (see db.ts). Everything else caught by
+// these routes is a real fault — a D1 write failure, a constraint violation — and reporting
+// it as "Tenant DB not found" sends operators looking at bindings instead of the error.
+function dbError(c: any, e: unknown) {
+  if (e instanceof Error && e.message.startsWith('Database binding not found')) {
+    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+  }
+  console.error('[billing-tenant] grants route failed', c.req.method, c.req.path, e);
+  return c.json(err(ErrorCode.INTERNAL_ERROR, 'Could not complete the request'), 500);
+}
+
 /** Create or extend a manual grant for one reader. Returns the row id. */
 async function grantManual(
   db: D1Database,
@@ -122,7 +133,9 @@ async function patchManual(
     `UPDATE reader_subscriptions
      SET status=?, current_end=?, granted_by=?,
          grant_note=COALESCE(?, grant_note),
-         cancelled_at=CASE WHEN ?='cancelled' THEN CURRENT_TIMESTAMP ELSE NULL END,
+         -- COALESCE keeps the original cancellation time: patching only end_at on an
+         -- already-cancelled row must not restamp it, since the refund window reads it.
+         cancelled_at=CASE WHEN ?='cancelled' THEN COALESCE(cancelled_at, CURRENT_TIMESTAMP) ELSE NULL END,
          renewal_notified_at=NULL, updated_at=CURRENT_TIMESTAMP
      WHERE id=?`
   ).bind(nextStatus, nextEnd, input.grantedBy, input.note ?? null, nextStatus, subId).run();
@@ -180,7 +193,7 @@ grantsRouter.post(`${BASE}/internal/:slug/subscriptions`, async (c) => {
     const res = await grantManual(db, { ...parsed, grantedBy });
     return c.json(ok({ ...res, current_start: parsed.startAt, current_end: parsed.endAt }), res.reactivated ? 200 : 201);
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    return dbError(c, e);
   }
 });
 
@@ -203,7 +216,7 @@ grantsRouter.patch(`${BASE}/internal/:slug/subscriptions/:id`, async (c) => {
     if (!row) return c.json(err(ErrorCode.NOT_FOUND, 'No manual subscription with that id'), 404);
     return c.json(ok(row));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    return dbError(c, e);
   }
 });
 
@@ -225,7 +238,7 @@ grantsRouter.get(`${BASE}/internal/:slug/reader-lookup`, async (c) => {
     ).bind(reader.id).all();
     return c.json(ok({ reader, items: rows.results ?? [] }));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    return dbError(c, e);
   }
 });
 
@@ -238,10 +251,15 @@ async function staffFor(c: any, slug: string): Promise<{ sub: string; role: stri
   if (!auth?.startsWith('Bearer ')) return null;
   const p = await verifyJwt(auth.substring(7), c.env.ORG_JWT_SECRET);
   if (!p || p.aud !== 'tenant-portal' || p.tenantSlug !== slug || typeof p.sub !== 'string') return null;
+  // Same shape rule as parsePermissions in workers/auth/src/middleware.ts: a non-empty
+  // array of strings, or no explicit grant (null) and may() falls back to role.
+  const claim = p.permissions;
+  const perms = Array.isArray(claim) && claim.length && claim.every((s) => typeof s === 'string')
+    ? (claim as string[]) : null;
   return {
     sub: p.sub as string,
     role: (p.role as string) ?? 'editor',
-    permissions: Array.isArray(p.permissions) ? (p.permissions as string[]) : null,
+    permissions: perms,
   };
 }
 
@@ -249,7 +267,9 @@ async function staffFor(c: any, slug: string): Promise<{ sub: string; role: stri
 // without one we fall back to role. See can() in workers/auth/src/middleware.ts for the
 // same rule. Exported so index.ts gates its reader routes on the same logic.
 export function may(staff: { role: string; permissions: string[] | null }, perm: string): boolean {
-  if (staff.permissions) return staff.permissions.includes(perm);
+  // An empty array is an unconfigured column, not a deny-all — otherwise it would lock
+  // an owner out of their own portal with no UI to undo it.
+  if (staff.permissions?.length) return staff.permissions.includes(perm);
   return staff.role === 'owner' || staff.role === 'admin';
 }
 
@@ -276,7 +296,7 @@ grantsRouter.post(`${BASE}/:slug/manual-subscriptions`, async (c) => {
     const res = await grantManual(db, { ...parsed, grantedBy: `org:${staff.sub}` });
     return c.json(ok({ ...res, current_start: parsed.startAt, current_end: parsed.endAt }), res.reactivated ? 200 : 201);
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    return dbError(c, e);
   }
 });
 
@@ -302,7 +322,7 @@ grantsRouter.patch(`${BASE}/:slug/manual-subscriptions/:id`, async (c) => {
     if (!row) return c.json(err(ErrorCode.NOT_FOUND, 'No manual subscription with that id'), 404);
     return c.json(ok(row));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    return dbError(c, e);
   }
 });
 
@@ -321,6 +341,6 @@ grantsRouter.get(`${BASE}/:slug/readers/:readerId/subscriptions`, async (c) => {
     ).bind(c.req.param('readerId')).all();
     return c.json(ok({ items: rows.results ?? [] }));
   } catch (e) {
-    return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Tenant DB not found or unavailable'), 403);
+    return dbError(c, e);
   }
 });
