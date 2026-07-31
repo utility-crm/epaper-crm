@@ -18,11 +18,6 @@
       "database_id": "8a007a8d-f465-4be9-bdc7-e1658fb5aa82"
     },
     {
-      "binding": "SHOP_73BD_DB",
-      "database_name": "epaper-shop-73bd",
-      "database_id": "523bf3ed-150a-4631-bae5-593d15cbff87"
-    },
-    {
       "binding": "SPEAK_THE_WORLD_4E40_DB",
       "database_name": "epaper-speak-the-world-4e40",
       "database_id": "cea194ce-af75-49ee-893e-c505fb6762d6"
@@ -37,10 +32,6 @@
     {
       "binding": "GUNJ_UTHI_RANBHERI_F453_R2",
       "bucket_name": "epaper-gunj-uthi-ranbheri-f453"
-    },
-    {
-      "binding": "SHOP_73BD_R2",
-      "bucket_name": "epaper-shop-73bd"
     },
     {
       "binding": "SPEAK_THE_WORLD_4E40_R2",
