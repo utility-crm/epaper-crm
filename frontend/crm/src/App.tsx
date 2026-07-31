@@ -10,6 +10,7 @@ import { AdminsPage } from './pages/AdminsPage';
 import { TiersPage } from './pages/TiersPage';
 import { RefundsPage } from './pages/RefundsPage';
 import { EmailMonitorPage } from './pages/EmailMonitorPage';
+import { SubscriptionManagePage } from './pages/SubscriptionManagePage';
 
 function decodeToken(token: string) {
   try {
@@ -47,6 +48,7 @@ function Sidebar({ email, role, onLogout }: { email: string; role: string; onLog
           <>
             <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--color-text-muted)', padding: '0 14px', marginTop: 16, marginBottom: 4, letterSpacing: '0.08em' }}>Platform</div>
             <NavLink to="/tiers" style={({ isActive }) => linkStyle(isActive)}>Subscription Tiers</NavLink>
+            <NavLink to="/subscriptions" style={({ isActive }) => linkStyle(isActive)}>Manual Subscriptions</NavLink>
             <NavLink to="/refunds" style={({ isActive }) => linkStyle(isActive)}>Refund Requests</NavLink>
             <NavLink to="/email-monitor" style={({ isActive }) => linkStyle(isActive)}>Email Monitoring</NavLink>
             <NavLink to="/admins" style={({ isActive }) => linkStyle(isActive)}>Admin Users</NavLink>
@@ -99,6 +101,7 @@ export default function App() {
               <>
                 <Route path="/admins" element={<AdminsPage />} />
                 <Route path="/tiers" element={<TiersPage />} />
+                <Route path="/subscriptions" element={<SubscriptionManagePage />} />
                 <Route path="/refunds" element={<RefundsPage />} />
                 <Route path="/email-monitor" element={<EmailMonitorPage />} />
               </>

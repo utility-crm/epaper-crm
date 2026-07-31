@@ -106,6 +106,13 @@ export const portalApi = {
   createUser: (slug: string, body: { email: string; name: string; password?: string }, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/users`, { method: 'POST', body: JSON.stringify(body) }, token),
   cancelUserSubscription: (slug: string, id: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/users/${id}/cancel`, { method: 'POST' }, token),
   deleteUser: (slug: string, id: string, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/users/${id}`, { method: 'DELETE' }, token),
+  // manual (cash/cheque/enterprise) grants — same rows the CRM writes
+  listReaderSubscriptions: (slug: string, readerId: string, token: string) =>
+    apiFetch<{ items: any[] }>(`/api/billing/tenant/${slug}/readers/${readerId}/subscriptions`, {}, token),
+  grantManualSubscription: (slug: string, body: { reader_id: string; start_at?: string; end_at: string; tier_id?: string; note?: string }, token: string) =>
+    apiFetch<any>(`/api/billing/tenant/${slug}/manual-subscriptions`, { method: 'POST', body: JSON.stringify(body) }, token),
+  patchManualSubscription: (slug: string, id: string, body: { end_at?: string; status?: 'active' | 'cancelled'; note?: string }, token: string) =>
+    apiFetch<any>(`/api/billing/tenant/${slug}/manual-subscriptions/${id}`, { method: 'PATCH', body: JSON.stringify(body) }, token),
   // reader refund queue (org-admin processes)
   listRefundRequests: (slug: string, token: string, status?: string) => apiFetch<{ items: any[] }>(`/api/billing/tenant/${slug}/refund-requests${status ? `?status=${status}` : ''}`, {}, token),
   processRefundRequest: (slug: string, id: string, body: { action: 'approve' | 'reject'; amount_paise?: number; message?: string }, token: string) => apiFetch<any>(`/api/billing/tenant/${slug}/refund-requests/${id}/process`, { method: 'POST', body: JSON.stringify(body) }, token),

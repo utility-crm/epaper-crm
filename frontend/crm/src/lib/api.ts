@@ -45,10 +45,20 @@ export const crmApi = {
   createAdmin: (body: any) => apiFetch<any>('/api/auth/admins', { method: 'POST', body: JSON.stringify(body) }),
   deleteAdmin: (id: string) => apiFetch<any>(`/api/auth/admins/${id}`, { method: 'DELETE' }),
 
-  // Platform config (superadmin): metered SMS rate + FX fallback.
+  // Platform config (superadmin): metered SMS rate + FX fallback + SMS abuse controls.
   getPlatformConfig: () => apiFetch<any>('/api/admin/platform-config'),
-  updatePlatformConfig: (body: { sms_rate_usd: number; usd_inr_fallback?: number }) =>
+  updatePlatformConfig: (body: { sms_rate_usd: number; usd_inr_fallback?: number; sms_daily_cap?: number; sms_disabled?: boolean }) =>
     apiFetch<any>('/api/admin/platform-config', { method: 'PATCH', body: JSON.stringify(body) }),
+
+  // Manual reader subscriptions (superadmin): cash/cheque/enterprise grants that the
+  // Razorpay mandate cannot represent. Same rows the publisher portal writes.
+  lookupReaderSubscriptions: (slug: string, email: string) =>
+    apiFetch<{ reader: { id: string; email: string; name: string }; items: any[] }>(
+      `/api/admin/subscriptions/${slug}/reader-lookup?email=${encodeURIComponent(email)}`),
+  grantSubscription: (slug: string, body: { reader_id: string; start_at?: string; end_at: string; tier_id?: string; plan_type?: string; note?: string }) =>
+    apiFetch<any>(`/api/admin/subscriptions/${slug}`, { method: 'POST', body: JSON.stringify(body) }),
+  patchSubscription: (slug: string, id: string, body: { end_at?: string; status?: 'active' | 'cancelled'; note?: string }) =>
+    apiFetch<any>(`/api/admin/subscriptions/${slug}/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // Tiers
   getTiers: () => apiFetch<any>('/api/tiers'),

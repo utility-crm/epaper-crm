@@ -28,6 +28,13 @@
     {
       "binding": "BILLING_WORKER",
       "service": "epaper-billing-platform"
+    },
+    {
+      // Distinct from BILLING_WORKER/BILLING_PLATFORM_WORKER above (both point at
+      // billing-platform). Superadmin manual subscription grants land in the tenant DB,
+      // which only billing-tenant has bindings for.
+      "binding": "BILLING_TENANT",
+      "service": "epaper-billing-tenant"
     }
   ],
   "triggers": {

@@ -128,16 +128,18 @@ export interface AuthMailEnv {
 }
 
 /**
- * Send an auth mail. Returns false instead of throwing: a mail failure must not turn
- * a successful signup into a 500 (the user can always request a fresh link), and the
- * caller decides whether to surface it.
+ * Send an auth mail, or throw.
+ *
+ * It used to return false on every failure — missing key, Resend rejection, transport
+ * error — and no caller read the boolean, so a worker with RESEND_API_KEY unset mailed
+ * nothing and reported success all the way back to the user. Throwing makes that loud.
+ * Callers must not turn the throw into a 500: signup and the reset/verify endpoints
+ * catch it, log, and answer as before (the user can always request a fresh link).
  */
-export async function sendAuthMail(env: AuthMailEnv, input: AuthMailInput): Promise<boolean> {
+export async function sendAuthMail(env: AuthMailEnv, input: AuthMailInput): Promise<void> {
   const domain = env.AUTH_MAIL_DOMAIN;
-  if (!env.RESEND_API_KEY || !domain) {
-    console.warn('[auth-mail] RESEND_API_KEY / AUTH_MAIL_DOMAIN not configured — skipping send');
-    return false;
-  }
+  if (!env.RESEND_API_KEY) throw new Error('[auth-mail] RESEND_API_KEY not configured');
+  if (!domain) throw new Error('[auth-mail] AUTH_MAIL_DOMAIN not configured');
   const isVerify = input.purpose === 'verify_email';
   const body = {
     from: `${sanitizeName(input.brandName)} <${authSender(input.slug, domain)}>`,
@@ -147,20 +149,18 @@ export async function sendAuthMail(env: AuthMailEnv, input: AuthMailInput): Prom
     ...(input.replyTo ? { reply_to: input.replyTo } : {}),
     tags: [{ name: 'kind', value: input.purpose }],
   };
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.RESEND_API_KEY}` },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      console.error('[auth-mail] Resend send failed', res.status);
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error('[auth-mail] Resend send threw', e);
-    return false;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.RESEND_API_KEY}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    // Status only: callers log this exception, and Resend's body can carry recipient or
+    // delivery detail that must not land in worker logs. `name` is Resend's stable error
+    // slug (e.g. "validation_error"), which is enough to tell the failure modes apart.
+    const errBody = (await res.json().catch(() => null)) as { name?: unknown } | null;
+    const name = typeof errBody?.name === 'string' ? errBody.name.slice(0, 64) : '';
+    throw new Error(`[auth-mail] Resend send failed ${res.status}${name ? ` (${name})` : ''}`);
   }
 }
 

@@ -5,7 +5,8 @@ import { encrypt, decrypt } from './crypto';
 import { verifyJwt } from './jwt';
 import { createRazorpayPlan, createSubscription, cancelSubscription, verifySubscriptionSignature, refundPayment } from './razorpay';
 import { hashPassword } from './password';
-import { sendEmail, refundEmailHtml } from './email';
+import { sendEmail, refundEmailHtml, sendRenewalMail } from './email';
+import { grantsRouter, ensureGrantColumns, may } from './admin-grants';
 
 export interface Env {
   TENANT_ENCRYPTION_KEY: string;
@@ -13,8 +14,14 @@ export interface Env {
   RESEND_API_KEY?: string;
   RESEND_FROM?: string;
   // Verified Resend sending domain. Reader refund mail is sent from
-  // no-reply-<slug>@<RESEND_DOMAIN> so each publication has a distinct sender.
+  // no-reply-<slug>@<RESEND_DOMAIN> so each publication has a distinct sender;
+  // renewal/expiry notices go from the shared noreply@<RESEND_DOMAIN>.
   RESEND_DOMAIN?: string;
+  // Shared secret for /internal/* grant routes, called by the admin worker over a
+  // service binding.
+  INTERNAL_SECRET?: string;
+  // Active-tenant list for the scheduled expiry/renewal sweep.
+  CONTROL_DB: D1Database;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -34,12 +41,17 @@ async function getReader(c: any, slug: string): Promise<ReaderJwtPayload | null>
 }
 
 // Resolve an org staff member from a tenant-portal JWT scoped to this slug.
-async function getOrgStaff(c: any, slug: string): Promise<{ sub: string; role: string } | null> {
+async function getOrgStaff(c: any, slug: string): Promise<{ sub: string; role: string; permissions: string[] | null } | null> {
   const auth = c.req.header('Authorization');
   if (!auth?.startsWith('Bearer ')) return null;
   const payload = await verifyJwt(auth.substring(7), c.env.ORG_JWT_SECRET);
   if (!payload || payload.aud !== 'tenant-portal' || payload.tenantSlug !== slug || typeof payload.sub !== 'string') return null;
-  return { sub: payload.sub as string, role: payload.role as string };
+  return {
+    sub: payload.sub as string,
+    role: payload.role as string,
+    // null (not []) when the claim is absent, so may() falls back to role for legacy tokens.
+    permissions: Array.isArray(payload.permissions) ? (payload.permissions as string[]) : null,
+  };
 }
 
 // Read whether the org refunds on cancellation (drives immediate vs end-of-term access loss).
@@ -241,7 +253,8 @@ app.post('/api/billing/tenant/:slug/webhook', async (c) => {
           const months = INTERVAL_MONTHS[(row.plan_type as SubscriptionInterval)] ?? 1;
           const end = new Date(); end.setMonth(end.getMonth() + months);
           const paymentId = event.payload?.payment?.entity?.id ?? null;
-          await db.prepare("UPDATE reader_subscriptions SET status='active', current_end=?, last_payment_id=COALESCE(?, last_payment_id), updated_at=CURRENT_TIMESTAMP WHERE id=?")
+          // renewal_notified_at is per-term: clear it so the next term warns again.
+          await db.prepare("UPDATE reader_subscriptions SET status='active', current_end=?, last_payment_id=COALESCE(?, last_payment_id), renewal_notified_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?")
             .bind(end.toISOString(), paymentId, row.id).run();
           break;
         }
@@ -583,6 +596,7 @@ app.post('/api/billing/tenant/:slug/users/:id/cancel', async (c) => {
   const readerId = c.req.param('id');
   const staff = await getOrgStaff(c, slug);
   if (!staff) return c.json(err(ErrorCode.UNAUTHORIZED, 'Org sign-in required'), 401);
+  if (!may(staff, 'manage_users')) return c.json(err(ErrorCode.FORBIDDEN, 'Not allowed to manage reader subscriptions'), 403);
   try {
     const db = getTenantDb(c.env, slug);
     await ensureBillingColumns(db);
@@ -699,6 +713,7 @@ app.delete('/api/billing/tenant/:slug/users/:id', async (c) => {
   const readerId = c.req.param('id');
   const staff = await getOrgStaff(c, slug);
   if (!staff) return c.json(err(ErrorCode.UNAUTHORIZED, 'Org sign-in required'), 401);
+  if (!may(staff, 'manage_users')) return c.json(err(ErrorCode.FORBIDDEN, 'Not allowed to delete readers'), 403);
   try {
     const db = getTenantDb(c.env, slug);
     await db.batch([
@@ -711,6 +726,119 @@ app.delete('/api/billing/tenant/:slug/users/:id', async (c) => {
   }
 });
 
+// Manual (cash / offline / enterprise) grants — superadmin via service binding and
+// publisher via their own portal token. Mounted last so its narrower paths don't
+// shadow the routes above.
+app.route('/', grantsRouter);
+
+// ── Scheduled expiry + renewal notices ──────────────────────────────────────
+
+// Warn this far ahead of current_end. One warning per term (renewal_notified_at), then
+// the expiry notice when access actually lapses.
+const RENEWAL_WARN_DAYS = 3;
+
+// Warnings mailed per tenant per tick. Each row is a sequential Resend call plus an
+// UPDATE, and the scheduled handler walks every tenant in one waitUntil — an unbounded
+// first batch (every active subscription in the window, all unstamped) would exhaust the
+// invocation budget and starve the tenants after it. At a half-hourly cron a bounded
+// slice still drains long before the 3-day window closes.
+const RENEWAL_MAIL_BATCH = 200;
+
+/**
+ * Expire subscriptions whose paid-through date has passed.
+ *
+ * Both lanes expire: an online subscription whose mandate stopped renewing, and a
+ * manual grant that ran out. Nothing here reactivates anything — that is deliberate,
+ * and reactivation is the whole point of the manual-grant routes.
+ *
+ * substr(...,1,19) trims the JS ISO string to 'YYYY-MM-DDTHH:MM:SS'. SQLite 3.42.0+
+ * parses the 'Z' suffix directly, so this is portability for older builds, not a fix.
+ * Safe only because every writer uses toISOString() — always UTC. A stored offset
+ * like +05:30 would be silently truncated rather than converted.
+ */
+async function sweepExpired(db: D1Database): Promise<number> {
+  const res = await db.prepare(
+    `UPDATE reader_subscriptions
+     SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+     WHERE status='active' AND datetime(substr(current_end, 1, 19)) <= datetime('now')`
+  ).run();
+  return res.meta?.changes ?? 0;
+}
+
+/** Warning mail before expiry, plus a notice for whatever just lapsed. */
+async function sweepRenewalMail(env: Env, db: D1Database, slug: string, expiredIds: string[]): Promise<void> {
+  const identity = await pubEmailIdentity(db, slug);
+
+  // Pre-expiry warnings. renewal_notified_at is the idempotency guard — without it a
+  // half-hourly cron would mail the same reader 144 times over three days.
+  const soon = await db.prepare(
+    `SELECT s.id, s.current_end, r.email
+     FROM reader_subscriptions s JOIN readers r ON r.id = s.reader_id
+     WHERE s.status='active' AND s.renewal_notified_at IS NULL AND r.email IS NOT NULL
+       AND datetime(substr(s.current_end, 1, 19)) > datetime('now')
+       AND datetime(substr(s.current_end, 1, 19)) <= datetime('now', ?)
+     ORDER BY datetime(substr(s.current_end, 1, 19))
+     LIMIT ?`
+  ).bind(`+${RENEWAL_WARN_DAYS} days`, RENEWAL_MAIL_BATCH)
+    .all<{ id: string; current_end: string; email: string }>();
+
+  for (const row of soon.results ?? []) {
+    const sent = await sendRenewalMail(env.RESEND_API_KEY, env.RESEND_DOMAIN, {
+      to: row.email, brandName: identity.displayName, endAt: row.current_end,
+      expired: false, supportEmail: identity.supportEmail,
+    });
+    // Only stamp on success, so a transient Resend failure is retried next tick rather
+    // than silently costing the reader their warning.
+    if (sent) {
+      await db.prepare('UPDATE reader_subscriptions SET renewal_notified_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .bind(row.id).run();
+    }
+  }
+
+  // Expiry notices, for the rows this same tick just cancelled.
+  for (const id of expiredIds) {
+    const row = await db.prepare(
+      'SELECT s.current_end, r.email FROM reader_subscriptions s JOIN readers r ON r.id = s.reader_id WHERE s.id = ?'
+    ).bind(id).first<{ current_end: string; email: string | null }>();
+    if (!row?.email) continue;
+    await sendRenewalMail(env.RESEND_API_KEY, env.RESEND_DOMAIN, {
+      to: row.email, brandName: identity.displayName, endAt: row.current_end,
+      expired: true, supportEmail: identity.supportEmail,
+    });
+  }
+}
+
 export default {
   fetch: app.fetch,
+  scheduled: async (_event: any, env: Env, ctx: any) => {
+    ctx.waitUntil((async () => {
+      let tenants: { slug: string }[] = [];
+      try {
+        const res = await env.CONTROL_DB.prepare("SELECT slug FROM tenants WHERE status = 'active'").all<{ slug: string }>();
+        tenants = res.results ?? [];
+      } catch (e) {
+        console.error('[billing-tenant] cron: could not list tenants', e);
+        return;
+      }
+      for (const t of tenants) {
+        // One tenant's missing binding or bad data must not stop the rest of the sweep.
+        try {
+          const db = getTenantDb(env, t.slug);
+          await ensureGrantColumns(db);
+          // Capture what is about to lapse before the UPDATE, so the expiry notices know
+          // who to mail — the sweep itself only reports a row count.
+          const dueRes = await db.prepare(
+            `SELECT id FROM reader_subscriptions
+             WHERE status='active' AND datetime(substr(current_end, 1, 19)) <= datetime('now')`
+          ).all<{ id: string }>();
+          const expiredIds = (dueRes.results ?? []).map((r) => r.id);
+          const changed = await sweepExpired(db);
+          if (changed || expiredIds.length) console.log(`[billing-tenant] ${t.slug}: expired ${changed}`);
+          await sweepRenewalMail(env, db, t.slug, expiredIds);
+        } catch (e) {
+          console.error(`[billing-tenant] cron failed for ${t.slug}`, e);
+        }
+      }
+    })());
+  },
 };

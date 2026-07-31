@@ -30,18 +30,14 @@ async function getReader(c: any, slug: string): Promise<ReaderJwtPayload | null>
 }
 
 // Does this reader hold an active subscription to the given tier right now?
+// current_end is stored as a JS ISO string (…T00:00:00.000Z). SQLite 3.42.0+
+// parses the Z suffix fine, but older builds did not; substr strips to
+// 'YYYY-MM-DDTHH:MM:SS' for portability.
 async function hasActiveSub(db: D1Database, readerId: string, tierId: string | null): Promise<boolean> {
-  if (!tierId) {
-    const row = await db.prepare(
-      `SELECT id FROM reader_subscriptions
-       WHERE reader_id = ? AND status = 'active' AND datetime(current_end) > CURRENT_TIMESTAMP
-       LIMIT 1`
-    ).bind(readerId).first();
-    return !!row;
-  }
   const row = await db.prepare(
     `SELECT id FROM reader_subscriptions
-     WHERE reader_id = ? AND tier_id = ? AND status = 'active' AND datetime(substr(current_end, 1, 19)) > CURRENT_TIMESTAMP
+     WHERE reader_id = ? AND (?2 IS NULL OR tier_id = ?2) AND status = 'active'
+       AND datetime(substr(current_end, 1, 19)) > CURRENT_TIMESTAMP
      LIMIT 1`
   ).bind(readerId, tierId).first();
   return !!row;
@@ -54,6 +50,10 @@ async function hasActiveSub(db: D1Database, readerId: string, tierId: string | n
 // entitled to, we mint a short-lived HMAC token bound to (paperId, page_no).
 // The raw page endpoint then verifies the signature with pure crypto — no DB.
 const PAGE_TOKEN_TTL_SEC = 60 * 60 * 6; // 6h — long enough for a reading session
+// ponytail: a token stays valid for its full 6h, so revoking a subscription (manual
+// deactivation, expiry sweep) does not cut off a reader mid-session — they keep the
+// pages already minted until the token lapses. Shorten the TTL, or re-check the
+// subscription in the raw page handler, if revocation has to be immediate.
 
 const hmacKeyCache = new Map<string, Promise<CryptoKey>>();
 function getHmacKey(secret: string): Promise<CryptoKey> {
@@ -271,7 +271,8 @@ readerRouter.post('/:slug/verify-email/send', async (c) => {
     const row = await db.prepare('SELECT email, email_verified FROM readers WHERE id = ?')
       .bind(reader.sub).first<{ email: string | null; email_verified: number }>().catch(() => null);
     if (row?.email && !row.email_verified) {
-      await mailReaderToken(c.env, db, slug, reader.sub, row.email, 'verify_email');
+      await mailReaderToken(c.env, db, slug, reader.sub, row.email, 'verify_email')
+        .catch((e) => console.error('auth-mail: reader verify send failed:', e));
     }
   }
 
@@ -374,7 +375,7 @@ readerRouter.get('/:slug/me', async (c) => {
     const db = getTenantDb(c.env, slug);
     const subs = await db.prepare(
       `SELECT id, tier_id, plan_id, status, current_end FROM reader_subscriptions
-       WHERE reader_id = ? AND status = 'active' AND datetime(current_end) > CURRENT_TIMESTAMP`
+       WHERE reader_id = ? AND status = 'active' AND datetime(substr(current_end, 1, 19)) > CURRENT_TIMESTAMP`
     ).bind(reader.sub).all();
     // email_verified drives the dismissible "verify your email" banner only — nothing
     // on the reader side is gated on it. A pre-0011 tenant lacking the column must

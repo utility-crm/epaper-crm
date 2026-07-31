@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { Env } from './middleware';
+import { Env, loadPermissions } from './middleware';
 import { ok, err, ErrorCode, OrgUserJwtPayload, TenantRow, PendingOwnerRow, OrgUserRow } from '@epaper/types';
 import { signJwt } from './jwt';
 import { hashPassword, verifyPassword } from './password';
@@ -170,6 +170,7 @@ orgAuthRouter.post('/org-login', async (c) => {
   let valid = false;
   let role: OrgUserJwtPayload['role'] = 'owner';
   let userId: string | undefined;
+  let permissions: string[] | undefined;
 
   // pending_owners only holds owners of not-yet-activated tenants; the row is deleted
   // on activation. Scope the lookup to pending/provisioning so a stale row can never
@@ -191,9 +192,14 @@ orgAuthRouter.post('/org-login', async (c) => {
         'SELECT id, email, password_hash, name, role FROM org_users WHERE email = ?'
       ).bind(email).first<Pick<OrgUserRow, 'id' | 'email' | 'password_hash' | 'name' | 'role'>>();
       if (user && user.password_hash && await verifyPassword(password, user.password_hash)) {
+        // Grants are read before the login is accepted: loadPermissions throws on a real
+        // D1 failure, and falling back to role would widen a narrowed user for the 7-day
+        // life of the token. A throw here lands in the catch below and 401s.
+        const perms = await loadPermissions(db, user.id);
         valid = true;
         userId = user.id;
         role = (user.role as OrgUserJwtPayload['role']) ?? 'owner';
+        permissions = perms;
       }
     } catch (e) {
       // Tenant DB binding missing/unavailable — fall through to 401.
@@ -209,7 +215,9 @@ orgAuthRouter.post('/org-login', async (c) => {
     tenantSlug: tenant.slug,
     role,
     userId: userId!,
-    exp: Math.floor(Date.now() / 1000) + 604800
+    exp: Math.floor(Date.now() / 1000) + 604800,
+    // Omitted entirely when the user has no explicit grant, so can() falls back to role.
+    ...(permissions ? { permissions } : {}),
   };
   const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);
 
