@@ -69,18 +69,19 @@ export function TenantSubscriptionPage() {
     })();
   }, [slug]);
 
-  // Escape closes either editing modal, but never mid-request: dismissing the dialog while
-  // the PATCH is in flight would hide the outcome of a change that still lands.
+  // Escape closes any open dialog, but never mid-request: dismissing while the POST/PATCH
+  // is in flight would hide the outcome of a change that still lands.
   useEffect(() => {
-    if (!showGrant && !showExtend) return;
+    if (!showGrant && !showExtend && !showDeactivate) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || saving) return;
       setShowGrant(false);
       setShowExtend(false);
+      setShowDeactivate(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showGrant, showExtend, saving]);
+  }, [showGrant, showExtend, showDeactivate, saving]);
 
   // Move focus into the dialog on open so keyboard and screen-reader users land on the first
   // field instead of staying behind the overlay.
@@ -93,7 +94,7 @@ export function TenantSubscriptionPage() {
     // tenants.plan may differ in case from platform_tiers.name, and a mismatched <select>
     // value renders as blank, which reads as "no plan" rather than "same plan".
     const match = tiers.find(t => t.name.toLowerCase() === (tenant?.plan ?? '').toLowerCase());
-    setPlan(tenant?.plan === 'Free' ? '' : match?.name ?? '');
+    setPlan(tenant?.plan?.toLowerCase() === 'free' ? '' : match?.name ?? '');
     setStartAt(''); setEndAt(''); setNote('');
     setError('');
   };
@@ -245,10 +246,10 @@ export function TenantSubscriptionPage() {
               <option value="">Select a tier</option>
               {tiers.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
             </select>
-            <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 4 }}>Start (UTC, leave blank = now)</label>
+            <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 4 }}>Start (your local time — blank = now)</label>
             <input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)}
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'transparent', color: 'inherit', marginBottom: 12 }} />
-            <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 4 }}>End (UTC) *</label>
+            <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 4 }}>End (your local time) *</label>
             <input type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)}
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'transparent', color: 'inherit', marginBottom: 12 }} />
             <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 4 }}>Note</label>
@@ -267,7 +268,7 @@ export function TenantSubscriptionPage() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={() => !saving && setShowExtend(false)}>
           <div role="dialog" aria-modal="true" aria-label="Extend manual subscription" style={{ background: 'var(--color-bg-base)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 24, width: 420, maxWidth: '90vw' }} onClick={(e) => e.stopPropagation()}>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 16 }}>Extend subscription — {tenant.slug}</h2>
-            <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 4 }}>New end (UTC) *</label>
+            <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 4 }}>New end (your local time) *</label>
             <input ref={extendRef} type="datetime-local" value={extendAt} onChange={(e) => setExtendAt(e.target.value)}
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'transparent', color: 'inherit', marginBottom: 12 }} />
             {error && <div style={{ color: '#dc2626', fontSize: '0.85rem', marginBottom: 12 }}>{error}</div>}
