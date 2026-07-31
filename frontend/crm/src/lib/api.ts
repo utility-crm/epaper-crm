@@ -69,11 +69,11 @@ export const crmApi = {
   // Publisher (tenant) subscriptions to the platform, superadmin only. Manual grants for
   // publications paying offline/by contract — reader subscriptions are the publisher's own
   // concern and are granted from their portal, not here.
-  getTenantSubscription: (slug: string) => apiFetch<any>(`/api/admin/tenant-subscriptions/${slug}`),
+  getTenantSubscription: (slug: string) => apiFetch<any>(`/api/admin/tenant-subscriptions/${encodeURIComponent(slug)}`),
   grantTenantSubscription: (slug: string, body: { plan: string; start_at?: string; end_at: string; note?: string }) =>
-    apiFetch<any>(`/api/admin/tenant-subscriptions/${slug}`, { method: 'POST', body: JSON.stringify(body) }),
+    apiFetch<any>(`/api/admin/tenant-subscriptions/${encodeURIComponent(slug)}`, { method: 'POST', body: JSON.stringify(body) }),
   patchTenantSubscription: (slug: string, body: { end_at?: string; deactivate?: boolean; note?: string }) =>
-    apiFetch<any>(`/api/admin/tenant-subscriptions/${slug}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    apiFetch<any>(`/api/admin/tenant-subscriptions/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // Email delivery monitoring (Resend webhook events), superadmin only
   listEmailEvents: (params?: { lane?: string; slug?: string }) => {
