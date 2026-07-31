@@ -7,7 +7,7 @@ import { domainRouter } from './domain';
 import { tiersRouter } from './tiers';
 import { billingRouter } from './billing';
 import { platformConfigRouter } from './platform-config';
-import { subscriptionsRouter } from './subscriptions';
+import { tenantSubsRouter, sweepExpiredTenantGrants } from './tenant-subs';
 import { err, ErrorCode, ok } from '@epaper/types';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -22,7 +22,7 @@ app.route('/api/domain', domainRouter);
 app.route('/api/tiers', tiersRouter);
 app.route('/api/admin/billing', billingRouter);
 app.route('/api/admin/platform-config', platformConfigRouter);
-app.route('/api/admin/subscriptions', subscriptionsRouter);
+app.route('/api/admin/tenant-subscriptions', tenantSubsRouter);
 
 app.get('/health', (c) => c.json(ok({ status: 'ok', worker: 'admin' })));
 
@@ -38,7 +38,7 @@ export default {
       const pending = await env.CONTROL_DB.prepare(
         'SELECT slug FROM tenants WHERE status = ? LIMIT 10'
       ).bind('pending_deletion').all<{slug: string}>();
-      
+
       if (pending.results && pending.results.length > 0) {
         for (const tenant of pending.results) {
           // Mark as deleting so we don't trigger it again
@@ -62,6 +62,14 @@ export default {
       }
     } catch (e) {
       console.error('Scheduled deprovision sweep failed', e);
+    }
+
+    // Expire manual tenant subscriptions whose window has closed.
+    try {
+      const expired = await sweepExpiredTenantGrants(env.CONTROL_DB);
+      if (expired > 0) console.log(`[admin] Expired ${expired} manual tenant subscription(s)`);
+    } catch (e) {
+      console.error('[admin] Manual tenant subscription sweep failed', e);
     }
   }
 };

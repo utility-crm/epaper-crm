@@ -10,7 +10,6 @@ export interface Env {
   CONTENT_WORKER: Fetcher;
   BILLING_WORKER: Fetcher;
   BILLING_PLATFORM_WORKER: Fetcher;
-  BILLING_TENANT: Fetcher;
   // Shared with billing-tenant; gates its /api/billing/tenant/internal/* routes.
   INTERNAL_SECRET?: string;
   FIREBASE_PROJECT_ID?: string;

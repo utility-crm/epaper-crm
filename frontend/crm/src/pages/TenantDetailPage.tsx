@@ -312,9 +312,16 @@ export function TenantDetailPage() {
                 {!tiers.find(t => t.name === selectedPlan) && <option value={selectedPlan}>{selectedPlan} (Legacy)</option>}
               </select>
             </div>
-            <button className="btn-primary" disabled={planLoading || selectedPlan === tenant.plan} onClick={handlePlanChange}>
-              {planLoading ? 'Updating…' : 'Update Plan'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="btn-primary" disabled={planLoading || selectedPlan === tenant.plan} onClick={handlePlanChange}>
+                {planLoading ? 'Updating…' : 'Update Plan'}
+              </button>
+              {/* Offline/contract publications can't run through the e-mandate; grant the plan
+                  directly with an explicit end date instead. */}
+              <button className="btn-secondary" onClick={() => navigate(`/tenant-subscriptions/${slug}`)}>
+                Manual Subscription
+              </button>
+            </div>
           </div>
         )}
 

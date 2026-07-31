@@ -1,12 +1,10 @@
 // Manual subscription grants: activating, extending, and deactivating reader access
 // with an explicit start/end datetime, outside the Razorpay mandate.
 //
-// Two callers, one implementation:
-//   • superadmin, via a service binding from the admin worker (/internal/*)
-//   • publisher staff, with their own tenant-portal JWT (/:slug/manual-subscriptions)
-// Both land in the same helpers below, so a grant made from the CRM and one made from
-// the publisher portal are the same row — which is what "reflected on the publisher
-// side" means in practice.
+// Reader access is a publisher-level concern, so publisher staff are the only caller —
+// authenticated with their own tenant-portal JWT and scoped to their own slug. The
+// platform superadmin manages *publisher* subscriptions to the platform instead; that
+// lives in workers/admin/src/tenant-subs.ts against the control DB.
 //
 // Why manual grants exist: the e-mandate cannot take cash at a counter, a cheque, a
 // bank transfer, or enterprise terms. Those readers still need access, and when an
@@ -20,9 +18,6 @@ import { verifyJwt } from './jwt';
 
 export interface GrantsEnv {
   ORG_JWT_SECRET: string;
-  // Shared with the admin worker; the only thing standing between the internal routes
-  // and the public internet if this worker is ever given a route of its own.
-  INTERNAL_SECRET?: string;
   [key: string]: unknown;
 }
 
@@ -164,87 +159,6 @@ function readGrantBody(body: any): { readerId: string; tierId: string | null; pl
     note: typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 500) : null,
   };
 }
-
-// ── Superadmin path (service binding from the admin worker) ─────────────────
-
-// Constant-time compare so a wrong secret can't be recovered a byte at a time.
-function secretOk(env: GrantsEnv, header: string | undefined): boolean {
-  const expected = env.INTERNAL_SECRET;
-  if (!expected || !header || header.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ header.charCodeAt(i);
-  return diff === 0;
-}
-
-grantsRouter.use(`${BASE}/internal/*`, async (c, next) => {
-  if (!secretOk(c.env, c.req.header('X-Internal-Secret'))) {
-    return c.json(err(ErrorCode.UNAUTHORIZED, 'Internal call only'), 401);
-  }
-  await next();
-});
-
-grantsRouter.post(`${BASE}/internal/:slug/subscriptions`, async (c) => {
-  const slug = c.req.param('slug');
-  const body = await c.req.json().catch(() => ({}));
-  const parsed = readGrantBody(body);
-  if (typeof parsed === 'string') return c.json(err(ErrorCode.BAD_REQUEST, parsed), 400);
-  const grantedBy = typeof body.granted_by === 'string' ? body.granted_by : 'admin:unknown';
-  try {
-    const db = getTenantDb(c.env, slug);
-    await ensureGrantColumns(db);
-    const reader = await db.prepare('SELECT id FROM readers WHERE id = ?').bind(parsed.readerId).first();
-    if (!reader) return c.json(err(ErrorCode.NOT_FOUND, 'Reader not found'), 404);
-    const res = await grantManual(db, { ...parsed, grantedBy });
-    return c.json(ok({ ...res, current_start: parsed.startAt, current_end: parsed.endAt }), res.reactivated ? 200 : 201);
-  } catch (e) {
-    return dbError(c, e);
-  }
-});
-
-grantsRouter.patch(`${BASE}/internal/:slug/subscriptions/:id`, async (c) => {
-  const slug = c.req.param('slug');
-  const body = await c.req.json().catch(() => ({}));
-  const endAt = body.end_at === undefined ? undefined : toIso(body.end_at);
-  if (body.end_at !== undefined && !endAt) return c.json(err(ErrorCode.BAD_REQUEST, 'end_at must be a valid date/datetime'), 400);
-  if (body.status !== undefined && body.status !== 'active' && body.status !== 'cancelled') {
-    return c.json(err(ErrorCode.BAD_REQUEST, "status must be 'active' or 'cancelled'"), 400);
-  }
-  try {
-    const db = getTenantDb(c.env, slug);
-    await ensureGrantColumns(db);
-    const row = await patchManual(db, c.req.param('id'), {
-      endAt, status: body.status,
-      grantedBy: typeof body.granted_by === 'string' ? body.granted_by : 'admin:unknown',
-      note: typeof body.note === 'string' ? body.note.slice(0, 500) : null,
-    });
-    if (!row) return c.json(err(ErrorCode.NOT_FOUND, 'No manual subscription with that id'), 404);
-    return c.json(ok(row));
-  } catch (e) {
-    return dbError(c, e);
-  }
-});
-
-// Superadmin support flow: a reader writes in with an email address, not a UUID, and
-// the CRM has no tenant D1 binding to list readers with. One lookup returns the reader
-// and every subscription row, which is all the CRM needs to grant, extend or end one.
-grantsRouter.get(`${BASE}/internal/:slug/reader-lookup`, async (c) => {
-  const email = c.req.query('email');
-  if (!email) return c.json(err(ErrorCode.BAD_REQUEST, 'email is required'), 400);
-  try {
-    const db = getTenantDb(c.env, c.req.param('slug'));
-    await ensureGrantColumns(db);
-    const reader = await db.prepare('SELECT id, email, name FROM readers WHERE email = ?')
-      .bind(email).first<{ id: string; email: string; name: string }>();
-    if (!reader) return c.json(err(ErrorCode.NOT_FOUND, 'No reader with that email'), 404);
-    const rows = await db.prepare(
-      `SELECT id, tier_id, plan_type, status, current_start, current_end, grant_type, granted_by, grant_note
-       FROM reader_subscriptions WHERE reader_id = ? ORDER BY created_at DESC`
-    ).bind(reader.id).all();
-    return c.json(ok({ reader, items: rows.results ?? [] }));
-  } catch (e) {
-    return dbError(c, e);
-  }
-});
 
 // ── Publisher path (tenant-portal JWT) ──────────────────────────────────────
 
