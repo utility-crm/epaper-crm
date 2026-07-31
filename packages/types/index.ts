@@ -230,6 +230,9 @@ export interface OrgUserJwtPayload {
   role: OrgUserRole;
   userId: string;
   exp: number;
+  // ABAC: explicit permission slugs from org_users.permissions (JSON array).
+  // Optional — tokens minted before this existed carry none and fall back to role.
+  permissions?: string[];
 }
 
 export interface ReaderJwtPayload {

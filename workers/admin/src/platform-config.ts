@@ -8,7 +8,7 @@ type AdminCtx = Context<{ Bindings: Env; Variables: { adminId: string; adminRole
 // SMS rate (USD per SMS) and a USD->INR fallback used when the live FX call fails.
 export const platformConfigRouter = new Hono<{ Bindings: Env; Variables: { adminId: string; adminRole: string } }>();
 
-const requireSuperadmin = async (c: AdminCtx, next: Next) => {
+export const requireSuperadmin = async (c: AdminCtx, next: Next) => {
   if (c.var.adminRole !== 'superadmin') {
     return c.json(err(ErrorCode.FORBIDDEN, 'Requires superadmin role'), 403);
   }
@@ -28,6 +28,8 @@ export async function ensurePlatformConfig(db: D1Database) {
     id TEXT PRIMARY KEY DEFAULT 'singleton',
     sms_rate_usd REAL NOT NULL DEFAULT 0.10,
     usd_inr_fallback REAL NOT NULL DEFAULT 88.0,
+    sms_daily_cap INTEGER NOT NULL DEFAULT 50,
+    sms_disabled INTEGER NOT NULL DEFAULT 0,
     updated_by TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`).run().catch(() => {});
@@ -53,10 +55,22 @@ platformConfigRouter.patch('/', adminAuth, requireSuperadmin, async (c) => {
   if (fallback !== undefined && (typeof fallback !== 'number' || !isFinite(fallback) || fallback <= 0)) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'usd_inr_fallback must be a positive number'), 400);
   }
+  // SMS abuse controls. Cap is per tenant per UTC day; 0 blocks that tenant outright,
+  // sms_disabled is the platform-wide kill switch.
+  const cap = body.sms_daily_cap;
+  if (cap !== undefined && (typeof cap !== 'number' || !Number.isInteger(cap) || cap < 0)) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'sms_daily_cap must be a non-negative integer'), 400);
+  }
+  const disabled = body.sms_disabled;
+  if (disabled !== undefined && typeof disabled !== 'boolean') {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'sms_disabled must be a boolean'), 400);
+  }
 
   await c.env.CONTROL_DB.prepare(
-    'UPDATE platform_config SET sms_rate_usd = ?, usd_inr_fallback = COALESCE(?, usd_inr_fallback), updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-  ).bind(rate, fallback ?? null, c.var.adminId, 'singleton').run();
+    'UPDATE platform_config SET sms_rate_usd = ?, usd_inr_fallback = COALESCE(?, usd_inr_fallback),' +
+    ' sms_daily_cap = COALESCE(?, sms_daily_cap), sms_disabled = COALESCE(?, sms_disabled),' +
+    ' updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+  ).bind(rate, fallback ?? null, cap ?? null, disabled === undefined ? null : (disabled ? 1 : 0), c.var.adminId, 'singleton').run();
 
   const row = await c.env.CONTROL_DB.prepare('SELECT * FROM platform_config WHERE id = ?').bind('singleton').first();
   return c.json(ok(row));

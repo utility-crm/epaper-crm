@@ -6,9 +6,25 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { Badge } from '../components/ui/badge';
-import { Users, Plus, Trash2, Ban } from 'lucide-react';
+import { Users, Plus, Trash2, Ban, BadgeIndianRupee } from 'lucide-react';
 
 interface Props { slug: string; token: string; }
+
+// ISO -> value a `datetime-local` input accepts. The worker pins a bare datetime-local
+// to UTC rather than guessing a zone, so these fields are labelled and read as UTC.
+const toInput = (iso?: string | null) => (iso ? iso.slice(0, 16) : '');
+const plusDays = (n: number) => new Date(Date.now() + n * 86400_000).toISOString().slice(0, 16);
+
+// Same rule as may() in workers/billing-tenant/src/admin-grants.ts — an explicit
+// permissions array wins, otherwise role. Only hides the button; the worker still
+// decides, so a stale token can't grant anything.
+function mayGrant(token: string): boolean {
+  try {
+    const p = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (Array.isArray(p.permissions)) return p.permissions.includes('grant_subs');
+    return p.role === 'owner' || p.role === 'admin';
+  } catch { return false; }
+}
 
 export function UserManagementPage({ slug, token }: Props) {
   const [users, setUsers] = useState<any[]>([]);
@@ -19,6 +35,14 @@ export function UserManagementPage({ slug, token }: Props) {
   const [form, setForm] = useState({ email: '', name: '', password: '' });
   const [saving, setSaving] = useState(false);
   const [tempPassword, setTempPassword] = useState('');
+
+  // Manual grant dialog: cash at the counter, cheque, bank transfer, enterprise terms,
+  // and reactivating a reader whose online subscription lapsed. Same rows the platform
+  // CRM writes, so a grant made either side is visible on both.
+  const [grantFor, setGrantFor] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [grantSubs, setGrantSubs] = useState<any[]>([]);
+  const [grantForm, setGrantForm] = useState({ start_at: plusDays(0), end_at: plusDays(30), note: '' });
+  const canGrant = mayGrant(token);
 
   const load = useCallback(async () => {
     const res = await portalApi.listUsers(slug, token);
@@ -58,6 +82,46 @@ export function UserManagementPage({ slug, token }: Props) {
     const res = await portalApi.deleteUser(slug, id, token);
     if (res.ok) { setNotice('Reader removed.'); load(); }
     else setError(res.error?.message ?? 'Failed to delete');
+  };
+
+  const openGrant = async (u: any) => {
+    setError(''); setNotice('');
+    setGrantFor({ id: u.id, name: u.name, email: u.email });
+    setGrantForm({ start_at: plusDays(0), end_at: plusDays(30), note: '' });
+    const res = await portalApi.listReaderSubscriptions(slug, u.id, token);
+    setGrantSubs(res.ok && res.data ? res.data.items ?? [] : []);
+  };
+
+  const refreshGrantSubs = async (readerId: string) => {
+    const res = await portalApi.listReaderSubscriptions(slug, readerId, token);
+    if (res.ok && res.data) setGrantSubs(res.data.items ?? []);
+    load();
+  };
+
+  const submitGrant = async () => {
+    if (!grantFor) return;
+    setSaving(true);
+    const res = await portalApi.grantManualSubscription(slug, {
+      reader_id: grantFor.id,
+      start_at: grantForm.start_at,
+      end_at: grantForm.end_at,
+      note: grantForm.note.trim() || undefined,
+    }, token);
+    setSaving(false);
+    if (res.ok) { setNotice('Access granted.'); refreshGrantSubs(grantFor.id); }
+    else setError(res.error?.message ?? 'Failed to grant access');
+  };
+
+  const patchGrant = async (id: string, body: { end_at?: string; status?: 'active' | 'cancelled' }) => {
+    if (!grantFor) return;
+    const res = await portalApi.patchManualSubscription(slug, id, body, token);
+    if (res.ok) { setNotice('Subscription updated.'); refreshGrantSubs(grantFor.id); }
+    else setError(res.error?.message ?? 'Failed to update subscription');
+  };
+
+  const endGrantNow = (id: string) => {
+    if (!window.confirm('End this grant now? The reader loses access on their next page request.')) return;
+    patchGrant(id, { status: 'cancelled', end_at: new Date().toISOString() });
   };
 
   if (loading) return <div className="flex justify-center py-24"><div className="spinner" /></div>;
@@ -115,6 +179,11 @@ export function UserManagementPage({ slug, token }: Props) {
                         </td>
                         <td className="py-3 pr-4">
                           <div className="flex items-center gap-1.5">
+                            {canGrant && (
+                              <Button variant="outline" size="sm" onClick={() => openGrant(u)}>
+                                <BadgeIndianRupee className="mr-1 h-3.5 w-3.5" />{active ? 'Extend' : 'Grant'}
+                              </Button>
+                            )}
                             <Button variant="outline" size="sm" disabled={!active} onClick={() => cancelSub(u.id)}>
                               <Ban className="mr-1 h-3.5 w-3.5" />Cancel
                             </Button>
@@ -148,6 +217,84 @@ export function UserManagementPage({ slug, token }: Props) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
             <Button onClick={createUser} disabled={saving}>{saving ? 'Creating…' : 'Create Reader'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!grantFor} onOpenChange={o => { if (!o) setGrantFor(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manual Access — {grantFor?.name || grantFor?.email}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-xs text-muted-foreground">
+              For payments taken off-platform — cash, cheque, bank transfer, enterprise terms —
+              and to reactivate a reader whose online subscription lapsed. Times are UTC.
+              An existing manual grant is extended rather than stacked.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Start (UTC)</Label>
+                <Input type="datetime-local" value={grantForm.start_at} onChange={e => setGrantForm(f => ({ ...f, start_at: e.target.value }))} />
+              </div>
+              <div>
+                <Label>End (UTC)</Label>
+                <Input type="datetime-local" value={grantForm.end_at} onChange={e => setGrantForm(f => ({ ...f, end_at: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <Label>Note (cash receipt no., cheque, enterprise deal)</Label>
+              <Input maxLength={500} value={grantForm.note} onChange={e => setGrantForm(f => ({ ...f, note: e.target.value }))} />
+            </div>
+
+            {grantSubs.length > 0 && (
+              <div className="rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Lane</th>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Ends (UTC)</th>
+                      <th className="px-3 py-2 font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grantSubs.map(s => (
+                      <tr key={s.id} className="border-b border-border/60 last:border-0">
+                        <td className="px-3 py-2">
+                          {s.grant_type === 'manual' ? 'Manual' : 'Razorpay'}
+                          {s.grant_note && <div className="text-xs text-muted-foreground">{s.grant_note}</div>}
+                        </td>
+                        <td className="px-3 py-2">{s.status}</td>
+                        <td className="px-3 py-2">
+                          {s.grant_type === 'manual' ? (
+                            <Input type="datetime-local" className="h-8 text-xs" defaultValue={toInput(s.current_end)}
+                              onBlur={e => { const v = e.target.value; if (v && v !== toInput(s.current_end)) patchGrant(s.id, { end_at: v }); }} />
+                          ) : (
+                            // Razorpay dates belong to the mandate — the next charged webhook
+                            // would overwrite anything edited here.
+                            <span title="Owned by the Razorpay mandate">{s.current_end?.replace('T', ' ').slice(0, 16)}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {s.grant_type === 'manual' && s.status === 'active' && (
+                            <Button variant="outline" size="sm" onClick={() => endGrantNow(s.id)}>End Now</Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Ending a grant stops new page tokens immediately; already-issued page tokens stay
+              valid for up to 6 hours.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGrantFor(null)}>Close</Button>
+            <Button onClick={submitGrant} disabled={saving}>{saving ? 'Saving…' : 'Grant Access'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

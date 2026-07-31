@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { Env } from './middleware';
+import { Env, loadPermissions } from './middleware';
 import { ok, err, ErrorCode, OrgUserJwtPayload, TenantRow, PendingOwnerRow } from '@epaper/types';
 import { signJwt } from './jwt';
 import { verifyFirebaseToken, FirebaseIdTokenClaims } from './verifyFirebaseToken';
@@ -32,11 +32,38 @@ firebaseAuthRouter.post('/audit/sms-send', async (c) => {
     const phonePrefix = typeof body.phonePrefix === 'string' ? body.phonePrefix.slice(0, 6) + 'XXXX' : 'unknown';
     const slug = typeof body.slug === 'string' ? body.slug : 'system';
 
+    // Platform SMS controls. Firebase sends the OTP straight from the browser, so the
+    // only lever the platform has is refusing the audit/billing record the client waits
+    // on before it calls Firebase. Fail-open if this whole block throws: a broken
+    // CONTROL_DB must not take reader login down with it.
+    const cfg = await c.env.CONTROL_DB.prepare(
+      'SELECT sms_disabled, sms_daily_cap FROM platform_config WHERE id = ?'
+    ).bind('singleton').first<{ sms_disabled: number; sms_daily_cap: number }>();
+
+    if (cfg?.sms_disabled) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'SMS verification is temporarily disabled. Please contact support.'), 429);
+    }
+
+    // tenant_id resolved from CONTROL_DB, never taken from the body — otherwise a caller
+    // picks whose daily budget it spends (and every row landed with tenant_id = NULL).
+    const tenant = await c.env.CONTROL_DB.prepare('SELECT id FROM tenants WHERE slug = ?')
+      .bind(slug).first<{ id: string }>();
+    const tenantId = tenant?.id ?? null;
+
+    const used = await c.env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS n FROM audit_log WHERE action = 'auth.sms_send_requested'" +
+      " AND tenant_id IS ? AND created_at >= datetime('now', 'start of day')"
+    ).bind(tenantId).first<{ n: number }>();
+
+    if ((used?.n ?? 0) >= (cfg?.sms_daily_cap ?? 50)) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'Daily SMS limit reached for this publication. Please contact support.'), 429);
+    }
+
     await c.env.CONTROL_DB.prepare(
       'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
     ).bind(
       crypto.randomUUID(),
-      null,
+      tenantId,
       'auth.sms_send_requested',
       slug,
       JSON.stringify({ ip, phonePrefix, stage: body.stage || 'reader' })
@@ -91,6 +118,7 @@ firebaseAuthRouter.post('/verify-org', async (c) => {
 
   let role: OrgUserJwtPayload['role'] = 'owner';
   let userId: string | undefined;
+  let permissions: string[] | undefined;
 
   // Check pending_owners first
   const owner = await c.env.CONTROL_DB.prepare(
@@ -143,6 +171,7 @@ firebaseAuthRouter.post('/verify-org', async (c) => {
         ).bind(uid, claims.email_verified ? 1 : 0, provider, user.id).run();
         userId = user.id;
         role = (user.role as OrgUserJwtPayload['role']) ?? 'owner';
+        permissions = await loadPermissions(db, user.id);
       }
     } catch (e) {
       console.error(`verify-org tenant DB lookup failed for ${tenant.slug}:`, e);
@@ -160,6 +189,8 @@ firebaseAuthRouter.post('/verify-org', async (c) => {
     role,
     userId,
     exp: Math.floor(Date.now() / 1000) + 604800,
+    // Omitted entirely when the user has no explicit grant, so can() falls back to role.
+    ...(permissions ? { permissions } : {}),
   };
   const token = await signJwt(payload as unknown as Record<string, unknown>, c.env.ORG_JWT_SECRET);
 

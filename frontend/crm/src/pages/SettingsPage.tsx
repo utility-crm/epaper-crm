@@ -8,9 +8,11 @@ export function SettingsPage({ role }: { role: string }) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState({ text: '', type: '' });
 
-  // Metered SMS rate (superadmin).
+  // Metered SMS rate + abuse controls (superadmin).
   const [smsRate, setSmsRate] = useState('');
   const [fxFallback, setFxFallback] = useState('');
+  const [smsCap, setSmsCap] = useState('');
+  const [smsDisabled, setSmsDisabled] = useState(false);
   const [smsLoading, setSmsLoading] = useState(false);
   const [smsMsg, setSmsMsg] = useState({ text: '', type: '' });
 
@@ -21,6 +23,8 @@ export function SettingsPage({ role }: { role: string }) {
       if (res.ok && res.data) {
         setSmsRate(String(res.data.sms_rate_usd ?? 0.10));
         setFxFallback(String(res.data.usd_inr_fallback ?? 88));
+        setSmsCap(String(res.data.sms_daily_cap ?? 50));
+        setSmsDisabled(!!res.data.sms_disabled);
       }
     });
   }, [isSuperadmin]);
@@ -35,13 +39,19 @@ export function SettingsPage({ role }: { role: string }) {
     if (fallback !== undefined && (!isFinite(fallback) || fallback <= 0)) {
       return setSmsMsg({ text: 'FX fallback must be a positive number', type: 'error' });
     }
+    const cap = smsCap.trim() === '' ? undefined : parseInt(smsCap, 10);
+    if (cap !== undefined && (!Number.isInteger(cap) || cap < 0)) {
+      return setSmsMsg({ text: 'Daily cap must be a non-negative whole number', type: 'error' });
+    }
     setSmsLoading(true);
     setSmsMsg({ text: '', type: '' });
-    const res = await crmApi.updatePlatformConfig({ sms_rate_usd: rate, usd_inr_fallback: fallback });
+    const res = await crmApi.updatePlatformConfig({
+      sms_rate_usd: rate, usd_inr_fallback: fallback, sms_daily_cap: cap, sms_disabled: smsDisabled,
+    });
     if (res.ok) {
-      setSmsMsg({ text: 'SMS billing rate saved.', type: 'success' });
+      setSmsMsg({ text: 'SMS settings saved.', type: 'success' });
     } else {
-      setSmsMsg({ text: res.error?.message || 'Failed to save rate', type: 'error' });
+      setSmsMsg({ text: res.error?.message || 'Failed to save settings', type: 'error' });
     }
     setSmsLoading(false);
   };
@@ -98,7 +108,7 @@ export function SettingsPage({ role }: { role: string }) {
 
       {isSuperadmin && (
       <div className="card" style={{ maxWidth: 500, marginTop: 24 }}>
-        <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 4 }}>SMS Billing Rate</h2>
+        <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 4 }}>SMS Billing &amp; Limits</h2>
         <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted, #888)', marginBottom: 16 }}>
           Per-SMS charge passed through to publishers who enable reader phone (OTP) sign-in.
           Billed monthly, converted USD→INR at the live rate on the billing date.
@@ -121,9 +131,25 @@ export function SettingsPage({ role }: { role: string }) {
             <label className="label">USD→INR fallback (used only if the live FX lookup fails)</label>
             <input type="number" step="0.01" min="0" className="input" value={fxFallback} onChange={e => setFxFallback(e.target.value)} />
           </div>
+          <div>
+            <label className="label">Daily SMS cap per publication</label>
+            <input type="number" step="1" min="0" className="input" value={smsCap} onChange={e => setSmsCap(e.target.value)} />
+            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted, #888)', marginTop: 4 }}>
+              OTP sends allowed per publication per UTC day. 0 blocks OTP sign-in for every publication.
+            </p>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.9rem' }}>
+            <input type="checkbox" checked={smsDisabled} onChange={e => setSmsDisabled(e.target.checked)} style={{ marginTop: 3 }} />
+            <span>
+              Disable SMS platform-wide
+              <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--color-text-muted, #888)' }}>
+                Kill switch for OTP abuse. Readers can still sign in with email and password.
+              </span>
+            </span>
+          </label>
 
           <button type="submit" className="btn-primary" disabled={smsLoading} style={{ marginTop: 8 }}>
-            {smsLoading ? 'Saving...' : 'Save Rate'}
+            {smsLoading ? 'Saving...' : 'Save SMS Settings'}
           </button>
         </form>
       </div>

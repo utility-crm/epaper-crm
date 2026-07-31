@@ -108,10 +108,14 @@ verifyEmailRouter.post('/verify-email/send', async (c) => {
     const tenant = await findTenant(c.env, email);
     if (tenant) {
       const owner = await readOwner(c.env, tenant, email);
-      // Nothing to verify for an already-verified account, and nothing to send to a
-      // Google/phone identity — those arrive pre-verified from Firebase.
-      if (owner && !owner.email_verified && owner.password_hash) {
-        await mailToken(c.env, tenant, email, 'verify_email');
+      // Nothing to verify for an already-verified account. Don't also require a stored
+      // password: a Firebase-created publisher has password_hash NULL, and gating on it
+      // made resend a silent no-op for them.
+      if (owner && !owner.email_verified) {
+        // A send failure must not change the answer below — that would tell an attacker
+        // the address exists.
+        await mailToken(c.env, tenant, email, 'verify_email')
+          .catch((e) => console.error('auth-mail: verify send failed:', e));
       }
     }
   }
@@ -152,7 +156,8 @@ verifyEmailRouter.post('/password-reset/request', async (c) => {
       // No password stored means a Firebase-only identity: there is nothing to reset,
       // and mailing a reset link would be misleading.
       if (owner?.password_hash) {
-        await mailToken(c.env, tenant, email, 'password_reset');
+        await mailToken(c.env, tenant, email, 'password_reset')
+          .catch((e) => console.error('auth-mail: reset send failed:', e));
       }
     }
   }
