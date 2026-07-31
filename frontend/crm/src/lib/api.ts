@@ -50,16 +50,6 @@ export const crmApi = {
   updatePlatformConfig: (body: { sms_rate_usd: number; usd_inr_fallback?: number; sms_daily_cap?: number; sms_disabled?: boolean }) =>
     apiFetch<any>('/api/admin/platform-config', { method: 'PATCH', body: JSON.stringify(body) }),
 
-  // Manual reader subscriptions (superadmin): cash/cheque/enterprise grants that the
-  // Razorpay mandate cannot represent. Same rows the publisher portal writes.
-  lookupReaderSubscriptions: (slug: string, email: string) =>
-    apiFetch<{ reader: { id: string; email: string; name: string }; items: any[] }>(
-      `/api/admin/subscriptions/${slug}/reader-lookup?email=${encodeURIComponent(email)}`),
-  grantSubscription: (slug: string, body: { reader_id: string; start_at?: string; end_at: string; tier_id?: string; plan_type?: string; note?: string }) =>
-    apiFetch<any>(`/api/admin/subscriptions/${slug}`, { method: 'POST', body: JSON.stringify(body) }),
-  patchSubscription: (slug: string, id: string, body: { end_at?: string; status?: 'active' | 'cancelled'; note?: string }) =>
-    apiFetch<any>(`/api/admin/subscriptions/${slug}/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-
   // Tiers
   getTiers: () => apiFetch<any>('/api/tiers'),
   createTier: (body: any) => apiFetch<any>('/api/tiers', { method: 'POST', body: JSON.stringify(body) }),
@@ -75,6 +65,15 @@ export const crmApi = {
   listPlatformRefundRequests: (status?: string) => apiFetch<{ items: any[] }>(`/api/admin/billing/platform/refund-requests${status ? `?status=${status}` : ''}`),
   processPlatformRefundRequest: (id: string, body: { action: 'approve' | 'reject'; amount_paise?: number; message?: string }) =>
     apiFetch<any>(`/api/admin/billing/platform/refund-requests/${id}/process`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // Publisher (tenant) subscriptions to the platform, superadmin only. Manual grants for
+  // publications paying offline/by contract — reader subscriptions are the publisher's own
+  // concern and are granted from their portal, not here.
+  getTenantSubscription: (slug: string) => apiFetch<any>(`/api/admin/tenant-subscriptions/${encodeURIComponent(slug)}`),
+  grantTenantSubscription: (slug: string, body: { plan: string; start_at?: string; end_at: string; note?: string }) =>
+    apiFetch<any>(`/api/admin/tenant-subscriptions/${encodeURIComponent(slug)}`, { method: 'POST', body: JSON.stringify(body) }),
+  patchTenantSubscription: (slug: string, body: { end_at?: string; deactivate?: boolean; note?: string }) =>
+    apiFetch<any>(`/api/admin/tenant-subscriptions/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // Email delivery monitoring (Resend webhook events), superadmin only
   listEmailEvents: (params?: { lane?: string; slug?: string }) => {

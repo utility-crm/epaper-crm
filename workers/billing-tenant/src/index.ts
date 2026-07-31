@@ -17,9 +17,6 @@ export interface Env {
   // no-reply-<slug>@<RESEND_DOMAIN> so each publication has a distinct sender;
   // renewal/expiry notices go from the shared noreply@<RESEND_DOMAIN>.
   RESEND_DOMAIN?: string;
-  // Shared secret for /internal/* grant routes, called by the admin worker over a
-  // service binding.
-  INTERNAL_SECRET?: string;
   // Active-tenant list for the scheduled expiry/renewal sweep.
   CONTROL_DB: D1Database;
 }
