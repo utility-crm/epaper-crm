@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { crmApi } from '../lib/api';
 
 // Superadmin manual-subscription control: open, extend or end reader access outside the
@@ -36,6 +36,12 @@ export function SubscriptionManagePage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState({ text: '', type: '' });
 
+  // Every lookup carries a sequence number, bumped both by a new lookup and by any edit that
+  // invalidates the loaded reader. A response whose number is stale is discarded, so a slow
+  // reply for reader A can never repopulate the form after the operator moved on to reader B.
+  const lookupSeq = useRef(0);
+  const invalidateReader = () => { lookupSeq.current += 1; setReader(null); setSubs([]); };
+
   // Grant form.
   const [startAt, setStartAt] = useState(plusDays(0));
   const [endAt, setEndAt] = useState(plusDays(30));
@@ -53,7 +59,10 @@ export function SubscriptionManagePage() {
     if (!slug || !email) return setMsg({ text: 'Pick a publication and enter a reader email', type: 'error' });
     setBusy(true);
     setMsg({ text: '', type: '' });
+    const seq = ++lookupSeq.current;
     const res = await crmApi.lookupReaderSubscriptions(slug, email.trim());
+    setBusy(false);
+    if (seq !== lookupSeq.current) return; // superseded by a newer lookup or an email/slug edit
     if (res.ok && res.data) {
       setReader(res.data.reader);
       setSubs(res.data.items as Sub[]);
@@ -63,7 +72,6 @@ export function SubscriptionManagePage() {
       setSubs([]);
       setMsg({ text: res.error?.message || 'Lookup failed', type: 'error' });
     }
-    setBusy(false);
   };
 
   const grant = async (e: React.FormEvent) => {
@@ -122,14 +130,15 @@ export function SubscriptionManagePage() {
         <form onSubmit={lookup} style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 200px' }}>
             <label className="label" htmlFor="sub-slug">Publication</label>
-            <select id="sub-slug" className="input" value={slug} onChange={e => { setSlug(e.target.value); setReader(null); setSubs([]); }}>
+            <select id="sub-slug" className="input" value={slug} onChange={e => { setSlug(e.target.value); invalidateReader(); }}>
               <option value="">Select…</option>
               {tenants.map(t => <option key={t.slug} value={t.slug}>{t.name} ({t.slug})</option>)}
             </select>
           </div>
           <div style={{ flex: '1 1 220px' }}>
             <label className="label" htmlFor="sub-email">Reader email</label>
-            <input id="sub-email" type="email" className="input" value={email} onChange={e => setEmail(e.target.value)} placeholder="reader@example.com" />
+            <input id="sub-email" type="email" className="input" value={email}
+              onChange={e => { setEmail(e.target.value); invalidateReader(); }} placeholder="reader@example.com" />
           </div>
           <button type="submit" className="btn-primary" disabled={busy}>{busy ? 'Working…' : 'Look Up'}</button>
         </form>
