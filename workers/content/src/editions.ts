@@ -5,50 +5,6 @@ import { Env, requireVerifiedEmail } from './middleware';
 
 export const editionsRouter = new Hono<{ Bindings: Env; Variables: { userId: string; tenantSlug: string } }>();
 
-/**
- * Legacy backfill for tenants whose owner row was never migrated into the tenant DB by
- * provision (see internal.ts, which is the real path). Every INSERT here must carry
- * email_verified explicitly: the column defaults to 0, and requireVerifiedEmail reads it on
- * every write, so a row written without it locks the owner out of the very routes this
- * function runs inside — permanently, in the synthetic-address branch below, since no
- * verification mail can ever reach @tenant.local.
- *
- * pending_owners is authoritative when we find it. Without it, the address on the tenant row
- * is still a real deliverable one that nobody has confirmed, so it is written unverified —
- * the owner is blocked on their next write and Resend gets them out. Only the synthetic
- * @tenant.local fallback is written verified, because no mail can ever reach it and the gate
- * would otherwise block that account permanently with no way to recover.
- */
-async function ensureOrgUser(db: D1Database, controlDb: D1Database | undefined, slug: string, userId: string) {
-  if (!userId) return;
-  try {
-    const existing = await db.prepare('SELECT id FROM org_users WHERE id = ?').bind(userId).first();
-    if (!existing) {
-      if (controlDb) {
-        const tenant = await controlDb.prepare('SELECT id, email FROM tenants WHERE slug = ?').bind(slug).first<{ id: string; email: string }>();
-        if (tenant) {
-          const owner = await controlDb.prepare('SELECT * FROM pending_owners WHERE id = ? OR tenant_id = ?').bind(userId, tenant.id).first<any>();
-          if (owner) {
-            await db.prepare(
-              'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role, email_verified) VALUES (?, ?, ?, ?, ?, ?)'
-            ).bind(userId, tenant.email, owner.password_hash || '', owner.name || 'Admin', owner.role || 'owner', owner.email_verified ? 1 : 0).run();
-            return;
-          }
-          await db.prepare(
-            'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role, email_verified) VALUES (?, ?, ?, ?, ?, ?)'
-          ).bind(userId, tenant.email, '', 'Admin', 'owner', 0).run();
-          return;
-        }
-      }
-      await db.prepare(
-        'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role, email_verified) VALUES (?, ?, ?, ?, ?, ?)'
-      ).bind(userId, `${userId}@tenant.local`, '', 'Admin', 'owner', 1).run();
-    }
-  } catch (e) {
-    console.error('Error ensuring org user:', e);
-  }
-}
-
 async function resolveTierId(db: D1Database, tierId: unknown): Promise<string | null> {
   if (!tierId || typeof tierId !== 'string' || tierId === '__none__' || tierId.trim() === '') {
     return null;
@@ -100,7 +56,9 @@ editionsRouter.post('/:slug/editions', requireVerifiedEmail, async (c) => {
 
   try {
     const db = getTenantDb(c.env, slug);
-    await ensureOrgUser(db, c.env.CONTROL_DB, slug, created_by);
+    // No ensureOrgUser call here: requireVerifiedEmail runs it before this handler and
+    // returns 503 if the row still cannot be created, so created_by is guaranteed to
+    // satisfy the editions.created_by foreign key by the time we reach the INSERT.
     const tier_id = await resolveTierId(db, body.tier_id);
     const id = crypto.randomUUID();
 

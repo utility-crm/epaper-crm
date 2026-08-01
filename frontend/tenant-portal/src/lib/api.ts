@@ -23,6 +23,11 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
         // on, instead of leaking the sentinel into the UI. The banner on the gated pages
         // normally prevents ever reaching this, but a stale tab can still trip it.
         return { ok: false, error: { code: data.error.code, message: 'Verify your email address before publishing. Open Settings to resend the link.' } };
+      } else if (data.error?.message === 'VERIFICATION_UNAVAILABLE') {
+        // The same gate's 503: it could not read the verification flag at all, which is a
+        // transient server-side condition and not the publisher's doing. Worded as retryable
+        // so nobody goes looking for an email to verify — there is nothing for them to fix.
+        return { ok: false, error: { code: data.error.code, message: 'Could not check your account just now. Please try again in a moment.' } };
       }
     }
     
