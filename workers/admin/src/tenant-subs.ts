@@ -63,10 +63,17 @@ export async function notifyPlanChange(
   payload: { kind: 'granted' | 'extended' | 'ended'; plan: string; until?: string | null },
 ): Promise<void> {
   try {
-    await env.BILLING_PLATFORM_WORKER.fetch(new Request(
+    const res = await env.BILLING_PLATFORM_WORKER.fetch(new Request(
       `http://billing/internal/billing/platform/${encodeURIComponent(slug)}/plan-change`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
     ));
+    // A service-binding fetch resolves for 4xx/5xx too, so without this an unreachable
+    // route or a rejected payload logged nothing and looked exactly like a delivered mail.
+    if (!res.ok) {
+      console.error(
+        `[admin] plan-change mail rejected for ${slug}: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+      );
+    }
   } catch (e) {
     console.error(`[admin] plan-change mail failed for ${slug}`, e);
   }
@@ -214,6 +221,11 @@ tenantSubsRouter.patch('/:slug', async (c) => {
  *
  * Returns the rows it downgraded (slug + the plan they lost) so the caller can mail them;
  * the SELECT runs first because the UPDATE erases the very columns that identify them.
+ * What is returned is the SELECT's plan intersected with the slugs the UPDATE actually
+ * changed: the two statements are not atomic, so a grant extended or a Razorpay sub
+ * attached in between makes a row stop matching DUE, and mailing "your plan ended" to a
+ * publication that is still on it would be wrong. RETURNING alone cannot supply the plan —
+ * it reports post-update values, which are all 'Free' by then.
  */
 export async function sweepExpiredTenantGrants(db: D1Database): Promise<{ slug: string; plan: string }[]> {
   const DUE = `manual_until IS NOT NULL
@@ -222,11 +234,16 @@ export async function sweepExpiredTenantGrants(db: D1Database): Promise<{ slug: 
 
   const due = await db.prepare(`SELECT slug, plan FROM tenants WHERE ${DUE}`).all<{ slug: string; plan: string }>();
   if (!due.results?.length) return [];
+  const priorPlan = new Map(due.results.map((r) => [r.slug, r.plan]));
 
-  await db.prepare(
+  const changed = await db.prepare(
     `UPDATE tenants SET plan = 'Free', manual_until = NULL, manual_since = NULL,
        updated_at = CURRENT_TIMESTAMP
-     WHERE ${DUE}`
-  ).run();
-  return due.results;
+     WHERE ${DUE}
+     RETURNING slug`
+  ).all<{ slug: string }>();
+
+  return (changed.results ?? [])
+    .filter((r) => priorPlan.has(r.slug))
+    .map((r) => ({ slug: r.slug, plan: priorPlan.get(r.slug)! }));
 }

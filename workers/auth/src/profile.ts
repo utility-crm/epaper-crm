@@ -224,7 +224,11 @@ profileRouter.post('/add-email', orgUserAuth, async (c) => {
   try {
     const { where, row } = await loadOwner(c);
     if (!row) return c.json(err(ErrorCode.NOT_FOUND, 'Profile not found'), 404);
-    if (row.email && row.email.toLowerCase() !== email && row.email_verified) {
+    // Any verified address blocks, including a resubmit of that same address. The old
+    // `!== email` exemption looked like a harmless no-op but fell through to the UPDATE
+    // below, which writes email_verified = 0 — so re-submitting your own verified address
+    // silently unverified the account and locked it out of content writes.
+    if (row.email && row.email_verified) {
       return c.json(err(ErrorCode.CONFLICT, 'This account already has a verified email address.'), 409);
     }
 
@@ -263,12 +267,17 @@ profileRouter.post('/add-email', orgUserAuth, async (c) => {
 
     // The address is stored either way; a mail failure only costs the publisher a tap on
     // Resend, so it is reported rather than rolled back.
+    // Same throttle key and budget as /verify-email/resend, so add-email cannot be used to
+    // mint verification mail past the limit the resend button enforces. A throttled caller
+    // still gets the address stored and sees sent:false — the resend button reports the 429.
     let sent = false;
-    try {
-      await mailToken(c.env, { ...tenant, name: tenant.name }, email, 'verify_email');
-      sent = true;
-    } catch (e) {
-      console.error('add-email verification send failed:', e);
+    if (allowSend(`verify:${email}`)) {
+      try {
+        await mailToken(c.env, { ...tenant, name: tenant.name }, email, 'verify_email');
+        sent = true;
+      } catch (e) {
+        console.error('add-email verification send failed:', e);
+      }
     }
 
     return c.json(ok({ email, email_verified: false, sent }));

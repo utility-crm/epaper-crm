@@ -111,7 +111,13 @@ if (process.argv.includes('--live')) {
   const { execFileSync } = await import('node:child_process');
   const norm = (slug) => slug.toUpperCase().replace(/-/g, '_');
   try {
-    const raw = execFileSync('npx', ['wrangler', 'd1', 'list', '--json'], { encoding: 'utf8' });
+    // Bounded: an unauthenticated wrangler prompts on stdin and would otherwise hang a CI
+    // job forever. A timeout lands in the same catch as any other failure — skipped, not fatal.
+    const raw = execFileSync('npx', ['wrangler', 'd1', 'list', '--json'], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     const dbs = JSON.parse(raw.slice(raw.indexOf('[')));
     // Only per-tenant DBs: epaper-<slug>, excluding the control DB and unrelated databases.
     const unbound = dbs

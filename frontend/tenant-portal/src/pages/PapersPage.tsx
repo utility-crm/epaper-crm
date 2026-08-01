@@ -217,7 +217,7 @@ export function PapersPage({ slug, token }: Props) {
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
           {editPaper && (
             <EditPaperSheet
-              slug={slug} token={token} paper={editPaper}
+              slug={slug} token={token} paper={editPaper} writesBlocked={writesBlocked}
               onSaved={() => { setEditPaper(null); loadPapers(); }}
             />
           )}
@@ -308,9 +308,11 @@ function EditEditionSheet({ slug, token, tiers, edition, onSaved }: { slug: stri
  * @param slug - The publication identifier.
  * @param token - The authentication token.
  * @param paper - The paper to edit.
+ * @param writesBlocked - True while the owner's email is unverified; content worker rejects
+ *   these writes with EMAIL_NOT_VERIFIED, so the picker and submit are disabled to match.
  * @param onSaved - Callback invoked after the changes are saved or the paper is deleted.
  */
-function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: string; paper: any; onSaved: () => void }) {
+function EditPaperSheet({ slug, token, paper, writesBlocked, onSaved }: { slug: string; token: string; paper: any; writesBlocked?: boolean; onSaved: () => void }) {
   const [title, setTitle] = useState(paper.title ?? '');
   const [isFree, setIsFree] = useState(!!paper.is_free);
   const [freePages, setFreePages] = useState(paper.free_page_count ?? 0);
@@ -325,8 +327,11 @@ function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: 
 
   const isPdf = files.length === 1 && files[0].type === 'application/pdf';
 
+  // Single chokepoint for both the drop handler and the file input, so an unverified owner
+  // cannot queue an upload the server will refuse. Metadata-only edits stay allowed — the
+  // PATCH route is not gated, only the upload routes are.
   const onFilesChange = (picked: FileList | null) => {
-    if (!picked) return;
+    if (!picked || writesBlocked) return;
     const arr = Array.from(picked);
     const pdfs = arr.filter(f => f.type === 'application/pdf');
     if (pdfs.length > 0) { setFiles([pdfs[0]]); return; }
@@ -469,10 +474,14 @@ function EditPaperSheet({ slug, token, paper, onSaved }: { slug: string; token: 
             onDragOver={e => e.preventDefault()}
             onDrop={e => { e.preventDefault(); onFilesChange(e.dataTransfer.files); }}
           >
-            <input type="file" multiple accept=".pdf,image/png,image/jpeg,image/webp" onChange={e => onFilesChange(e.target.files)} className="absolute inset-0 cursor-pointer opacity-0" />
+            <input type="file" multiple accept=".pdf,image/png,image/jpeg,image/webp" disabled={writesBlocked} onChange={e => onFilesChange(e.target.files)} className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed" />
             <div className="pointer-events-none flex flex-col items-center space-y-2">
               <FileText className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
-              {files.length === 0 ? (
+              {writesBlocked ? (
+                <div className="text-sm text-muted-foreground text-center">
+                  Verify your email address to upload files.
+                </div>
+              ) : files.length === 0 ? (
                 <div className="text-sm text-muted-foreground text-center">
                   Drag &amp; drop a <strong>PDF</strong> or <strong>multiple images</strong>, or click to browse
                 </div>

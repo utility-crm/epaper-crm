@@ -71,6 +71,16 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneError, setPhoneError] = useState('');
 
+  // Split out from `load` so the verification banner can refresh just the profile. The
+  // banner reports its state on mount and after every resend, and re-running the full
+  // `load` there overwrote whatever the publisher had typed into the settings form.
+  const loadProfile = useCallback(async () => {
+    const prof = await portalApi.getProfile(token);
+    if (prof.ok && prof.data) {
+      setProfile({ email: prof.data.email ?? null, phone_number: prof.data.phone_number ?? null, email_verified: !!prof.data.email_verified });
+    }
+  }, [token]);
+
   const load = useCallback(async () => {
     const res = await portalApi.getSettings(slug, token);
     if (res.ok && res.data) {
@@ -94,12 +104,8 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
       setEmailEnabled((res.data.reader_auth_email_enabled ?? 1) === 1);
       setOtpOnly((res.data.reader_auth_otp_only ?? 0) === 1);
     }
-    const prof = await portalApi.getProfile(token);
-    if (prof.ok && prof.data) {
-      setProfile({ email: prof.data.email ?? null, phone_number: prof.data.phone_number ?? null, email_verified: !!prof.data.email_verified });
-    }
-  }, [slug, token]);
-
+    await loadProfile();
+  }, [slug, token, loadProfile]);
   useEffect(() => { load(); }, [load]);
 
   const handleLogoFile = (f: File) => {
@@ -239,7 +245,7 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
 
           {/* Resend, or add-and-verify for a Google/OTP account with no address.
               Self-hides once the address is verified. */}
-          <VerifyEmailBanner token={token} onVerifiedChange={load} />
+          <VerifyEmailBanner token={token} onVerifiedChange={loadProfile} />
         </CardContent>
       </Card>
 

@@ -25,6 +25,17 @@ export async function orgUserAuth(c: Context<{ Bindings: Env; Variables: { tenan
     return c.json(err(ErrorCode.INVALID_AUDIENCE, 'Invalid tenant token'), 403);
   }
   
+  // The route slug decides which tenant D1/R2 every handler below opens (getTenantDb(slug)),
+  // and nothing downstream compares it to the token. Without this check a publisher holding
+  // a valid JWT for tenant A could read, write and upload into tenant B simply by changing
+  // the slug in the URL. Checked here rather than per-route so the whole staff surface is
+  // covered by one guard; the path is matched instead of c.req.param because middleware
+  // mounted on a wildcard sees no route params.
+  const routeSlug = c.req.path.match(/^\/api\/content\/([^\/]+)/)?.[1];
+  if (routeSlug && decodeURIComponent(routeSlug) !== payload.tenantSlug) {
+    return c.json(err(ErrorCode.FORBIDDEN, 'Token does not belong to this publication'), 403);
+  }
+
   c.set('tenantId', payload.sub);
   c.set('tenantSlug', payload.tenantSlug);
   c.set('orgRole', payload.role as OrgUserRole);

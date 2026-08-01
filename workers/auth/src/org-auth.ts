@@ -64,14 +64,17 @@ orgAuthRouter.post('/signup', async (c) => {
     passwordToStore = password;
   }
 
+  // Normalise before the identity check, not after. Store lowercased so the address is one
+  // canonical value everywhere it is looked up: /org-login, verify-email's findTenant, and
+  // the org_users UNIQUE index all fold case, and a mixed-case row would be findable by none
+  // of them. Whitespace-only collapses to null here rather than surviving as '' — an empty
+  // string is truthy enough to pass the check below but still sets verifyFirst, which mailed
+  // a verification link to nowhere and left the tenant stuck in 'pending' forever.
+  if (resolvedEmail) resolvedEmail = resolvedEmail.trim().toLowerCase() || null;
+
   if (!resolvedEmail && !phoneNumber) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Email or Phone Number required'), 400);
   }
-
-  // Store lowercased so the address is one canonical value everywhere it is looked up:
-  // /org-login, verify-email's findTenant, and the org_users UNIQUE index all fold case,
-  // and a mixed-case row would be findable by none of them.
-  if (resolvedEmail) resolvedEmail = resolvedEmail.trim().toLowerCase();
 
   const lookupKey = resolvedEmail || phoneNumber;
   const existing = await c.env.CONTROL_DB.prepare('SELECT id, status, slug FROM tenants WHERE LOWER(email) = ?').bind((lookupKey ?? '').toLowerCase()).first<{id: string, status: string, slug: string}>();

@@ -13,9 +13,11 @@ export const editionsRouter = new Hono<{ Bindings: Env; Variables: { userId: str
  * function runs inside — permanently, in the synthetic-address branch below, since no
  * verification mail can ever reach @tenant.local.
  *
- * pending_owners is authoritative when we find it. When we cannot find it the flag is
- * unknowable, so we write 1 and let the gate fail open, matching the middleware's own rule
- * that this is an anti-spam gate rather than an authorisation boundary.
+ * pending_owners is authoritative when we find it. Without it, the address on the tenant row
+ * is still a real deliverable one that nobody has confirmed, so it is written unverified —
+ * the owner is blocked on their next write and Resend gets them out. Only the synthetic
+ * @tenant.local fallback is written verified, because no mail can ever reach it and the gate
+ * would otherwise block that account permanently with no way to recover.
  */
 async function ensureOrgUser(db: D1Database, controlDb: D1Database | undefined, slug: string, userId: string) {
   if (!userId) return;
@@ -34,7 +36,7 @@ async function ensureOrgUser(db: D1Database, controlDb: D1Database | undefined, 
           }
           await db.prepare(
             'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role, email_verified) VALUES (?, ?, ?, ?, ?, ?)'
-          ).bind(userId, tenant.email, '', 'Admin', 'owner', 1).run();
+          ).bind(userId, tenant.email, '', 'Admin', 'owner', 0).run();
           return;
         }
       }

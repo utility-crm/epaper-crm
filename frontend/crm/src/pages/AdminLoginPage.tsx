@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { crmApi } from '../lib/api';
 
@@ -8,7 +8,7 @@ interface AdminLoginPageProps {
 
 export function AdminLoginPage({ onLogin }: AdminLoginPageProps) {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [isSetup, setIsSetup] = useState<boolean | null>(null);
@@ -24,6 +24,7 @@ export function AdminLoginPage({ onLogin }: AdminLoginPageProps) {
     e.preventDefault();
     setError('');
     setLoading(true);
+    const password = passwordRef.current?.value || '';
     try {
       const res = isSetup
         ? await crmApi.adminLogin({ email, password })
@@ -70,8 +71,16 @@ export function AdminLoginPage({ onLogin }: AdminLoginPageProps) {
           </div>
           <div style={{ marginBottom: 24 }}>
             <label className="label">Password</label>
-            <input id="admin-password" className="input" type="password" value={password} required
-              onChange={e => setPassword(e.target.value)} placeholder="Min 8 chars, 1 uppercase, 1 digit" />
+            <input
+              id="admin-password"
+              name="password"
+              className="input"
+              type="password"
+              ref={passwordRef}
+              autoComplete="current-password"
+              required
+              placeholder="Min 8 chars, 1 uppercase, 1 digit"
+            />
           </div>
 
           {error && (
