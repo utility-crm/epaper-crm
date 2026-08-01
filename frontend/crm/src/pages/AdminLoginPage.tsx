@@ -77,7 +77,7 @@ export function AdminLoginPage({ onLogin }: AdminLoginPageProps) {
               className="input"
               type="password"
               ref={passwordRef}
-              autoComplete="current-password"
+              autoComplete={isSetup ? 'current-password' : 'new-password'}
               required
               placeholder="Min 8 chars, 1 uppercase, 1 digit"
             />
