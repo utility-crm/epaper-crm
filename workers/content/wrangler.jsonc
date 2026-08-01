@@ -18,11 +18,6 @@
       "database_id": "8a007a8d-f465-4be9-bdc7-e1658fb5aa82"
     },
     {
-      "binding": "SHOP_73BD_DB",
-      "database_name": "epaper-shop-73bd",
-      "database_id": "523bf3ed-150a-4631-bae5-593d15cbff87"
-    },
-    {
       "binding": "SPEAK_THE_WORLD_4E40_DB",
       "database_name": "epaper-speak-the-world-4e40",
       "database_id": "cea194ce-af75-49ee-893e-c505fb6762d6"
@@ -36,21 +31,12 @@
       "binding": "TEST2_FFDD_DB",
       "database_name": "epaper-test2-ffdd",
       "database_id": "00f2a644-1cea-45f8-8e8e-0133faab6c1e"
-    },
-    {
-      "binding": "ZZ_SMOKE_TEST_DB",
-      "database_name": "epaper-zz-smoke-test",
-      "database_id": "00000000-0000-0000-0000-000000000000"
     }
   ],
   "r2_buckets": [
     {
       "binding": "GUNJ_UTHI_RANBHERI_F453_R2",
       "bucket_name": "epaper-gunj-uthi-ranbheri-f453"
-    },
-    {
-      "binding": "SHOP_73BD_R2",
-      "bucket_name": "epaper-shop-73bd"
     },
     {
       "binding": "SPEAK_THE_WORLD_4E40_R2",
@@ -63,10 +49,6 @@
     {
       "binding": "TEST2_FFDD_R2",
       "bucket_name": "epaper-test2-ffdd"
-    },
-    {
-      "binding": "ZZ_SMOKE_TEST_R2",
-      "bucket_name": "epaper-zz-smoke-test"
     }
   ],
   "services": [

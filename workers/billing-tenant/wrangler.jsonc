@@ -8,9 +8,6 @@
   ],
   "d1_databases": [
     {
-      // The scheduled expiry/renewal sweep needs the list of active tenants, same as
-      // the content worker's sweep. Per-tenant {SLUG}_DB bindings below are appended by
-      // scripts/inject-binding.js at provision time.
       "binding": "CONTROL_DB",
       "database_name": "epaper-control",
       "database_id": "b0fff5dc-a1b6-4606-a3fc-10324e1b0df1"
@@ -19,11 +16,6 @@
       "binding": "GUNJ_UTHI_RANBHERI_F453_DB",
       "database_name": "epaper-gunj-uthi-ranbheri-f453",
       "database_id": "8a007a8d-f465-4be9-bdc7-e1658fb5aa82"
-    },
-    {
-      "binding": "SHOP_73BD_DB",
-      "database_name": "epaper-shop-73bd",
-      "database_id": "523bf3ed-150a-4631-bae5-593d15cbff87"
     },
     {
       "binding": "SPEAK_THE_WORLD_4E40_DB",
@@ -39,16 +31,11 @@
       "binding": "TEST2_FFDD_DB",
       "database_name": "epaper-test2-ffdd",
       "database_id": "00f2a644-1cea-45f8-8e8e-0133faab6c1e"
-    },
-    {
-      "binding": "ZZ_SMOKE_TEST_DB",
-      "database_name": "epaper-zz-smoke-test",
-      "database_id": "00000000-0000-0000-0000-000000000000"
     }
   ],
-  // Expiry sweep + renewal notices. Half-hourly rather than daily so a subscription
-  // deactivated with a specific time actually stops within 30 minutes of it.
   "triggers": {
-    "crons": ["*/30 * * * *"]
+    "crons": [
+      "*/30 * * * *"
+    ]
   }
 }
