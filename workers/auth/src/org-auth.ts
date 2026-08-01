@@ -64,12 +64,20 @@ orgAuthRouter.post('/signup', async (c) => {
     passwordToStore = password;
   }
 
+  // Normalise before the identity check, not after. Store lowercased so the address is one
+  // canonical value everywhere it is looked up: /org-login, verify-email's findTenant, and
+  // the org_users UNIQUE index all fold case, and a mixed-case row would be findable by none
+  // of them. Whitespace-only collapses to null here rather than surviving as '' — an empty
+  // string is truthy enough to pass the check below but still sets verifyFirst, which mailed
+  // a verification link to nowhere and left the tenant stuck in 'pending' forever.
+  if (resolvedEmail) resolvedEmail = resolvedEmail.trim().toLowerCase() || null;
+
   if (!resolvedEmail && !phoneNumber) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Email or Phone Number required'), 400);
   }
 
   const lookupKey = resolvedEmail || phoneNumber;
-  const existing = await c.env.CONTROL_DB.prepare('SELECT id, status, slug FROM tenants WHERE email = ?').bind(lookupKey).first<{id: string, status: string, slug: string}>();
+  const existing = await c.env.CONTROL_DB.prepare('SELECT id, status, slug FROM tenants WHERE LOWER(email) = ?').bind((lookupKey ?? '').toLowerCase()).first<{id: string, status: string, slug: string}>();
   if (existing) {
     if (existing.status === 'active' || existing.status === 'suspended') {
       return c.json(err(ErrorCode.CONFLICT, 'Account already exists. Please login.'), 409);
@@ -111,38 +119,40 @@ orgAuthRouter.post('/signup', async (c) => {
     throw e;
   }
 
-  // A password signup starts unverified, so mail the first verification link. The
-  // Firebase paths skip this: Google/phone identities arrive already verified.
-  // Sent in the background — a slow or failing Resend call must not delay signup.
-  if (passwordToStore && resolvedEmail) {
-    c.executionCtx.waitUntil(
-      sendSignupVerification(c.env, { id: tenantId, slug, name: orgName, status: 'pending' }, resolvedEmail)
-    );
-  }
+  // Password signups start unverified and must verify before provisioning. Google/phone
+  // identities arrive already verified, so they provision immediately. Phone-only accounts
+  // have no address to verify, so they also provision immediately.
+  const verifyFirst = resolvedEmail !== null && !!passwordToStore && !emailVerified;
 
-  // Fire provisioning. A non-2xx response does NOT reject the fetch, so we must
-  // inspect res.ok explicitly — otherwise a failed trigger would leave the tenant
-  // stuck in 'pending' forever. On any failure (transport or HTTP) we flip the
-  // tenant to 'provision_failed', which the self-service /reprovision endpoint can
-  // retry. The final signup response is unaffected — provisioning is async.
-  c.executionCtx.waitUntil((async () => {
-    const markFailed = async (reason: string) => {
-      console.error(`Provision trigger failed for ${slug}: ${reason}`);
-      await c.env.CONTROL_DB.prepare(
-        "UPDATE tenants SET status = 'provision_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
-      ).bind(tenantId).run().catch(e => console.error('Failed to mark provision_failed', e));
-    };
-    try {
-      const res = await c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/trigger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug })
-      }));
-      if (!res.ok) await markFailed(`HTTP ${res.status}`);
-    } catch (e) {
-      await markFailed(String(e));
-    }
-  })());
+  if (verifyFirst) {
+    c.executionCtx.waitUntil(
+      sendSignupVerification(c.env, { id: tenantId, slug, name: orgName, status: 'pending' }, resolvedEmail!)
+    );
+  } else {
+    // Fire provisioning for already-verified identities. A non-2xx response does NOT reject
+    // the fetch, so we must inspect res.ok explicitly — otherwise a failed trigger would
+    // leave the tenant stuck in 'pending' forever. On any failure (transport or HTTP) we
+    // flip the tenant to 'provision_failed', which the self-service /reprovision endpoint
+    // can retry. The final signup response is unaffected — provisioning is async.
+    c.executionCtx.waitUntil((async () => {
+      const markFailed = async (reason: string) => {
+        console.error(`Provision trigger failed for ${slug}: ${reason}`);
+        await c.env.CONTROL_DB.prepare(
+          "UPDATE tenants SET status = 'provision_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
+        ).bind(tenantId).run().catch(e => console.error('Failed to mark provision_failed', e));
+      };
+      try {
+        const res = await c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug })
+        }));
+        if (!res.ok) await markFailed(`HTTP ${res.status}`);
+      } catch (e) {
+        await markFailed(String(e));
+      }
+    })());
+  }
 
   const payload: OrgUserJwtPayload = {
     aud: 'tenant-portal',
@@ -158,12 +168,15 @@ orgAuthRouter.post('/signup', async (c) => {
 });
 
 orgAuthRouter.post('/org-login', async (c) => {
-  const { email, password } = await c.req.json();
+  const { email: rawEmail, password } = await c.req.json();
 
-  if (!email || !password) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing credentials'), 400);
+  if (!rawEmail || !password) return c.json(err(ErrorCode.BAD_REQUEST, 'Missing credentials'), 400);
+  // Addresses are case-insensitive in practice. Signup stores them lowercased, but rows
+  // predating that rule are mixed-case, so both sides are folded on every lookup.
+  const email = String(rawEmail).trim().toLowerCase();
 
   const tenant = await c.env.CONTROL_DB.prepare(
-    'SELECT id, slug, email, status, plan FROM tenants WHERE email = ?'
+    'SELECT id, slug, email, status, plan FROM tenants WHERE LOWER(email) = ?'
   ).bind(email).first<Pick<TenantRow, 'id' | 'slug' | 'email' | 'status' | 'plan'>>();
   if (!tenant) return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid credentials'), 401);
 
@@ -189,7 +202,7 @@ orgAuthRouter.post('/org-login', async (c) => {
     try {
       const db = getTenantDb(c.env, tenant.slug);
       const user = await db.prepare(
-        'SELECT id, email, password_hash, name, role FROM org_users WHERE email = ?'
+        'SELECT id, email, password_hash, name, role FROM org_users WHERE LOWER(email) = ?'
       ).bind(email).first<Pick<OrgUserRow, 'id' | 'email' | 'password_hash' | 'name' | 'role'>>();
       if (user && user.password_hash && await verifyPassword(password, user.password_hash)) {
         // Grants are read before the login is accepted: loadPermissions throws on a real

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { portalApi, readerApi, API_BASE_URL } from '../lib/api';
 import { Lock, Mail, Eye, EyeOff, Newspaper, ArrowLeft, ShieldCheck } from 'lucide-react';
 
@@ -9,7 +9,7 @@ interface PaperAdminLoginPageProps {
 
 export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPageProps) {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -81,6 +81,7 @@ export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPa
     e.preventDefault();
     setError('');
     setLoading(true);
+    const password = passwordRef.current?.value || '';
     try {
       const res = await portalApi.orgLogin({ email, password });
       if (res.ok && res.data?.token && res.data?.slug) {
@@ -237,10 +238,11 @@ export function PaperAdminLoginPage({ onLogin, expectedSlug }: PaperAdminLoginPa
               <input
                 className="input"
                 id="admin-password"
+                name="password"
+                ref={passwordRef}
                 type={showPassword ? 'text' : 'password'}
                 required
-                value={password}
-                onChange={e => setPassword(e.target.value)}
+                autoComplete="current-password"
                 placeholder="••••••••••••"
                 style={{ paddingLeft: 38, paddingRight: 40 }}
               />

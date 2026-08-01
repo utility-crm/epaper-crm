@@ -3,6 +3,8 @@ import { Env, orgUserAuth } from './middleware';
 import { ok, err, ErrorCode, OrgUserRole } from '@epaper/types';
 import { verifyFirebaseToken } from './verifyFirebaseToken';
 import { getTenantDb } from './db';
+import { mailToken, TenantLite } from './verify-email';
+import { allowSend } from '@epaper/auth-mail';
 
 type ProfileVars = { tenantId: string; tenantSlug: string; orgRole: OrgUserRole; userId: string };
 type ProfileCtx = Context<{ Bindings: Env; Variables: ProfileVars }>;
@@ -14,25 +16,45 @@ export const profileRouter = new Hono<{ Bindings: Env; Variables: ProfileVars }>
 
 type OwnerContact = { email: string | null; phone_number: string | null; email_verified: number; auth_provider: string };
 
-// Resolve where this owner's row lives. Active tenant -> org_users in its own D1;
-// otherwise the pending_owners row in the control DB.
+// pending_owners has no email column; the tenant email is the account key.
+async function loadPendingOwner(c: ProfileCtx): Promise<OwnerContact | null> {
+  const row = await c.env.CONTROL_DB.prepare('SELECT phone_number, email_verified, auth_provider FROM pending_owners WHERE id = ?')
+    .bind(c.var.userId).first<{ phone_number: string | null; email_verified: number; auth_provider: string }>();
+  if (!row) return null;
+  const tenantEmail = await c.env.CONTROL_DB.prepare('SELECT email FROM tenants WHERE id = ?')
+    .bind(c.var.tenantId).first<{ email: string | null }>();
+  return { ...row, email: tenantEmail?.email ?? null };
+}
+
+/**
+ * Resolve where this owner's row lives. Active tenant -> org_users in its own D1;
+ * otherwise the pending_owners row in the control DB.
+ *
+ * `status === 'active'` is a hint, not a guarantee. Two live tenants disagreed with it: one
+ * was active with an empty org_users because activation never migrated the owner across, and
+ * one was active with no D1 binding in any worker at all, so getTenantDb threw. Both made
+ * this function report "no profile", which turned into a 404 on GET /profile — so the portal
+ * showed no verification status and the resend button had nothing to act on. Fall back to
+ * pending_owners in both cases instead of declaring the account gone.
+ */
 async function loadOwner(c: ProfileCtx): Promise<{ where: 'org_users' | 'pending_owners'; row: OwnerContact | null }> {
   const tenant = await c.env.CONTROL_DB.prepare('SELECT status FROM tenants WHERE id = ?')
     .bind(c.var.tenantId).first<{ status: string }>();
 
   if (tenant?.status === 'active') {
-    const db = getTenantDb(c.env, c.var.tenantSlug);
-    const row = await db.prepare('SELECT email, phone_number, email_verified, auth_provider FROM org_users WHERE id = ?')
-      .bind(c.var.userId).first<OwnerContact>();
-    return { where: 'org_users', row };
+    try {
+      const db = getTenantDb(c.env, c.var.tenantSlug);
+      const row = await db.prepare('SELECT email, phone_number, email_verified, auth_provider FROM org_users WHERE id = ?')
+        .bind(c.var.userId).first<OwnerContact>();
+      // Only claim org_users when the row is actually there: `where` decides which table the
+      // writers below UPDATE, and naming an empty table would drop the write silently.
+      if (row) return { where: 'org_users', row };
+    } catch (e) {
+      console.error(`profile: tenant DB lookup failed for ${c.var.tenantSlug}:`, e);
+    }
   }
 
-  const row = await c.env.CONTROL_DB.prepare('SELECT phone_number, email_verified, auth_provider FROM pending_owners WHERE id = ?')
-    .bind(c.var.userId).first<{ phone_number: string | null; email_verified: number; auth_provider: string }>();
-  // pending_owners has no email column; the tenant email is the account key.
-  const tenantEmail = await c.env.CONTROL_DB.prepare('SELECT email FROM tenants WHERE id = ?')
-    .bind(c.var.tenantId).first<{ email: string | null }>();
-  return { where: 'pending_owners', row: row ? { ...row, email: tenantEmail?.email ?? null } : null };
+  return { where: 'pending_owners', row: await loadPendingOwner(c) };
 }
 
 profileRouter.get('/profile', orgUserAuth, async (c) => {
@@ -136,5 +158,131 @@ profileRouter.post('/add-phone', orgUserAuth, async (c) => {
   } catch (e) {
     console.error('add-phone failed:', e);
     return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to add phone number'), 500);
+  }
+});
+
+function loadTenantLite(c: ProfileCtx) {
+  return c.env.CONTROL_DB.prepare('SELECT id, slug, name, status FROM tenants WHERE id = ?')
+    .bind(c.var.tenantId).first<TenantLite>();
+}
+
+// RFC-perfect validation is a rabbit hole and the real check is the mail arriving; this
+// only rejects the shapes that would corrupt a From/To header or a DB row.
+function normalizeEmail(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const e = v.trim().toLowerCase();
+  if (e.length < 3 || e.length > 254) return null;
+  if (!/^[^\s@,<>"]+@[^\s@,<>"]+\.[^\s@,<>"]+$/.test(e)) return null;
+  return e;
+}
+
+/**
+ * Resend the verification link to the signed-in publisher's own address.
+ *
+ * The unauthenticated /verify-email/send must answer generically whether or not the
+ * address exists, which makes it useless from inside the portal — the publisher cannot
+ * tell a sent mail from a swallowed error. This route knows exactly who is calling, so
+ * it can say what happened without becoming an account-enumeration surface.
+ */
+profileRouter.post('/verify-email/resend', orgUserAuth, async (c) => {
+  try {
+    const { row } = await loadOwner(c);
+    if (!row) return c.json(err(ErrorCode.NOT_FOUND, 'Profile not found'), 404);
+    if (!row.email) return c.json(err(ErrorCode.BAD_REQUEST, 'No email address on this account. Add one first.'), 400);
+    if (row.email_verified) return c.json(err(ErrorCode.CONFLICT, 'Email already verified'), 409);
+
+    const tenant = await loadTenantLite(c);
+    if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Account no longer exists'), 404);
+
+    if (!allowSend(`verify:${row.email.toLowerCase()}`)) {
+      return c.json(err(ErrorCode.RATE_LIMITED, 'Too many attempts. Please wait an hour and try again.'), 429);
+    }
+
+    await mailToken(c.env, tenant, row.email, 'verify_email');
+    return c.json(ok({ sent: true, email: row.email }));
+  } catch (e) {
+    console.error('verify-email resend failed:', e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, "Couldn't send the email right now. Please try again."), 500);
+  }
+});
+
+/**
+ * Attach an email address to an account that has none — the Google/OTP signup case.
+ *
+ * The address is always stored UNVERIFIED, whatever the caller claims: nothing here
+ * proves the publisher controls it, and the emailed link is what does. Changing an
+ * address that is already verified is deliberately not supported (that needs
+ * confirmation from the old address, which is a different flow).
+ */
+profileRouter.post('/add-email', orgUserAuth, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const email = normalizeEmail(body.email);
+  if (!email) return c.json(err(ErrorCode.BAD_REQUEST, 'Enter a valid email address'), 400);
+
+  const clashMsg = 'This email is already linked to another account.';
+
+  try {
+    const { where, row } = await loadOwner(c);
+    if (!row) return c.json(err(ErrorCode.NOT_FOUND, 'Profile not found'), 404);
+    // Any verified address blocks, including a resubmit of that same address. The old
+    // `!== email` exemption looked like a harmless no-op but fell through to the UPDATE
+    // below, which writes email_verified = 0 — so re-submitting your own verified address
+    // silently unverified the account and locked it out of content writes.
+    if (row.email && row.email_verified) {
+      return c.json(err(ErrorCode.CONFLICT, 'This account already has a verified email address.'), 409);
+    }
+
+    const tenant = await loadTenantLite(c);
+    if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Account no longer exists'), 404);
+
+    // tenants.email is the login lookup key for every account, so it is checked in both
+    // branches — an address free in one tenant DB can still be taken at the platform level.
+    const tenantClash = await c.env.CONTROL_DB.prepare(
+      'SELECT id FROM tenants WHERE LOWER(email) = ? AND id != ?'
+    ).bind(email, c.var.tenantId).first();
+    if (tenantClash) return c.json(err(ErrorCode.CONFLICT, clashMsg), 409);
+
+    if (where === 'org_users') {
+      const db = getTenantDb(c.env, c.var.tenantSlug);
+      // org_users.email is UNIQUE (migrations/tenant/0011); catching the clash here turns
+      // a raw D1 constraint error into the same 409 /add-phone gives.
+      const clash = await db.prepare('SELECT id FROM org_users WHERE LOWER(email) = ? AND id != ?')
+        .bind(email, c.var.userId).first();
+      if (clash) return c.json(err(ErrorCode.CONFLICT, clashMsg), 409);
+
+      await db.prepare(
+        'UPDATE org_users SET email = ?, email_verified = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+      ).bind(email, c.var.userId).run();
+    } else {
+      // pending_owners has no email column — the tenant row carries the address until
+      // activation migrates it into org_users.
+      await c.env.CONTROL_DB.prepare('UPDATE pending_owners SET email_verified = 0 WHERE id = ?')
+        .bind(c.var.userId).run();
+    }
+
+    // Written in both branches: for a pending tenant this IS the address, and for an
+    // active one it keeps the login key in step with the address the publisher just set.
+    await c.env.CONTROL_DB.prepare('UPDATE tenants SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(email, c.var.tenantId).run();
+
+    // The address is stored either way; a mail failure only costs the publisher a tap on
+    // Resend, so it is reported rather than rolled back.
+    // Same throttle key and budget as /verify-email/resend, so add-email cannot be used to
+    // mint verification mail past the limit the resend button enforces. A throttled caller
+    // still gets the address stored and sees sent:false — the resend button reports the 429.
+    let sent = false;
+    if (allowSend(`verify:${email}`)) {
+      try {
+        await mailToken(c.env, { ...tenant, name: tenant.name }, email, 'verify_email');
+        sent = true;
+      } catch (e) {
+        console.error('add-email verification send failed:', e);
+      }
+    }
+
+    return c.json(ok({ email, email_verified: false, sent }));
+  } catch (e) {
+    console.error('add-email failed:', e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to add email address'), 500);
   }
 });

@@ -148,10 +148,19 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
               <span style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--color-text-primary)', textTransform: 'capitalize' }}>
                 {status?.plan || 'Free'}
               </span>
-              <span className={`status-badge ${status?.has_subscription ? 'status-published' : 'status-archived'}`}>
-                {status?.has_subscription ? (status?.razorpay_status || 'Active') : 'Free / Manual'}
+              <span className={`status-badge ${status?.has_subscription || status?.subscription_source === 'manual' ? 'status-published' : 'status-archived'}`}>
+                {status?.has_subscription ? (status?.razorpay_status || 'Active')
+                  : status?.subscription_source === 'manual' ? 'Granted'
+                  : 'Free'}
               </span>
             </div>
+            {status?.subscription_source === 'manual' && (
+              <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 6 }}>
+                {status?.manual_until
+                  ? `Granted by the platform team — active until ${new Date(status.manual_until).toLocaleDateString()}.`
+                  : 'Granted by the platform team — no expiry set.'}
+              </p>
+            )}
             {status?.has_subscription && ['active', 'authenticated'].includes(status?.razorpay_status) && (
               <>
                 <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 6 }}>
@@ -191,9 +200,15 @@ export function PlatformBillingPage({ slug, token, orgName = '', email = '' }: P
           {/* Plan grid — matches the root portal /pricing card style */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, marginBottom: 20 }}>
             {tiers.map((tier) => {
-                const isCurrentPlan = status?.has_subscription && status?.razorpay_status === 'active' && status?.plan?.toLowerCase() === tier.name.toLowerCase();
-                const isManualFree = !status?.has_subscription && tier.price_inr === 0;
-                const isCurrent = isCurrentPlan || (isManualFree && !status?.has_subscription); // approximate
+                const activeSource = status?.subscription_source ?? (status?.has_subscription ? 'razorpay' : 'none');
+                const planMatches = status?.plan?.toLowerCase() === tier.name.toLowerCase();
+                // A manual grant never writes razorpay_sub_id, so it can only be recognised
+                // through subscription_source — matching on has_subscription alone always
+                // fell through to Free and hid the granted plan.
+                const isCurrent =
+                  activeSource === 'razorpay' ? (status?.razorpay_status === 'active' && planMatches)
+                  : activeSource === 'manual' ? planMatches
+                  : tier.price_inr === 0;
                 const isLoading = Boolean(paying) && paying === tier.razorpay_plan_id;
                 const amount = tier.price_inr;
 

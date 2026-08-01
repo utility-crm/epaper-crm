@@ -10,7 +10,7 @@ import { mintToken, consumeToken, sendAuthMail, allowSend } from '@epaper/auth-m
 // packages/auth-mail), keyed by the publisher's login email.
 export const verifyEmailRouter = new Hono<{ Bindings: Env }>();
 
-type TenantLite = { id: string; slug: string; name: string; status: string };
+export type TenantLite = { id: string; slug: string; name: string; status: string };
 type OwnerRow = { email_verified: number; auth_provider: string; password_hash: string | null };
 
 // Both request endpoints answer identically whether or not the address exists. An
@@ -22,9 +22,12 @@ function linkBase(env: Env): string {
 }
 
 function findTenant(env: Env, email: string) {
+  // LOWER() on both sides: rows predating the lowercase-on-write rule (and any created by
+  // a path that skipped it) are stored mixed-case, and an exact match silently misses them
+  // — which reads as "no such account" and swallows the mail.
   return env.CONTROL_DB.prepare(
-    'SELECT id, slug, name, status FROM tenants WHERE email = ?'
-  ).bind(email).first<TenantLite>();
+    'SELECT id, slug, name, status FROM tenants WHERE LOWER(email) = ?'
+  ).bind(email.toLowerCase()).first<TenantLite>();
 }
 
 // Where a publisher's credentials live depends on tenant lifecycle: pending_owners
@@ -34,44 +37,62 @@ function ownerIsPending(tenant: TenantLite): boolean {
   return tenant.status === 'pending' || tenant.status === 'provisioning';
 }
 
+function pendingOwner(env: Env, tenant: TenantLite): Promise<OwnerRow | null> {
+  return env.CONTROL_DB.prepare(
+    'SELECT email_verified, auth_provider, password_hash FROM pending_owners WHERE tenant_id = ?'
+  ).bind(tenant.id).first<OwnerRow>();
+}
+
 async function readOwner(env: Env, tenant: TenantLite, email: string): Promise<OwnerRow | null> {
-  if (ownerIsPending(tenant)) {
-    return env.CONTROL_DB.prepare(
-      'SELECT email_verified, auth_provider, password_hash FROM pending_owners WHERE tenant_id = ?'
-    ).bind(tenant.id).first<OwnerRow>();
-  }
+  if (ownerIsPending(tenant)) return pendingOwner(env, tenant);
   try {
-    return await getTenantDb(env, tenant.slug).prepare(
-      'SELECT email_verified, auth_provider, password_hash FROM org_users WHERE email = ?'
-    ).bind(email).first<OwnerRow>();
+    const row = await getTenantDb(env, tenant.slug).prepare(
+      'SELECT email_verified, auth_provider, password_hash FROM org_users WHERE LOWER(email) = ?'
+    ).bind(email.toLowerCase()).first<OwnerRow>();
+    if (row) return row;
+    // Active tenant, no org_users row: activation never migrated the owner across (seen on
+    // a live tenant whose org_users was empty while pending_owners still held the row).
+    // Status is not a reliable pointer to where the row lives, so fall back rather than
+    // report "no account" — which silently swallowed the verification mail.
   } catch (e) {
-    // Missing/unavailable tenant binding. Callers treat null as "no account", which
-    // for these endpoints means a generic answer rather than a leaked error.
+    // Missing/unavailable tenant binding — the tenant D1 exists but no worker binds it.
     console.error(`auth-mail: tenant DB lookup failed for ${tenant.slug}:`, e);
-    return null;
   }
+  // Only for a tenant that is still allowed to sign in. Without this guard a deleted or
+  // suspended tenant's stale pending_owners row would resurrect reset/verify mail for it.
+  if (tenant.status === 'deleted' || tenant.status === 'suspended') return null;
+  return pendingOwner(env, tenant);
 }
 
 // pending_owners has no updated_at column (migrations/control/0011); org_users does.
 async function writeOwner(env: Env, tenant: TenantLite, email: string, column: 'email_verified' | 'password_hash', value: number | string): Promise<boolean> {
-  try {
-    if (ownerIsPending(tenant)) {
-      await env.CONTROL_DB.prepare(
-        `UPDATE pending_owners SET ${column} = ? WHERE tenant_id = ?`
-      ).bind(value, tenant.id).run();
-    } else {
-      await getTenantDb(env, tenant.slug).prepare(
-        `UPDATE org_users SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?`
-      ).bind(value, email).run();
+  if (!ownerIsPending(tenant)) {
+    try {
+      const res = await getTenantDb(env, tenant.slug).prepare(
+        `UPDATE org_users SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE LOWER(email) = ?`
+      ).bind(value, email.toLowerCase()).run();
+      // An UPDATE that matched nothing is not a success. It used to return true regardless,
+      // so confirming a link on a tenant whose org_users row was never migrated answered 200
+      // while leaving email_verified = 0 — the publisher stayed blocked with nothing to retry.
+      if (res.meta.changes > 0) return true;
+    } catch (e) {
+      console.error(`auth-mail: failed to update ${column} for ${tenant.slug}:`, e);
     }
-    return true;
+    // Mirrors readOwner: the row may still be in pending_owners despite an active status.
+    if (tenant.status === 'deleted' || tenant.status === 'suspended') return false;
+  }
+  try {
+    const res = await env.CONTROL_DB.prepare(
+      `UPDATE pending_owners SET ${column} = ? WHERE tenant_id = ?`
+    ).bind(value, tenant.id).run();
+    return res.meta.changes > 0;
   } catch (e) {
     console.error(`auth-mail: failed to update ${column} for ${tenant.slug}:`, e);
     return false;
   }
 }
 
-async function mailToken(env: Env, tenant: TenantLite, email: string, purpose: 'verify_email' | 'password_reset'): Promise<void> {
+export async function mailToken(env: Env, tenant: TenantLite, email: string, purpose: 'verify_email' | 'password_reset'): Promise<void> {
   const code = await mintToken(env.CONTROL_DB, { purpose, subject: email, slug: tenant.slug });
   const path = purpose === 'verify_email' ? 'verify' : 'reset';
   await sendAuthMail(env, {
@@ -131,12 +152,45 @@ verifyEmailRouter.post('/verify-email/confirm', async (c) => {
   }
 
   const email = claim.subject;
-  const tenant = await findTenant(c.env, email);
+  // Address first, then the slug the token was minted with. The fallback matters for an
+  // address added after signup via /add-email: it lives on org_users but is not
+  // tenants.email, so the address lookup alone would report the account as gone.
+  const tenant = (await findTenant(c.env, email))
+    ?? (claim.slug
+      ? await c.env.CONTROL_DB.prepare('SELECT id, slug, name, status FROM tenants WHERE slug = ?')
+          .bind(claim.slug).first<TenantLite>()
+      : null);
   if (!tenant) {
     return c.json(err(ErrorCode.NOT_FOUND, 'Account no longer exists'), 404);
   }
   if (!(await writeOwner(c.env, tenant, email, 'email_verified', 1))) {
     return c.json(err(ErrorCode.INTERNAL_ERROR, 'Could not confirm your email. Please try again.'), 500);
+  }
+
+  // If this is a pending tenant (awaiting first verification before provisioning), trigger
+  // provisioning now. Already-provisioning/active/failed tenants are left alone — this is
+  // only for the signup verification gate.
+  if (tenant.status === 'pending') {
+    c.executionCtx.waitUntil((async () => {
+      try {
+        const res = await c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: tenant.slug })
+        }));
+        if (!res.ok) {
+          console.error(`Provision trigger failed after verify for ${tenant.slug}: HTTP ${res.status}`);
+          await c.env.CONTROL_DB.prepare(
+            "UPDATE tenants SET status = 'provision_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
+          ).bind(tenant.id).run().catch(e => console.error('Failed to mark provision_failed', e));
+        }
+      } catch (e) {
+        console.error(`Provision trigger failed after verify for ${tenant.slug}:`, e);
+        await c.env.CONTROL_DB.prepare(
+          "UPDATE tenants SET status = 'provision_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
+        ).bind(tenant.id).run().catch(e => console.error('Failed to mark provision_failed', e));
+      }
+    })());
   }
 
   return c.json(ok({ slug: tenant.slug, email }));

@@ -49,6 +49,36 @@ function toIso(v: unknown): string | null {
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
 
+/**
+ * Tell the publication its platform plan changed.
+ *
+ * The admin worker holds no Resend credentials; billing-platform does, along with the
+ * `email_events` monitoring lane. So the send is delegated over the existing service
+ * binding. Always fire-and-forget: the grant is the operation of record and must survive
+ * a mail outage, so every caller ignores the result and only logs.
+ */
+export async function notifyPlanChange(
+  env: Env,
+  slug: string,
+  payload: { kind: 'granted' | 'extended' | 'ended'; plan: string; until?: string | null },
+): Promise<void> {
+  try {
+    const res = await env.BILLING_PLATFORM_WORKER.fetch(new Request(
+      `http://billing/internal/billing/platform/${encodeURIComponent(slug)}/plan-change`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
+    ));
+    // A service-binding fetch resolves for 4xx/5xx too, so without this an unreachable
+    // route or a rejected payload logged nothing and looked exactly like a delivered mail.
+    if (!res.ok) {
+      console.error(
+        `[admin] plan-change mail rejected for ${slug}: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+      );
+    }
+  } catch (e) {
+    console.error(`[admin] plan-change mail failed for ${slug}`, e);
+  }
+}
+
 type TenantRow = {
   id: string; slug: string; name: string; email: string; plan: string; status: string;
   razorpay_sub_id: string | null; razorpay_plan_id: string | null;
@@ -118,6 +148,11 @@ tenantSubsRouter.post('/:slug', async (c) => {
   await recordAudit(c.env.CONTROL_DB, `admin:${c.var.adminId}`, 'tenant_subscription.manual_grant',
     JSON.stringify({ slug, plan: tier.name, start_at: startAt, end_at: endAt, note }), tenant.id);
 
+  // Extending an existing window reads as "extended" to the publisher; a first grant, or one
+  // that changes the plan, reads as "granted".
+  const kind = tenant.manual_until && tenant.plan?.toLowerCase() === tier.name.toLowerCase() ? 'extended' : 'granted';
+  c.executionCtx.waitUntil(notifyPlanChange(c.env, slug, { kind, plan: tier.name, until: endAt }));
+
   const row = await c.env.CONTROL_DB.prepare(`SELECT ${SELECT_COLS} FROM tenants WHERE slug = ?`)
     .bind(slug).first<TenantRow>();
   return c.json(ok(row));
@@ -166,6 +201,10 @@ tenantSubsRouter.patch('/:slug', async (c) => {
     deactivate ? 'tenant_subscription.manual_deactivate' : 'tenant_subscription.manual_patch',
     JSON.stringify({ slug, end_at: endAt, note }), tenant.id);
 
+  c.executionCtx.waitUntil(notifyPlanChange(c.env, slug, deactivate
+    ? { kind: 'ended', plan: tenant.plan }
+    : { kind: 'extended', plan: tenant.plan, until: endAt }));
+
   const row = await c.env.CONTROL_DB.prepare(`SELECT ${SELECT_COLS} FROM tenants WHERE slug = ?`)
     .bind(slug).first<TenantRow>();
   return c.json(ok(row));
@@ -179,14 +218,32 @@ tenantSubsRouter.patch('/:slug', async (c) => {
  * substr(...,1,19) drops the fractional seconds and Z that toISOString() emits — SQLite's
  * datetime() returns NULL on those, which would make every comparison false and the sweep
  * a silent no-op. Same reason the reader access checks slice their timestamps.
+ *
+ * Returns the rows it downgraded (slug + the plan they lost) so the caller can mail them;
+ * the SELECT runs first because the UPDATE erases the very columns that identify them.
+ * What is returned is the SELECT's plan intersected with the slugs the UPDATE actually
+ * changed: the two statements are not atomic, so a grant extended or a Razorpay sub
+ * attached in between makes a row stop matching DUE, and mailing "your plan ended" to a
+ * publication that is still on it would be wrong. RETURNING alone cannot supply the plan —
+ * it reports post-update values, which are all 'Free' by then.
  */
-export async function sweepExpiredTenantGrants(db: D1Database): Promise<number> {
-  const res = await db.prepare(
+export async function sweepExpiredTenantGrants(db: D1Database): Promise<{ slug: string; plan: string }[]> {
+  const DUE = `manual_until IS NOT NULL
+       AND razorpay_sub_id IS NULL
+       AND datetime(substr(manual_until, 1, 19)) <= datetime('now')`;
+
+  const due = await db.prepare(`SELECT slug, plan FROM tenants WHERE ${DUE}`).all<{ slug: string; plan: string }>();
+  if (!due.results?.length) return [];
+  const priorPlan = new Map(due.results.map((r) => [r.slug, r.plan]));
+
+  const changed = await db.prepare(
     `UPDATE tenants SET plan = 'Free', manual_until = NULL, manual_since = NULL,
        updated_at = CURRENT_TIMESTAMP
-     WHERE manual_until IS NOT NULL
-       AND razorpay_sub_id IS NULL
-       AND datetime(substr(manual_until, 1, 19)) <= datetime('now')`
-  ).run();
-  return res.meta?.changes ?? 0;
+     WHERE ${DUE}
+     RETURNING slug`
+  ).all<{ slug: string }>();
+
+  return (changed.results ?? [])
+    .filter((r) => priorPlan.has(r.slug))
+    .map((r) => ({ slug: r.slug, plan: priorPlan.get(r.slug)! }));
 }

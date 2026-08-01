@@ -82,3 +82,35 @@ export function refundEmailHtml(opts: {
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }
+
+// Notification for a platform-side plan change on a publication (manual grant, extension,
+// or the grant ending). Lives here so escapeHtml stays module-private.
+export function planChangeEmailHtml(opts: {
+  brandName: string;
+  kind: 'granted' | 'extended' | 'ended';
+  plan: string;
+  until?: string | null;
+}): string {
+  const heading = {
+    granted: 'Your plan has been upgraded',
+    extended: 'Your plan has been extended',
+    ended: 'Your plan has ended',
+  }[opts.kind];
+  const body = {
+    granted: `Your publication is now on the <strong>${escapeHtml(opts.plan)}</strong> plan.`,
+    extended: `Your <strong>${escapeHtml(opts.plan)}</strong> plan has been extended.`,
+    ended: `Your <strong>${escapeHtml(opts.plan)}</strong> plan has ended and your publication has returned to the Free plan.`,
+  }[opts.kind];
+  const untilLine = opts.until && opts.kind !== 'ended'
+    ? `<p style="margin:12px 0;color:#374151">Active until <strong>${escapeHtml(new Date(opts.until).toUTCString())}</strong>.</p>`
+    : '';
+  return `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111;line-height:1.5">
+    <div style="max-width:520px;margin:0 auto;padding:24px">
+      <h2 style="margin:0 0 8px">${escapeHtml(opts.brandName)}</h2>
+      <h3 style="margin:0 0 8px;color:#374151">${heading}</h3>
+      <p style="margin:12px 0">${body}</p>
+      ${untilLine}
+      <p style="color:#6b7280;font-size:13px;margin-top:24px">If you have questions, just reply to this email.</p>
+    </div>
+  </body></html>`;
+}

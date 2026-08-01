@@ -17,6 +17,17 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
         if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('epaper:tenant-suspended'));
       } else if (data.error?.message === 'TENANT_DELETED') {
         if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('epaper:tenant-deleted'));
+      } else if (data.error?.message === 'EMAIL_NOT_VERIFIED') {
+        // The content worker's write gate answers with a sentinel, not prose. Translated once
+        // here so every caller that renders error.message shows something a publisher can act
+        // on, instead of leaking the sentinel into the UI. The banner on the gated pages
+        // normally prevents ever reaching this, but a stale tab can still trip it.
+        return { ok: false, error: { code: data.error.code, message: 'Verify your email address before publishing. Open Settings to resend the link.' } };
+      } else if (data.error?.message === 'VERIFICATION_UNAVAILABLE') {
+        // The same gate's 503: it could not read the verification flag at all, which is a
+        // transient server-side condition and not the publisher's doing. Worded as retryable
+        // so nobody goes looking for an email to verify — there is nothing for them to fix.
+        return { ok: false, error: { code: data.error.code, message: 'Could not check your account just now. Please try again in a moment.' } };
       }
     }
     
@@ -30,7 +41,10 @@ export const portalApi = {
   // auth
   signup: (body: any) => apiFetch<{ token: string; slug: string }>('/api/auth/signup', { method: 'POST', body: JSON.stringify(body) }),
   orgLogin: (body: any) => apiFetch<{ token: string; slug: string; status: string }>('/api/auth/org-login', { method: 'POST', body: JSON.stringify(body) }),
-  provisionStatus: (token: string) => apiFetch<{ status: string; provision_run_id: string | null }>('/api/auth/provision-status', {}, token),
+  // awaiting_verification is true only while a 'pending' tenant is held back by an
+  // unconfirmed owner address — provisioning has not been triggered and will not be until
+  // the link is opened. `email` is the address the link went to (null when not held back).
+  provisionStatus: (token: string) => apiFetch<{ status: string; provision_run_id: string | null; awaiting_verification?: boolean; email?: string | null }>('/api/auth/provision-status', {}, token),
   verifyProvisioning: (token: string) => apiFetch<{ status: string; recovered?: boolean }>('/api/auth/verify-provisioning', { method: 'POST' }, token),
   retriggerProvisioning: (token: string) => apiFetch<{ reprovisioning: boolean }>('/api/auth/reprovision', { method: 'POST' }, token),
 
@@ -145,6 +159,10 @@ export const portalApi = {
   // publisher self-service profile (auth worker)
   getProfile: (token: string) => apiFetch<any>(`/api/auth/profile`, {}, token),
   addPhone: (idToken: string, token: string) => apiFetch<any>(`/api/auth/add-phone`, { method: 'POST', body: JSON.stringify({ idToken }) }, token),
+  // Authenticated resend — unlike the public /verify-email/send this one may report what
+  // actually happened (throttled, already verified, sent), since the caller is known.
+  resendVerifyEmail: (token: string) => apiFetch<{ sent: boolean; email: string }>(`/api/auth/verify-email/resend`, { method: 'POST' }, token),
+  addEmail: (email: string, token: string) => apiFetch<{ email: string; email_verified: boolean; sent: boolean }>(`/api/auth/add-email`, { method: 'POST', body: JSON.stringify({ email }) }, token),
 
   // org settings & branding
   getSettings: (slug: string, token: string) => apiFetch<any>(`/api/content/${slug}/settings`, {}, token),

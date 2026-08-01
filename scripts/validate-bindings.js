@@ -99,6 +99,44 @@ for (const binding of [...allBindings].sort()) {
   failed = true;
 }
 
+// ── Coverage against the live tenant list (opt-in: --live) ───────────────────
+//
+// The checks above compare the three workers to each other, so a tenant absent from ALL of
+// them is "consistent" and passes. That is not a hypothetical: a live active tenant had its
+// D1 and R2 created but no binding anywhere, and every request touching its DB threw
+// "binding not found" — surfacing as a swallowed verification email, not as an error.
+//
+// Off by default because it needs network + wrangler auth; CI can opt in.
+if (process.argv.includes('--live')) {
+  const { execFileSync } = await import('node:child_process');
+  const norm = (slug) => slug.toUpperCase().replace(/-/g, '_');
+  try {
+    // Bounded: an unauthenticated wrangler prompts on stdin and would otherwise hang a CI
+    // job forever. A timeout lands in the same catch as any other failure — skipped, not fatal.
+    const raw = execFileSync('npx', ['wrangler', 'd1', 'list', '--json'], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const dbs = JSON.parse(raw.slice(raw.indexOf('[')));
+    // Only per-tenant DBs: epaper-<slug>, excluding the control DB and unrelated databases.
+    const unbound = dbs
+      .map((d) => d.name)
+      .filter((n) => n.startsWith('epaper-') && n !== 'epaper-control')
+      .map((n) => ({ db: n, binding: `${norm(n.slice('epaper-'.length))}_DB` }))
+      .filter(({ binding }) => !allBindings.has(binding));
+
+    for (const { db, binding } of unbound) {
+      console.error(`\n❌  UNBOUND TENANT DB: ${db} (expected binding ${binding})`);
+      console.error(`   Present in: no worker at all — requests for this tenant will throw at runtime.`);
+      console.error(`   Fix: node scripts/inject-binding.js ${db.slice('epaper-'.length)} <db-id>, then redeploy the workers.`);
+      failed = true;
+    }
+  } catch (e) {
+    console.error(`\n⚠️  --live check skipped: could not list D1 databases (${e.message})`);
+  }
+}
+
 if (failed) {
   console.error('\nBinding validation FAILED. See above for details.');
   process.exit(1);

@@ -1,39 +1,9 @@
 import { Hono } from 'hono';
 import { getTenantDb, getTenantBucket } from './db';
 import { ok, err, ErrorCode } from '@epaper/types';
-import { Env } from './middleware';
+import { Env, requireVerifiedEmail } from './middleware';
 
-export const editionsRouter = new Hono<{ Bindings: Env; Variables: { userId: string } }>();
-
-async function ensureOrgUser(db: D1Database, controlDb: D1Database | undefined, slug: string, userId: string) {
-  if (!userId) return;
-  try {
-    const existing = await db.prepare('SELECT id FROM org_users WHERE id = ?').bind(userId).first();
-    if (!existing) {
-      if (controlDb) {
-        const tenant = await controlDb.prepare('SELECT id, email FROM tenants WHERE slug = ?').bind(slug).first<{ id: string; email: string }>();
-        if (tenant) {
-          const owner = await controlDb.prepare('SELECT * FROM pending_owners WHERE id = ? OR tenant_id = ?').bind(userId, tenant.id).first<any>();
-          if (owner) {
-            await db.prepare(
-              'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
-            ).bind(userId, tenant.email, owner.password_hash || '', owner.name || 'Admin', owner.role || 'owner').run();
-            return;
-          }
-          await db.prepare(
-            'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
-          ).bind(userId, tenant.email, '', 'Admin', 'owner').run();
-          return;
-        }
-      }
-      await db.prepare(
-        'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
-      ).bind(userId, `${userId}@tenant.local`, '', 'Admin', 'owner').run();
-    }
-  } catch (e) {
-    console.error('Error ensuring org user:', e);
-  }
-}
+export const editionsRouter = new Hono<{ Bindings: Env; Variables: { userId: string; tenantSlug: string } }>();
 
 async function resolveTierId(db: D1Database, tierId: unknown): Promise<string | null> {
   if (!tierId || typeof tierId !== 'string' || tierId === '__none__' || tierId.trim() === '') {
@@ -74,7 +44,7 @@ editionsRouter.get('/:slug/editions', async (c) => {
   }
 });
 
-editionsRouter.post('/:slug/editions', async (c) => {
+editionsRouter.post('/:slug/editions', requireVerifiedEmail, async (c) => {
   const slug = c.req.param('slug');
   const body = await c.req.json();
   
@@ -86,7 +56,9 @@ editionsRouter.post('/:slug/editions', async (c) => {
 
   try {
     const db = getTenantDb(c.env, slug);
-    await ensureOrgUser(db, c.env.CONTROL_DB, slug, created_by);
+    // No ensureOrgUser call here: requireVerifiedEmail runs it before this handler and
+    // returns 503 if the row still cannot be created, so created_by is guaranteed to
+    // satisfy the editions.created_by foreign key by the time we reach the INSERT.
     const tier_id = await resolveTierId(db, body.tier_id);
     const id = crypto.randomUUID();
 
@@ -114,7 +86,7 @@ editionsRouter.get('/:slug/editions/:id/epapers', async (c) => {
   }
 });
 
-editionsRouter.post('/:slug/editions/:id/epapers', async (c) => {
+editionsRouter.post('/:slug/editions/:id/epapers', requireVerifiedEmail, async (c) => {
   const slug = c.req.param('slug');
   const edition_id = c.req.param('id');
   const body = await c.req.json();

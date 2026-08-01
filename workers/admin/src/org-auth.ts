@@ -7,10 +7,50 @@ import { ok, err, ErrorCode } from '@epaper/types';
 // to PROVISION_WORKER + tenant activation and are gated by an existing org session.
 export const orgAuthRouter = new Hono<{ Bindings: Env; Variables: { tenantId: string; tenantSlug: string; orgRole: string } }>();
 
+/**
+ * Owner verification state for a tenant that has not been activated yet. The row lives in
+ * pending_owners until activation moves it into the tenant's own org_users, so this is only
+ * meaningful while status is pending/provisioning — which is exactly the window the
+ * provisioning gate cares about.
+ *
+ * Returns null when there is no row to read: callers treat that as "cannot prove it is
+ * unverified" and fall open, matching how the content worker's write gate behaves.
+ */
+async function pendingOwnerVerification(env: Env, tenantId: string): Promise<{ email: string | null; verified: boolean } | null> {
+  try {
+    const row = await env.CONTROL_DB.prepare(
+      'SELECT t.email AS email, o.email_verified AS email_verified FROM pending_owners o JOIN tenants t ON t.id = o.tenant_id WHERE o.tenant_id = ?'
+    ).bind(tenantId).first<{ email: string | null; email_verified: number | null }>();
+    if (!row) return null;
+    return { email: row.email, verified: !!row.email_verified };
+  } catch (e) {
+    console.error('pendingOwnerVerification failed', e);
+    return null;
+  }
+}
+
 orgAuthRouter.get('/provision-status', orgUserAuth, async (c) => {
-  const tenant = await c.env.CONTROL_DB.prepare('SELECT status, provision_run_id FROM tenants WHERE id = ?').bind(c.var.tenantId).first();
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT status, provision_run_id FROM tenants WHERE id = ?')
+    .bind(c.var.tenantId).first<{ status: string; provision_run_id: string | null }>();
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
-  return c.json(ok(tenant));
+
+  // A tenant sitting at 'pending' is ambiguous on its own: it may be waiting for the
+  // provision trigger, or waiting for the owner to click the verification link (signup no
+  // longer provisions an unverified password account). Report which, so the portal can show
+  // the verification step instead of a progress bar that will never move.
+  let awaiting_verification = false;
+  let email: string | null = null;
+  if (tenant.status === 'pending') {
+    const owner = await pendingOwnerVerification(c.env, c.var.tenantId);
+    // Only an address that exists and is provably unverified holds provisioning. A missing
+    // row, or a phone-only account with no address, falls open.
+    if (owner && owner.email && !owner.verified) {
+      awaiting_verification = true;
+      email = owner.email;
+    }
+  }
+
+  return c.json(ok({ ...tenant, awaiting_verification, email }));
 });
 
 // Tenant self-service: retry provisioning after a provision_failed state
@@ -21,6 +61,16 @@ orgAuthRouter.post('/reprovision', orgUserAuth, async (c) => {
 
   if (!['provision_failed', 'pending'].includes(tenant.status)) {
     return c.json(err(ErrorCode.BAD_REQUEST, `Cannot reprovision from status: ${tenant.status}`), 400);
+  }
+
+  // 'pending' is still in the allowlist above, so without this check the retry button on the
+  // stuck screen would provision an account whose address was never confirmed — routing
+  // around the signup gate entirely. Only refuse when the address is provably unverified.
+  if (tenant.status === 'pending') {
+    const owner = await pendingOwnerVerification(c.env, tenant.id);
+    if (owner && owner.email && !owner.verified) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'Verify your email address before we set up your workspace.'), 403);
+    }
   }
 
   // Delegate to the internal reprovision endpoint (which fires the GitHub workflow)

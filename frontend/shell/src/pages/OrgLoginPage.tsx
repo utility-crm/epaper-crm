@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -9,7 +9,7 @@ export default function OrgLoginPage() {
   const { setOrgToken, setTenantStatus } = useAuth();
 
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -17,6 +17,7 @@ export default function OrgLoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
+    const password = passwordRef.current?.value || '';
     try {
       const res = await api.orgLogin({ email, password });
       if (!res.ok) {
@@ -69,11 +70,13 @@ export default function OrgLoginPage() {
             <div className="auth-field">
               <label className="auth-field__label">Password</label>
               <input
+                id="org-password"
+                name="password"
+                ref={passwordRef}
                 className="auth-field__input"
                 type="password"
                 placeholder="Your password"
-                value={password}
-                onChange={e => { setPassword(e.target.value); setError(''); }}
+                autoComplete="current-password"
                 required
               />
             </div>
