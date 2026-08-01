@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { ok, err, ErrorCode } from '@epaper/types';
 import { verifySubscriptionSignature } from './razorpay';
-import { sendEmail, refundEmailHtml } from './email';
+import { sendEmail, refundEmailHtml, planChangeEmailHtml } from './email';
 import { runSmsBillingSweep } from './sms-billing';
 
 export interface Env {
@@ -383,14 +383,14 @@ app.post('/api/billing/platform/webhook', async (c) => {
 app.get('/api/billing/platform/:slug/status', async (c) => {
   const slug = c.req.param('slug');
   const tenant = await c.env.CONTROL_DB.prepare(`
-    SELECT t.plan, t.razorpay_plan_id, t.razorpay_sub_id,
+    SELECT t.plan, t.razorpay_plan_id, t.razorpay_sub_id, t.manual_since, t.manual_until,
            p.max_storage_mb, p.max_views_per_day, p.max_simultaneous_editions, p.max_papers_per_day
     FROM tenants t
     LEFT JOIN platform_tiers p ON LOWER(t.plan) = LOWER(p.name)
     WHERE t.slug = ?
   `).bind(slug).first();
   if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
-  
+
   let razorpayStatus = null;
   if (tenant.razorpay_sub_id) {
     const res = await razorpayRequest(c.env, `subscriptions/${tenant.razorpay_sub_id}`);
@@ -399,10 +399,21 @@ app.get('/api/billing/platform/:slug/status', async (c) => {
       razorpayStatus = data.status;
     }
   }
-  
+
+  // Compared in JS, not SQL: SQLite's datetime() needs substr(x,1,19) to survive the
+  // fractional seconds and trailing Z these columns carry, and a wrong comparison here
+  // reads as "no subscription" rather than as an error.
+  const manualActive = !!tenant.manual_since &&
+    (!tenant.manual_until || new Date(tenant.manual_until as string) > new Date());
+
   return c.json(ok({
     plan: tenant.plan,
+    // Kept as-is for back-compat (frontend/shell reads it); manual grants never write
+    // razorpay_sub_id, so consumers that need the whole picture read subscription_source.
     has_subscription: !!tenant.razorpay_sub_id,
+    subscription_source: tenant.razorpay_sub_id ? 'razorpay' : manualActive ? 'manual' : 'none',
+    manual_since: tenant.manual_since ?? null,
+    manual_until: tenant.manual_until ?? null,
     razorpay_status: razorpayStatus,
     limits: {
       storage_mb: tenant.max_storage_mb,
@@ -562,9 +573,40 @@ app.post('/internal/billing/platform/refund-requests/:id/process', async (c) => 
   return c.json(ok({ status: newStatus, razorpay_refund_id: refundId, refund_amount_paise: refundedPaise }));
 });
 
+// Notify a publication's owner that their platform plan changed. Called over the service
+// binding by the admin worker, which owns the grant flow but has no Resend credentials.
+// Best-effort by contract: a mail failure must never fail the grant that triggered it.
+app.post('/internal/billing/platform/:slug/plan-change', async (c) => {
+  const slug = c.req.param('slug');
+  const body = await c.req.json<{ kind?: 'granted' | 'extended' | 'ended'; plan?: string; until?: string | null }>();
+  const kind = body?.kind;
+  if (kind !== 'granted' && kind !== 'extended' && kind !== 'ended') {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'kind must be granted, extended or ended'), 400);
+  }
+
+  const tenant = await c.env.CONTROL_DB.prepare('SELECT email, name, plan FROM tenants WHERE slug = ?')
+    .bind(slug).first<{ email: string | null; name: string | null; plan: string | null }>();
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+  if (!tenant.email) return c.json(ok({ sent: false, reason: 'no_email_on_record' }));
+
+  const brandName = c.env.PLATFORM_NAME || 'Our Platform';
+  const plan = body.plan || tenant.plan || 'Free';
+  const sent = await sendEmail(c.env.RESEND_API_KEY, c.env.RESEND_FROM, {
+    to: tenant.email,
+    fromName: brandName,
+    replyTo: c.env.PLATFORM_SUPPORT_EMAIL,
+    tags: [{ name: 'lane', value: 'platform_plan_change' }, { name: 'slug', value: slug }],
+    subject: kind === 'ended' ? `Your ${brandName} plan has ended` : `Your ${brandName} plan has been updated`,
+    html: planChangeEmailHtml({ brandName, kind, plan, until: body.until ?? null }),
+  });
+
+  return c.json(ok({ sent }));
+});
+
 app.post('/internal/billing/platform/plans', async (c) => {
   const { name, price_inr, tax_percentage, billing_cycle } = await c.req.json();
-  
+
+
   if (!name || price_inr == null || tax_percentage == null || !billing_cycle) {
     return c.json(err(ErrorCode.BAD_REQUEST, 'Missing required fields'), 400);
   }

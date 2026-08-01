@@ -1,6 +1,7 @@
-import { Context, Next } from 'hono';
+import { Context, Next, MiddlewareHandler } from 'hono';
 import { err, ErrorCode, OrgUserRole } from '@epaper/types';
 import { verifyJwt } from './jwt';
+import { getTenantDb } from './db';
 
 export interface Env {
   CONTROL_DB: D1Database;
@@ -29,4 +30,42 @@ export async function orgUserAuth(c: Context<{ Bindings: Env; Variables: { tenan
   c.set('orgRole', payload.role as OrgUserRole);
   c.set('userId', payload.userId);
   await next();
-}
+};
+
+/**
+ * Refuse content *writes* from a publisher whose email address is still unverified.
+ *
+ * Applied per-route (edition create, epaper create, the four upload routes) rather than at
+ * the /api/content/* mount: mounted there it would also block reads, stats and settings,
+ * so an unverified publisher would meet an empty broken portal instead of one telling them
+ * to verify — and the verify button itself lives in that portal.
+ *
+ * The flag is read from org_users on every request, not from a JWT claim. Tokens live 7
+ * days, so a claim would keep a just-verified publisher blocked until expiry, and would
+ * keep granting access to anyone holding a token minted before the gate existed.
+ *
+ * Fails OPEN on a missing row, an absent tenant binding (still provisioning), or any D1
+ * error. This is an anti-spam gate, not an authorisation boundary — orgUserAuth already
+ * proved identity — and failing closed on a transient blip would stop verified publishers
+ * from publishing. Fails closed only on a row that has an address with email_verified = 0;
+ * a phone-only account (email IS NULL) has nothing to verify and is allowed through.
+ */
+// Declared as MiddlewareHandler, not (c: Context<...>, next): as a plain function it is
+// opaque to Hono's route inference, and every c.req.param('slug') on a guarded route
+// degrades to string | undefined.
+export const requireVerifiedEmail: MiddlewareHandler<{
+  Bindings: Env;
+  Variables: { tenantSlug: string; userId: string };
+}> = async (c, next) => {
+  try {
+    const db = getTenantDb(c.env, c.var.tenantSlug);
+    const row = await db.prepare('SELECT email, email_verified FROM org_users WHERE id = ?')
+      .bind(c.var.userId).first<{ email: string | null; email_verified: number }>();
+    if (row?.email && !row.email_verified) {
+      return c.json(err(ErrorCode.FORBIDDEN, 'EMAIL_NOT_VERIFIED'), 403);
+    }
+  } catch (e) {
+    console.error(`[content] verification gate lookup failed for ${c.var.tenantSlug}, allowing:`, e);
+  }
+  await next();
+};

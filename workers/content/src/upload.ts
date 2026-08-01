@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { getTenantDb, getTenantBucket } from './db';
 import { ok, err, ErrorCode } from '@epaper/types';
+import { Env, requireVerifiedEmail } from './middleware';
 
-export const uploadRouter = new Hono();
+export const uploadRouter = new Hono<{ Bindings: Env; Variables: { userId: string; tenantSlug: string } }>();
 
 const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
 // The per-page protocol only ever receives rendered raster images — the client
@@ -15,7 +16,7 @@ const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 // Supported file types: images (jpeg/png/webp) or sliced single-page PDFs.
 // The first file is also stored as the cover thumbnail.
 // All previously uploaded pages are deleted before the new upload is stored.
-uploadRouter.put('/:slug/epapers/:id/upload', async (c) => {
+uploadRouter.put('/:slug/epapers/:id/upload', requireVerifiedEmail, async (c) => {
   const slug = c.req.param('slug');
   const id   = c.req.param('id');
   const ct   = c.req.header('Content-Type') ?? '';
@@ -151,7 +152,7 @@ function extFor(type: string): string {
 }
 
 // Step 1 — clear any previously uploaded pages/cover from R2 + DB.
-uploadRouter.post('/:slug/epapers/:id/upload/begin', async (c) => {
+uploadRouter.post('/:slug/epapers/:id/upload/begin', requireVerifiedEmail, async (c) => {
   const slug = c.req.param('slug');
   const id   = c.req.param('id');
   try {
@@ -200,7 +201,7 @@ uploadRouter.post('/:slug/epapers/:id/upload/begin', async (c) => {
 //   page_no (text, 1-based), page (file), blurred (file, optional), cover (file, optional)
 // Safe to call concurrently for distinct page_no values. Returns the R2 keys +
 // authoritative byte sizes so commit can tally disk usage without re-heading.
-uploadRouter.put('/:slug/epapers/:id/upload/page', async (c) => {
+uploadRouter.put('/:slug/epapers/:id/upload/page', requireVerifiedEmail, async (c) => {
   const slug = c.req.param('slug');
   const id   = c.req.param('id');
   const ct   = c.req.header('Content-Type') ?? '';
@@ -276,7 +277,7 @@ const PAGE_EXTS = ['webp', 'jpg', 'png'] as const;
 // of R2 head probes for an attacker-supplied page_count before any work is rejected.
 const MAX_PAGE_COUNT = 500;
 
-uploadRouter.post('/:slug/epapers/:id/upload/commit', async (c) => {
+uploadRouter.post('/:slug/epapers/:id/upload/commit', requireVerifiedEmail, async (c) => {
   const slug = c.req.param('slug');
   const id   = c.req.param('id');
   try {

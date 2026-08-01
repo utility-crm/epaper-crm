@@ -1,10 +1,22 @@
 import { Hono } from 'hono';
 import { getTenantDb, getTenantBucket } from './db';
 import { ok, err, ErrorCode } from '@epaper/types';
-import { Env } from './middleware';
+import { Env, requireVerifiedEmail } from './middleware';
 
-export const editionsRouter = new Hono<{ Bindings: Env; Variables: { userId: string } }>();
+export const editionsRouter = new Hono<{ Bindings: Env; Variables: { userId: string; tenantSlug: string } }>();
 
+/**
+ * Legacy backfill for tenants whose owner row was never migrated into the tenant DB by
+ * provision (see internal.ts, which is the real path). Every INSERT here must carry
+ * email_verified explicitly: the column defaults to 0, and requireVerifiedEmail reads it on
+ * every write, so a row written without it locks the owner out of the very routes this
+ * function runs inside — permanently, in the synthetic-address branch below, since no
+ * verification mail can ever reach @tenant.local.
+ *
+ * pending_owners is authoritative when we find it. When we cannot find it the flag is
+ * unknowable, so we write 1 and let the gate fail open, matching the middleware's own rule
+ * that this is an anti-spam gate rather than an authorisation boundary.
+ */
 async function ensureOrgUser(db: D1Database, controlDb: D1Database | undefined, slug: string, userId: string) {
   if (!userId) return;
   try {
@@ -16,19 +28,19 @@ async function ensureOrgUser(db: D1Database, controlDb: D1Database | undefined, 
           const owner = await controlDb.prepare('SELECT * FROM pending_owners WHERE id = ? OR tenant_id = ?').bind(userId, tenant.id).first<any>();
           if (owner) {
             await db.prepare(
-              'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
-            ).bind(userId, tenant.email, owner.password_hash || '', owner.name || 'Admin', owner.role || 'owner').run();
+              'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role, email_verified) VALUES (?, ?, ?, ?, ?, ?)'
+            ).bind(userId, tenant.email, owner.password_hash || '', owner.name || 'Admin', owner.role || 'owner', owner.email_verified ? 1 : 0).run();
             return;
           }
           await db.prepare(
-            'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
-          ).bind(userId, tenant.email, '', 'Admin', 'owner').run();
+            'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role, email_verified) VALUES (?, ?, ?, ?, ?, ?)'
+          ).bind(userId, tenant.email, '', 'Admin', 'owner', 1).run();
           return;
         }
       }
       await db.prepare(
-        'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)'
-      ).bind(userId, `${userId}@tenant.local`, '', 'Admin', 'owner').run();
+        'INSERT OR IGNORE INTO org_users (id, email, password_hash, name, role, email_verified) VALUES (?, ?, ?, ?, ?, ?)'
+      ).bind(userId, `${userId}@tenant.local`, '', 'Admin', 'owner', 1).run();
     }
   } catch (e) {
     console.error('Error ensuring org user:', e);
@@ -74,7 +86,7 @@ editionsRouter.get('/:slug/editions', async (c) => {
   }
 });
 
-editionsRouter.post('/:slug/editions', async (c) => {
+editionsRouter.post('/:slug/editions', requireVerifiedEmail, async (c) => {
   const slug = c.req.param('slug');
   const body = await c.req.json();
   
@@ -114,7 +126,7 @@ editionsRouter.get('/:slug/editions/:id/epapers', async (c) => {
   }
 });
 
-editionsRouter.post('/:slug/editions/:id/epapers', async (c) => {
+editionsRouter.post('/:slug/editions/:id/epapers', requireVerifiedEmail, async (c) => {
   const slug = c.req.param('slug');
   const edition_id = c.req.param('id');
   const body = await c.req.json();

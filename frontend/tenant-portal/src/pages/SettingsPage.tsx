@@ -10,6 +10,7 @@ import { ImageIcon, Upload, CheckCircle2, AlertTriangle, Crop, Phone } from 'luc
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { ImageCropModal } from '../components/ImageCropModal';
 import { PhoneAuthForm } from '../components/PhoneAuthForm';
+import { VerifyEmailBanner } from '../components/VerifyEmailBanner';
 
 interface Props { slug: string; token: string; onSettingsChange?: (s: any) => void; }
 
@@ -195,9 +196,13 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
             <span className="text-muted-foreground">Email</span>
             <span className="font-medium flex items-center gap-2">
               {profile?.email || '—'}
-              {profile?.email && profile.email_verified && (
+              {profile?.email && (profile.email_verified ? (
                 <CheckCircle2 className="h-4 w-4 text-green-600" aria-label="Verified" />
-              )}
+              ) : (
+                <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  Unverified
+                </span>
+              ))}
             </span>
           </div>
 
@@ -231,6 +236,10 @@ export function SettingsPage({ slug, token, onSettingsChange }: Props) {
               {phoneBusy && <p className="text-xs text-muted-foreground mt-2">Linking number…</p>}
             </div>
           )}
+
+          {/* Resend, or add-and-verify for a Google/OTP account with no address.
+              Self-hides once the address is verified. */}
+          <VerifyEmailBanner token={token} onVerifiedChange={load} />
         </CardContent>
       </Card>
 

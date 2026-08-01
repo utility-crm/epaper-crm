@@ -7,7 +7,7 @@ import { domainRouter } from './domain';
 import { tiersRouter } from './tiers';
 import { billingRouter } from './billing';
 import { platformConfigRouter } from './platform-config';
-import { tenantSubsRouter, sweepExpiredTenantGrants } from './tenant-subs';
+import { tenantSubsRouter, sweepExpiredTenantGrants, notifyPlanChange } from './tenant-subs';
 import { err, ErrorCode, ok } from '@epaper/types';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -67,7 +67,12 @@ export default {
     // Expire manual tenant subscriptions whose window has closed.
     try {
       const expired = await sweepExpiredTenantGrants(env.CONTROL_DB);
-      if (expired > 0) console.log(`[admin] Expired ${expired} manual tenant subscription(s)`);
+      if (expired.length > 0) {
+        console.log(`[admin] Expired ${expired.length} manual tenant subscription(s)`);
+        for (const t of expired) {
+          await notifyPlanChange(env, t.slug, { kind: 'ended', plan: t.plan });
+        }
+      }
     } catch (e) {
       console.error('[admin] Manual tenant subscription sweep failed', e);
     }

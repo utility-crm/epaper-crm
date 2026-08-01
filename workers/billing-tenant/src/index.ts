@@ -14,7 +14,7 @@ export interface Env {
   RESEND_API_KEY?: string;
   RESEND_FROM?: string;
   // Verified Resend sending domain. Reader refund mail is sent from
-  // no-reply-<slug>@<RESEND_DOMAIN> so each publication has a distinct sender;
+  // noreply-<slug>@<RESEND_DOMAIN> so each publication has a distinct sender;
   // renewal/expiry notices go from the shared noreply@<RESEND_DOMAIN>.
   RESEND_DOMAIN?: string;
   // Active-tenant list for the scheduled expiry/renewal sweep.
@@ -679,10 +679,10 @@ app.post('/api/billing/tenant/:slug/refund-requests/:id/process', async (c) => {
 
     // Best-effort branded email to the reader (never blocks the refund result).
     if (rr.reader_email) {
-      // Per-publication sender: no-reply-<slug>@<verified domain>, display name = publication.
+      // Per-publication sender: noreply-<slug>@<verified domain>, display name = publication.
       const domain = c.env.RESEND_DOMAIN || 'payments.epaperspace.com';
       const localSlug = slug.replace(/[^a-z0-9-]/gi, '').toLowerCase();
-      const fromAddr = `no-reply-${localSlug}@${domain}`;
+      const fromAddr = `noreply-${localSlug}@${domain}`;
       await sendEmail(c.env.RESEND_API_KEY, fromAddr, {
         to: rr.reader_email,
         fromName: identity.displayName,

@@ -100,7 +100,7 @@ export interface RenewalMailInput {
 /**
  * Pre-expiry warning and expiry notice for reader subscriptions.
  *
- * ponytail: sender is `noreply@<RESEND_DOMAIN>`, not the `no-reply-<slug>@` form the
+ * ponytail: sender is `noreply@<RESEND_DOMAIN>`, not the `noreply-<slug>@` form the
  * refund mail uses — a single shared address, as specified. Per-publication identity
  * still rides on the From display name + Reply-To, so it reads the same to the reader.
  * Best-effort like every other send here: a mail failure must not stop the sweep.

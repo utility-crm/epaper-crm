@@ -34,6 +34,11 @@ export function ProvisioningScreen({ token, onActive, verifyMailSent }: Provisio
   const [status, setStatus] = useState('pending');
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  // Held back by an unconfirmed address: no infrastructure has been created yet, and none
+  // will be until the link is opened. Distinct from 'pending' generally, which does mean
+  // "provisioning is on its way".
+  const [awaitingVerification, setAwaitingVerification] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const cancelledRef = useRef(false);
 
   // Elapsed timer
@@ -53,6 +58,8 @@ export function ProvisioningScreen({ token, onActive, verifyMailSent }: Provisio
           if (res.ok && res.data) {
             setStatus(res.data.status);
             setCurrentStep(randomStep(res.data.status));
+            setAwaitingVerification(!!res.data.awaiting_verification);
+            setPendingEmail(res.data.email ?? null);
             if (res.data.status === 'active') {
               if (!cancelledRef.current) onActive();
               return;
@@ -114,6 +121,14 @@ export function ProvisioningScreen({ token, onActive, verifyMailSent }: Provisio
       setRetrying(false);
     }
   }, [token, onActive]);
+
+  // --- AWAITING EMAIL VERIFICATION ---
+  // Checked before the failure and timeout branches: nothing has been provisioned yet, so
+  // neither "setup failed" nor "taking longer than expected" is true — the account is simply
+  // waiting on the owner. The elapsed timer is irrelevant here and deliberately not shown.
+  if (awaitingVerification) {
+    return <AwaitVerifyState token={token} email={pendingEmail} />;
+  }
 
   // --- FAILURE STATE ---
   if (status === 'provision_failed') {
@@ -200,6 +215,85 @@ export function ProvisioningScreen({ token, onActive, verifyMailSent }: Provisio
         @keyframes pulse-glow { 0%,100% { box-shadow: 0 0 40px var(--color-brand-glow); } 50% { box-shadow: 0 0 80px var(--color-brand-glow); } }
         @keyframes pulse-dot { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.6; } }
       `}</style>
+    </div>
+  );
+}
+
+function AwaitVerifyState({ token, email }: { token: string; email: string | null }) {
+  const [sending, setSending] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Authenticated resend, so it may name the address — the caller already holds a session
+  // for this account, so there is nothing to enumerate. (The public /verify-email/send
+  // stays generic for exactly that reason.)
+  const resend = async () => {
+    setSending(true);
+    setNote(null);
+    setError(null);
+    try {
+      const res = await portalApi.resendVerifyEmail(token);
+      if (res.ok) {
+        setNote(`Link sent to ${res.data?.email ?? email ?? 'your inbox'}. Check your spam folder too.`);
+      } else {
+        setError(res.error?.message ?? 'Could not send the email. Try again in a minute.');
+      }
+    } catch {
+      setError('Network error. Please check your connection and try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32,
+      background: 'radial-gradient(ellipse at 50% 40%, rgba(99,102,241,0.12) 0%, transparent 70%)' }}>
+      <div style={{ maxWidth: 520, width: '100%', textAlign: 'center' }}>
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ width: 80, height: 80, background: 'linear-gradient(135deg, var(--color-brand-primary), #7c3aed)',
+            borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto',
+            boxShadow: '0 0 60px var(--color-brand-glow)' }}>
+            <span style={{ fontSize: '2.5rem' }}>✉</span>
+          </div>
+        </div>
+
+        <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: 12 }}>Confirm Your Email</h1>
+        <p style={{ color: 'var(--color-text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+          We've sent a verification link to{' '}
+          <strong style={{ color: 'var(--color-text-primary)' }}>{email ?? 'your address'}</strong>.
+          Open it and we'll start building your workspace straight away.
+        </p>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', marginBottom: 32, lineHeight: 1.6 }}>
+          Your database and storage are created only after the address is confirmed, so nothing is set up
+          against an address you don't control. This page updates itself the moment you click the link —
+          you can leave it open.
+        </p>
+
+        {note && (
+          <div style={{ marginBottom: 20, padding: '12px 16px', background: 'rgba(34,197,94,0.1)',
+            border: '1px solid rgba(34,197,94,0.3)', borderRadius: 8, color: '#86efac', fontSize: '0.875rem' }}>
+            {note}
+          </div>
+        )}
+        {error && (
+          <div style={{ marginBottom: 20, padding: '12px 16px', background: 'rgba(220,38,38,0.1)',
+            border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, color: '#fca5a5', fontSize: '0.875rem' }}>
+            {error}
+          </div>
+        )}
+
+        <button className="btn-primary" disabled={sending} onClick={resend}
+          style={{ width: '100%', maxWidth: 280, display: 'inline-flex', alignItems: 'center',
+            justifyContent: 'center', gap: 8, fontSize: '1rem', padding: '12px 24px' }}>
+          {sending && <span className="spinner" style={{ width: 16, height: 16 }} />}
+          {sending ? 'Sending…' : '✉ Resend verification email'}
+        </button>
+
+        <p style={{ marginTop: 16, color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+          Wrong address, or signed up by mistake? Contact{' '}
+          <a href="mailto:support@epaper-cms.com" style={{ color: 'var(--color-brand-primary)' }}>support@epaper-cms.com</a>.
+        </p>
+      </div>
     </div>
   );
 }

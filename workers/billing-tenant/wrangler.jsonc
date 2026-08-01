@@ -34,6 +34,11 @@
       "binding": "TEST_ORG_EF7C_DB",
       "database_name": "epaper-test-org-ef7c",
       "database_id": "55d37959-d056-4184-806f-b1825986af9d"
+    },
+    {
+      "binding": "TEST2_FFDD_DB",
+      "database_name": "epaper-test2-ffdd",
+      "database_id": "00f2a644-1cea-45f8-8e8e-0133faab6c1e"
     }
   ],
   // Expiry sweep + renewal notices. Half-hourly rather than daily so a subscription

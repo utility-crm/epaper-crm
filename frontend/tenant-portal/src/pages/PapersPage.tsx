@@ -12,6 +12,7 @@ import { uploadEpaperContent } from '../lib/uploadEpaper';
 import { extractPdfThumbnail } from '../lib/pdfThumbnail';
 import { ShareModal } from '../components/ShareModal';
 import { ClickmaskEditorModal } from '../components/ClickmaskEditorModal';
+import { VerifyEmailBanner } from '../components/VerifyEmailBanner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '../components/ui/sheet';
@@ -32,6 +33,9 @@ export function PapersPage({ slug, token }: Props) {
   const [editPaper, setEditPaper] = useState<any>(null);
   const [sharePaper, setSharePaper] = useState<any>(null);
   const [clickmaskPaper, setClickmaskPaper] = useState<any>(null);
+  // Mirrors the server gate in workers/content (EMAIL_NOT_VERIFIED). Starts false so a slow
+  // profile fetch never blocks a verified publisher; the banner flips it once it knows.
+  const [writesBlocked, setWritesBlocked] = useState(false);
 
   const loadEditions = useCallback(async () => {
     const [edRes, tierRes] = await Promise.all([portalApi.getEditions(slug, token), portalApi.getTiers(slug, token)]);
@@ -76,12 +80,14 @@ export function PapersPage({ slug, token }: Props) {
 
   return (
     <div className="space-y-6">
+      <VerifyEmailBanner token={token} onVerifiedChange={setWritesBlocked} />
+
       <div className="flex items-end justify-between">
         <div>
           <h1 className="font-serif text-3xl font-700 tracking-tight">Editions &amp; Papers</h1>
           <p className="mt-1 text-sm text-muted-foreground">Organize editions and publish dated paper issues.</p>
         </div>
-        <Button variant="secondary" onClick={() => setModal('edition')}><Plus className="h-4 w-4" /> New Edition</Button>
+        <Button variant="secondary" disabled={writesBlocked} onClick={() => setModal('edition')}><Plus className="h-4 w-4" /> New Edition</Button>
       </div>
 
       {editions.length === 0 ? (
@@ -89,7 +95,7 @@ export function PapersPage({ slug, token }: Props) {
           <Newspaper className="h-10 w-10 text-muted-foreground" />
           <div className="text-lg font-semibold">No editions yet</div>
           <p className="text-sm text-muted-foreground">Create your first edition to get started</p>
-          <Button onClick={() => setModal('edition')}><Plus className="h-4 w-4" /> Create First Edition</Button>
+          <Button disabled={writesBlocked} onClick={() => setModal('edition')}><Plus className="h-4 w-4" /> Create First Edition</Button>
         </CardContent></Card>
       ) : (
         <>
@@ -127,7 +133,7 @@ export function PapersPage({ slug, token }: Props) {
             <div className="text-sm text-muted-foreground">
               {edition?.tier_id ? <><>Premium papers here unlock with the </><Badge variant="default">{tierName(edition.tier_id)}</Badge><> tier.</></> : 'This edition has no tier — premium papers cannot be unlocked until you assign one.'}
             </div>
-            <Button onClick={() => setModal('paper')}><Plus className="h-4 w-4" /> New Paper</Button>
+            <Button disabled={writesBlocked} onClick={() => setModal('paper')}><Plus className="h-4 w-4" /> New Paper</Button>
           </div>
 
           <Card>
@@ -167,7 +173,7 @@ export function PapersPage({ slug, token }: Props) {
                         <TableCell>
                           <div className="flex items-center gap-2">
                             {p.r2_key ? <span className="flex items-center gap-1 text-xs text-green-400"><CheckCircle2 className="h-3.5 w-3.5" /> {p.page_count}p</span> : <span className="text-xs text-muted-foreground">No PDF</span>}
-                            <Button variant="secondary" size="sm" onClick={() => setUpload(p)}><Upload className="h-3.5 w-3.5" /> {p.r2_key ? 'Replace' : 'Upload'}</Button>
+                            <Button variant="secondary" size="sm" disabled={writesBlocked} onClick={() => setUpload(p)}><Upload className="h-3.5 w-3.5" /> {p.r2_key ? 'Replace' : 'Upload'}</Button>
                           </div>
                         </TableCell>
                         <TableCell>
