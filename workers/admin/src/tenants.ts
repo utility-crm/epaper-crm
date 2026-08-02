@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { Env, adminAuth } from './middleware';
+import { requireSuperadmin } from './platform-config';
 import { ok, err, ErrorCode, TenantRow } from '@epaper/types';
 
 export const tenantsRouter = new Hono<{ Bindings: Env; Variables: { adminId: string; adminRole: string } }>();
@@ -247,6 +248,145 @@ tenantsRouter.delete('/:slug', async (c) => {
   ]);
   
   return c.json(ok({ deleting: true, pending: true }));
+});
+
+/**
+ * Manual publisher email verification (superadmin escape hatch).
+ *
+ * The verification mail is the only way a publisher normally clears the content worker's
+ * write gate (requireVerifiedEmail). When delivery is broken — bounced domain, Resend
+ * outage, a typo'd-but-reachable-out-of-band address — the publisher is locked out of
+ * publishing with nothing to retry, since resend just mails the same dead address again.
+ * This flips the flag directly, no mail involved.
+ *
+ * Where the flag lives depends on tenant lifecycle, and status is NOT a reliable pointer
+ * to which (see verify-email.ts readOwner — active tenants are seen with the row still in
+ * pending_owners because activation never migrated it). So both stores are attempted and
+ * success is "at least one row changed", mirroring writeOwner.
+ */
+async function ownerEmailFor(env: Env, slug: string) {
+  return env.CONTROL_DB.prepare('SELECT id, slug, email, status FROM tenants WHERE slug = ?')
+    .bind(slug).first<{ id: string; slug: string; email: string | null; status: string }>();
+}
+
+tenantsRouter.get('/:slug/email-verification', requireSuperadmin, async (c) => {
+  // Non-null: the route cannot match without the param. Asserted because the inline
+  // middleware above makes this handler opaque to Hono's param inference.
+  const slug = c.req.param('slug')!;
+  const tenant = await ownerEmailFor(c.env, slug);
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+
+  // A tenant with no address (phone-only owner) has nothing to verify — the write gate
+  // passes it already, so report it as such rather than offering a button that does nothing.
+  if (!tenant.email) {
+    return c.json(ok({ email: null, verified: true, source: 'none' }));
+  }
+
+  const pending = await c.env.CONTROL_DB.prepare(
+    'SELECT email_verified FROM pending_owners WHERE tenant_id = ?'
+  ).bind(tenant.id).first<{ email_verified: number }>();
+
+  // org_users is authoritative when a row exists there; pending_owners is the fallback.
+  try {
+    const res = await c.env.CONTENT_WORKER.fetch(
+      `http://internal/internal/${encodeURIComponent(slug)}/email-verification?email=${encodeURIComponent(tenant.email)}`
+    );
+    if (res.ok) {
+      const body = await res.json() as { ok: boolean; data?: { found: boolean; verified: boolean } };
+      if (body.data?.found) {
+        return c.json(ok({ email: tenant.email, verified: body.data.verified, source: 'org_users' }));
+      }
+    }
+  } catch (e) {
+    console.error(`email-verification read failed for ${slug}:`, e);
+  }
+
+  if (pending) {
+    return c.json(ok({ email: tenant.email, verified: !!pending.email_verified, source: 'pending_owners' }));
+  }
+  // Neither store has a row. Not an error — an active tenant's owner row is created lazily
+  // by the content worker's backfill on first write — but we cannot claim a state.
+  return c.json(ok({ email: tenant.email, verified: null, source: 'unknown' }));
+});
+
+tenantsRouter.post('/:slug/verify-email', requireSuperadmin, async (c) => {
+  const slug = c.req.param('slug')!;
+  const tenant = await ownerEmailFor(c.env, slug);
+  if (!tenant) return c.json(err(ErrorCode.NOT_FOUND, 'Tenant not found'), 404);
+  if (!tenant.email) {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Tenant has no email address to verify'), 400);
+  }
+
+  let changed = 0;
+
+  // org_users, via the content worker (the admin worker has no per-tenant D1 binding).
+  try {
+    const res = await c.env.CONTENT_WORKER.fetch(
+      new Request(`http://internal/internal/${encodeURIComponent(slug)}/set-email-verified`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: tenant.email }),
+      })
+    );
+    if (res.ok) {
+      const body = await res.json() as { ok: boolean; data?: { changes: number } };
+      changed += body.data?.changes ?? 0;
+    } else {
+      console.error(`set-email-verified returned HTTP ${res.status} for ${slug}`);
+    }
+  } catch (e) {
+    // A tenant that was never provisioned has no D1 to bind — expected for pending, and
+    // the pending_owners write below is the one that matters there.
+    console.error(`set-email-verified failed for ${slug}:`, e);
+  }
+
+  // pending_owners, on CONTROL_DB.
+  try {
+    const res = await c.env.CONTROL_DB.prepare(
+      'UPDATE pending_owners SET email_verified = 1 WHERE tenant_id = ?'
+    ).bind(tenant.id).run();
+    changed += res.meta.changes;
+  } catch (e) {
+    console.error(`pending_owners verify failed for ${slug}:`, e);
+  }
+
+  if (changed === 0) {
+    // Nothing was updated in either store, so the publisher is still blocked. Reporting
+    // success here would leave the superadmin believing the problem was fixed.
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'No owner record could be updated. The tenant may not be provisioned yet.'), 500);
+  }
+
+  await c.env.CONTROL_DB.prepare(
+    'INSERT INTO audit_log (id, tenant_id, action, performed_by, details) VALUES (?, ?, ?, ?, ?)'
+  ).bind(
+    crypto.randomUUID(), tenant.id, 'tenant.email_manually_verified', c.var.adminId,
+    JSON.stringify({ email: tenant.email, rows: changed })
+  ).run().catch(e => console.error('Failed to write audit log for manual verify', e));
+
+  // A tenant sitting at 'pending' is held by the signup verification gate; clearing the flag
+  // by hand must also release it, or the publisher is verified but still has no workspace.
+  // Mirrors the /verify-email/confirm path in the auth worker.
+  let provisioning = false;
+  if (tenant.status === 'pending') {
+    provisioning = true;
+    c.executionCtx.waitUntil((async () => {
+      try {
+        const res = await c.env.PROVISION_WORKER.fetch(new Request('http://provision/api/provision/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: tenant.slug })
+        }));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch (e) {
+        console.error(`Provision trigger failed after manual verify for ${slug}:`, e);
+        await c.env.CONTROL_DB.prepare(
+          "UPDATE tenants SET status = 'provision_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
+        ).bind(tenant.id).run().catch(e => console.error('Failed to mark provision_failed', e));
+      }
+    })());
+  }
+
+  return c.json(ok({ verified: true, email: tenant.email, rows: changed, provisioning }));
 });
 
 // Endpoint for frontend to verify stuck provisioning

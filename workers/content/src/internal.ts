@@ -47,3 +47,57 @@ internalRouter.post('/internal/:slug/migrate-owner', async (c) => {
     return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to migrate owner'), 500);
   }
 });
+
+/**
+ * Read the owner's verification flag from an active tenant's org_users. Same reason as
+ * the setter below: the admin worker has no per-tenant D1 binding.
+ *
+ * `found: false` (not a 404) when there is no row for the address — the caller falls back
+ * to pending_owners, which is a normal state, not an error.
+ */
+internalRouter.get('/internal/:slug/email-verification', async (c) => {
+  const slug = c.req.param('slug');
+  const email = c.req.query('email');
+  if (!email) return c.json(err(ErrorCode.BAD_REQUEST, 'Email required'), 400);
+
+  try {
+    const row = await getTenantDb(c.env, slug).prepare(
+      'SELECT email, email_verified FROM org_users WHERE LOWER(email) = ?'
+    ).bind(email.toLowerCase()).first<{ email: string | null; email_verified: number }>();
+    if (!row) return c.json(ok({ found: false }));
+    return c.json(ok({ found: true, verified: !!row.email_verified }));
+  } catch (e) {
+    console.error(`Error reading email_verified for ${slug}:`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to read verification flag'), 500);
+  }
+});
+
+/**
+ * Flip email_verified on an active tenant's org_users row. Called only by the admin
+ * worker's superadmin manual-verify endpoint — the admin worker holds CONTROL_DB and
+ * service bindings but no per-tenant D1, so the write has to happen here.
+ *
+ * Reports `changes` rather than 404-ing on a miss: the caller cannot tell in advance
+ * whether the owner row lives here or still in pending_owners (activation does not
+ * reliably migrate it — see verify-email.ts readOwner), so it needs to try both and
+ * decide from the counts.
+ */
+internalRouter.post('/internal/:slug/set-email-verified', async (c) => {
+  const slug = c.req.param('slug');
+  const { email } = await c.req.json<{ email?: string }>().catch(() => ({ email: undefined }));
+  if (!email || typeof email !== 'string') {
+    return c.json(err(ErrorCode.BAD_REQUEST, 'Email required'), 400);
+  }
+
+  try {
+    // LOWER() on both sides, matching verify-email.ts: rows predating the
+    // lowercase-on-write rule are stored mixed-case and an exact match misses them.
+    const res = await getTenantDb(c.env, slug).prepare(
+      'UPDATE org_users SET email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE LOWER(email) = ?'
+    ).bind(email.toLowerCase()).run();
+    return c.json(ok({ changes: res.meta.changes }));
+  } catch (e) {
+    console.error(`Error setting email_verified for ${slug}:`, e);
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Failed to update verification flag'), 500);
+  }
+});

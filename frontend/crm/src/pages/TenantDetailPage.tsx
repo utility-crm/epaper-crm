@@ -39,6 +39,10 @@ export function TenantDetailPage() {
   
   const [tiers, setTiers] = useState<any[]>([]);
 
+  const [emailVerif, setEmailVerif] = useState<{ email: string | null; verified: boolean | null; source: string } | null>(null);
+  const [emailVerifLoading, setEmailVerifLoading] = useState(false);
+  const [emailVerifPending, setEmailVerifPending] = useState(false);
+
   useEffect(() => {
     if (!slug) return;
     crmApi.getTenant(slug).then(res => {
@@ -60,6 +64,10 @@ export function TenantDetailPage() {
       crmApi.getPlatformBillingStatus(slug).then(res => { if (res.ok) setBillingStatus(res.data); });
       crmApi.getPlatformBillingEvents(slug).then(res => { if (res.ok) setBillingEvents(res.data); });
       crmApi.getTiers().then(res => { if (res.ok) setTiers(res.data); });
+      setEmailVerifLoading(true);
+      crmApi.getTenantEmailVerification(slug)
+        .then(res => { if (res.ok && res.data) setEmailVerif(res.data); })
+        .finally(() => setEmailVerifLoading(false));
     }
   }, [slug, isSuperAdmin]);
 
@@ -135,6 +143,27 @@ export function TenantDetailPage() {
     setActionLoading(false);
   };
 
+  // Flips email_verified without sending mail. For publishers whose verification mail
+  // cannot be delivered — they are blocked from publishing until this is cleared.
+  const handleVerifyEmail = async () => {
+    setEmailVerifLoading(true);
+    const res = await crmApi.verifyTenantEmail(slug!);
+    if (res.ok) {
+      const verif = await crmApi.getTenantEmailVerification(slug!);
+      if (verif.ok && verif.data) setEmailVerif(verif.data);
+      // Manual verification releases the signup gate on a pending tenant, so the status
+      // it was showing is now stale.
+      if (res.data?.provisioning) {
+        const t = await crmApi.getTenant(slug!);
+        if (t.ok) setTenant(t.data);
+      }
+    } else {
+      alert(res.error?.message || 'Could not verify email');
+    }
+    setEmailVerifLoading(false);
+    setEmailVerifPending(false);
+  };
+
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><div className="spinner" /></div>;
   if (!tenant) return <div className="card">Tenant not found</div>;
 
@@ -171,6 +200,17 @@ export function TenantDetailPage() {
           onConfirm={handleDelete}
           onCancel={() => setModal(null)}
           loading={actionLoading}
+        />
+      )}
+      {emailVerifPending && (
+        <ConfirmModal
+          title="Manually Verify Publisher Email"
+          message={`This marks ${emailVerif?.email} as verified without sending any email, unblocking publishing for "${tenant.name}". Only do this once you have confirmed the address belongs to them by other means — it bypasses the proof-of-ownership check entirely.${tenant.status === 'pending' ? ' This will also start provisioning their workspace.' : ''}`}
+          confirmLabel="Mark Verified"
+          confirmClass="btn-primary"
+          onConfirm={handleVerifyEmail}
+          onCancel={() => setEmailVerifPending(false)}
+          loading={emailVerifLoading}
         />
       )}
 
@@ -254,6 +294,35 @@ export function TenantDetailPage() {
           >
             {actionLoading && <span className="spinner" style={{ width: 14, height: 14 }} />}
             ↻ Re-Provision
+          </button>
+        </div>
+      )}
+
+      {/* Unverified publisher email. The content worker refuses writes while this is unset,
+          so a publisher whose verification mail never arrives cannot publish at all. */}
+      {isSuperAdmin && emailVerif?.email && emailVerif.verified !== true && (
+        <div style={{ marginBottom: 20, padding: '16px 20px', background: 'rgba(245,158,11,0.08)',
+          border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, display: 'flex',
+          alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontWeight: 600, color: '#fcd34d', marginBottom: 4 }}>
+              ✉ Email {emailVerif.verified === null ? 'Verification Unknown' : 'Not Verified'}
+            </div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+              <strong>{emailVerif.email}</strong> is unverified, so this publisher is blocked from
+              creating editions and uploading. Use this only when the verification mail cannot be
+              delivered and you have confirmed the address another way — it skips proof of ownership.
+              {emailVerif.verified === null && ' No owner record was found in either store; the tenant may not be provisioned yet.'}
+            </div>
+          </div>
+          <button
+            className="btn-primary"
+            disabled={emailVerifLoading}
+            onClick={() => setEmailVerifPending(true)}
+            style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}
+          >
+            {emailVerifLoading && <span className="spinner" style={{ width: 12, height: 12 }} />}
+            ✓ Mark Verified
           </button>
         </div>
       )}
