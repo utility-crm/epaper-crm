@@ -38,6 +38,16 @@ export const crmApi = {
   deleteTenant: (slug: string) => apiFetch<any>(`/api/tenants/${slug}`, { method: 'DELETE' }),
   getAuditLog: (page = 1, tenantId?: string) => apiFetch<any>(`/api/audit?page=${page}${tenantId ? `&tenant_id=${tenantId}` : ''}`),
   reprovisionTenant: (slug: string) => apiFetch<any>(`/api/tenants/internal/${slug}/reprovision`, { method: 'POST' }),
+
+  // Manual publisher email verification (superadmin). The escape hatch for when the
+  // verification mail cannot be delivered — flips the flag without sending anything,
+  // so the publisher stops being blocked by the content worker's write gate.
+  getTenantEmailVerification: (slug: string) =>
+    apiFetch<{ email: string | null; verified: boolean | null; source: string }>(
+      `/api/tenants/${encodeURIComponent(slug)}/email-verification`),
+  verifyTenantEmail: (slug: string) =>
+    apiFetch<{ verified: boolean; email: string; rows: number; provisioning: boolean }>(
+      `/api/tenants/${encodeURIComponent(slug)}/verify-email`, { method: 'POST' }),
   
   // Admins
   updatePassword: (body: any) => apiFetch<any>('/api/auth/me/password', { method: 'PATCH', body: JSON.stringify(body) }),
