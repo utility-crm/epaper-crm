@@ -5,6 +5,16 @@ import { ok, err, ErrorCode, TenantRow } from '@epaper/types';
 
 export const tenantsRouter = new Hono<{ Bindings: Env; Variables: { adminId: string; adminRole: string } }>();
 
+/** Headers for calling the content worker's internal endpoints (shared-secret auth). */
+function internalHeaders(env: Record<string, unknown>): Record<string, string> {
+  const secret = env.INTERNAL_SECRET;
+  if (typeof secret !== 'string' || secret.length === 0) {
+    throw new Error('INTERNAL_SECRET is not configured');
+  }
+  return { 'X-Internal-Secret': secret };
+}
+
+
 tenantsRouter.patch('/internal/:slug/activate', async (c) => {
   const slug = c.req.param('slug');
   const body = await c.req.json();
@@ -24,28 +34,34 @@ tenantsRouter.patch('/internal/:slug/activate', async (c) => {
   const pendingOwner = await c.env.CONTROL_DB.prepare('SELECT * FROM pending_owners WHERE tenant_id = ?').bind(tenant.id).first<{id: string; name: string; password_hash: string | null; firebase_uid: string | null; phone_number: string | null; email_verified: number; auth_provider: string}>();
 
   if (pendingOwner) {
-    // Call the content worker to insert the owner into the tenant's new org_users table
-    const migrateRes = await c.env.CONTENT_WORKER.fetch(`http://internal/internal/${slug}/migrate-owner`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: pendingOwner.id,
-        email: tenant.email,
-        name: pendingOwner.name,
-        password_hash: pendingOwner.password_hash,
-        role: 'owner',
-        firebase_uid: pendingOwner.firebase_uid,
-        phone_number: pendingOwner.phone_number,
-        email_verified: pendingOwner.email_verified,
-        auth_provider: pendingOwner.auth_provider
-      })
-    });
+    try {
+      // Call the content worker to insert the owner into the tenant's new org_users table
+      const migrateRes = await c.env.CONTENT_WORKER.fetch(`http://internal/internal/${slug}/migrate-owner`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...internalHeaders(c.env) },
+        body: JSON.stringify({
+          id: pendingOwner.id,
+          email: tenant.email,
+          name: pendingOwner.name,
+          password_hash: pendingOwner.password_hash,
+          role: 'owner',
+          firebase_uid: pendingOwner.firebase_uid,
+          phone_number: pendingOwner.phone_number,
+          email_verified: pendingOwner.email_verified,
+          auth_provider: pendingOwner.auth_provider
+        })
+      });
 
-    if (!migrateRes.ok) {
-      console.error(`Failed to migrate pending owner for ${slug}`);
-    } else {
-      // Remove the pending owner since they are now fully migrated
-      await c.env.CONTROL_DB.prepare('DELETE FROM pending_owners WHERE tenant_id = ?').bind(tenant.id).run();
+      if (!migrateRes.ok) {
+        console.error(`Failed to migrate pending owner for ${slug}`);
+      } else {
+        // Remove the pending owner since they are now fully migrated
+        await c.env.CONTROL_DB.prepare('DELETE FROM pending_owners WHERE tenant_id = ?').bind(tenant.id).run();
+      }
+    } catch (e) {
+      // Missing INTERNAL_SECRET or a transport error: log and continue, matching the
+      // pre-existing behavior on a failed migrate (the pending_owners row is left intact).
+      console.error(`Failed to migrate pending owner for ${slug}:`, e);
     }
   }
   
@@ -289,7 +305,8 @@ tenantsRouter.get('/:slug/email-verification', requireSuperadmin, async (c) => {
   // org_users is authoritative when a row exists there; pending_owners is the fallback.
   try {
     const res = await c.env.CONTENT_WORKER.fetch(
-      `http://internal/internal/${encodeURIComponent(slug)}/email-verification?email=${encodeURIComponent(tenant.email)}`
+      `http://internal/internal/${encodeURIComponent(slug)}/email-verification?email=${encodeURIComponent(tenant.email)}`,
+      { headers: internalHeaders(c.env) }
     );
     if (res.ok) {
       const body = await res.json() as { ok: boolean; data?: { found: boolean; verified: boolean } };
@@ -324,7 +341,7 @@ tenantsRouter.post('/:slug/verify-email', requireSuperadmin, async (c) => {
     const res = await c.env.CONTENT_WORKER.fetch(
       new Request(`http://internal/internal/${encodeURIComponent(slug)}/set-email-verified`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...internalHeaders(c.env) },
         body: JSON.stringify({ email: tenant.email }),
       })
     );
@@ -366,8 +383,24 @@ tenantsRouter.post('/:slug/verify-email', requireSuperadmin, async (c) => {
   // A tenant sitting at 'pending' is held by the signup verification gate; clearing the flag
   // by hand must also release it, or the publisher is verified but still has no workspace.
   // Mirrors the /verify-email/confirm path in the auth worker.
+  //
+  // The status transition doubles as the concurrency claim. `tenant.status` was read before
+  // the verification writes above, so it is already stale by here — two overlapping requests
+  // (a double-clicked button) would both have seen 'pending' and both dispatched a GitHub
+  // Actions run against the same slug. The conditional UPDATE is the serialization point:
+  // D1 applies the two statements in some order and only the first matches status='pending',
+  // so exactly one caller sees changes > 0 and only that one dispatches. It also performs the
+  // 'pending' -> 'provisioning' move the reprovision endpoint already does, which the earlier
+  // version omitted — leaving the portal on a status that no longer reflected reality.
   let provisioning = false;
-  if (tenant.status === 'pending') {
+  const claim = await c.env.CONTROL_DB.prepare(
+    "UPDATE tenants SET status = 'provisioning', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
+  ).bind(tenant.id).run().catch(e => {
+    console.error(`Failed to claim provisioning for ${slug}:`, e);
+    return null;
+  });
+
+  if (claim && claim.meta.changes > 0) {
     provisioning = true;
     c.executionCtx.waitUntil((async () => {
       try {
@@ -379,8 +412,10 @@ tenantsRouter.post('/:slug/verify-email', requireSuperadmin, async (c) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
       } catch (e) {
         console.error(`Provision trigger failed after manual verify for ${slug}:`, e);
+        // Rolls back the claim above, so status must be 'provisioning' here — not 'pending',
+        // which is what this guard checked before the claim existed and would never match now.
         await c.env.CONTROL_DB.prepare(
-          "UPDATE tenants SET status = 'provision_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
+          "UPDATE tenants SET status = 'provision_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'provisioning'"
         ).bind(tenant.id).run().catch(e => console.error('Failed to mark provision_failed', e));
       }
     })());

@@ -1,14 +1,47 @@
-import { Hono } from 'hono';
+import { Hono, MiddlewareHandler } from 'hono';
 import { ok, err, ErrorCode } from '@epaper/types';
 import { getTenantDb } from './db';
 
 export const internalRouter = new Hono<{ Bindings: Record<string, unknown> }>();
 
+/** Length-independent equality. Avoids leaking the secret's prefix through timing. */
+function secretsMatch(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Shared-secret gate for internal routes.
+ *
+ * A service binding is not itself an authenticator: this worker's wrangler.jsonc sets no
+ * `routes` and does not disable `workers_dev`, so it also answers on its workers.dev
+ * hostname. /internal/* escapes the gateway (which only forwards /api/*) but not the public
+ * internet, and the routes below take a tenant slug and an email straight from the caller.
+ * Ungated, set-email-verified lets anyone clear the content write gate for any address.
+ *
+ * Fails CLOSED when INTERNAL_SECRET is unset — an unconfigured deploy must not silently
+ * serve these unauthenticated, which is the state this guard exists to end.
+ */
+const internalAuth: MiddlewareHandler<{ Bindings: Record<string, unknown> }> = async (c, next) => {
+  const expected = c.env.INTERNAL_SECRET;
+  if (typeof expected !== 'string' || expected.length === 0) {
+    console.error('[content] INTERNAL_SECRET is not configured; refusing internal request');
+    return c.json(err(ErrorCode.INTERNAL_ERROR, 'Internal auth not configured'), 503);
+  }
+  const provided = c.req.header('X-Internal-Secret');
+  if (!provided || !secretsMatch(provided, expected)) {
+    return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid internal secret'), 401);
+  }
+  await next();
+};
+
 // Note: org-user credential verification (verify-owner / verify-firebase-owner) moved to
 // the epaper-auth worker, which reads org_users via its own per-tenant {SLUG}_DB bindings.
 
 // Internal endpoint to migrate a pending owner into the org_users table upon tenant activation
-internalRouter.post('/internal/:slug/migrate-owner', async (c) => {
+internalRouter.post('/internal/:slug/migrate-owner', internalAuth, async (c) => {
   const slug = c.req.param('slug');
   const body = await c.req.json<{
     id: string; email: string | null; name: string; password_hash: string | null; role: string;
@@ -55,7 +88,7 @@ internalRouter.post('/internal/:slug/migrate-owner', async (c) => {
  * `found: false` (not a 404) when there is no row for the address — the caller falls back
  * to pending_owners, which is a normal state, not an error.
  */
-internalRouter.get('/internal/:slug/email-verification', async (c) => {
+internalRouter.get('/internal/:slug/email-verification', internalAuth, async (c) => {
   const slug = c.req.param('slug');
   const email = c.req.query('email');
   if (!email) return c.json(err(ErrorCode.BAD_REQUEST, 'Email required'), 400);
@@ -82,7 +115,7 @@ internalRouter.get('/internal/:slug/email-verification', async (c) => {
  * reliably migrate it — see verify-email.ts readOwner), so it needs to try both and
  * decide from the counts.
  */
-internalRouter.post('/internal/:slug/set-email-verified', async (c) => {
+internalRouter.post('/internal/:slug/set-email-verified', internalAuth, async (c) => {
   const slug = c.req.param('slug');
   const { email } = await c.req.json<{ email?: string }>().catch(() => ({ email: undefined }));
   if (!email || typeof email !== 'string') {

@@ -66,6 +66,9 @@
       "* * * * *"
     ]
   },
+  // Note: secret INTERNAL_SECRET must be set (`wrangler secret put INTERNAL_SECRET`) and must
+  // match the value set on epaper-admin. It authenticates the /internal/* routes, which are
+  // reachable on this worker's workers.dev hostname. The routes refuse to serve without it.
   "vars": {
     "PUBLIC_API_BASE": "https://api.epaperspace.com",
     "FIREBASE_PROJECT_ID": "epaperspace",

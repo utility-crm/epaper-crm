@@ -15,6 +15,10 @@ export interface Env {
   FIREBASE_PRIVATE_KEY?: string;
   FIREBASE_SERVICE_ACCOUNT?: string;
   ADMIN_WORKER: Fetcher;
+  // Shared secret authenticating this worker's calls to the content worker's /internal/*
+  // routes. Optional in the type because a deploy may not have it set yet; callers throw
+  // rather than sending an unauthenticated request.
+  INTERNAL_SECRET?: string;
   [key: string]: unknown;
 }
 
