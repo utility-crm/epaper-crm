@@ -33,10 +33,19 @@ async function getReader(c: any, slug: string): Promise<ReaderJwtPayload | null>
 // current_end is stored as a JS ISO string (…T00:00:00.000Z). SQLite 3.42.0+
 // parses the Z suffix fine, but older builds did not; substr strips to
 // 'YYYY-MM-DDTHH:MM:SS' for portability.
+//
+// A manual staff grant is written with tier_id = NULL (admin-grants.ts) because
+// staff grant "access", not a specific tier — so it must satisfy ANY tier here.
+// Without that arm, `tier_id = ?2` compares NULL to a uuid, which is NULL (never
+// true) in SQL, and an active manual grant unlocks nothing at all. Scoped to
+// grant_type = 'manual' on purpose: a bare `tier_id IS NULL` would also hand
+// every tier to a razorpay row whose tier failed to record.
 async function hasActiveSub(db: D1Database, readerId: string, tierId: string | null): Promise<boolean> {
   const row = await db.prepare(
     `SELECT id FROM reader_subscriptions
-     WHERE reader_id = ? AND (?2 IS NULL OR tier_id = ?2) AND status = 'active'
+     WHERE reader_id = ?
+       AND (?2 IS NULL OR tier_id = ?2 OR (tier_id IS NULL AND grant_type = 'manual'))
+       AND status = 'active'
        AND datetime(substr(current_end, 1, 19)) > CURRENT_TIMESTAMP
      LIMIT 1`
   ).bind(readerId, tierId).first();
@@ -398,8 +407,13 @@ readerRouter.get('/:slug/plans', async (c) => {
   const slug = c.req.param('slug');
   try {
     const db = getTenantDb(c.env, slug);
+    // tax_percentage must ship with the plan: the paywall quotes a tax-INCLUSIVE
+    // price from it, and billing charges tax-inclusive. Omitting it makes the
+    // field undefined client-side -> treated as 0 -> the reader is shown a lower
+    // price than the mandate actually debits.
     const rows = await db.prepare(
       `SELECT p.id, p.tier_id, p.name, p.interval, p.price_paise, p.offer_pct, p.offer_label,
+              p.tax_percentage,
               t.name AS tier_name, t.description AS tier_description
        FROM plans p JOIN tiers t ON t.id = p.tier_id
        WHERE p.active = 1 ORDER BY t.name, p.price_paise`
