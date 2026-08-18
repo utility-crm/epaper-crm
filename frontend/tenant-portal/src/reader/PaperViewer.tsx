@@ -24,11 +24,14 @@ interface Props {
   orgName?: string;
   logoUrl?: string | null;
   onRequireAuth: () => void;
+  // Called when the server rejects our stored token, so the owner of the session
+  // can clear it and re-prompt. Must be referentially stable (see loadPaper deps).
+  onSessionExpired: () => void;
 }
 
 const INTERVAL_LABEL: Record<string, string> = { monthly: 'Monthly', '6month': '6 Months', '12month': '12 Months' };
 
-export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, onRequireAuth }: Props) {
+export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, onRequireAuth, onSessionExpired }: Props) {
   const { id } = useParams<{ id: string }>();
   const [paper, setPaper] = useState<any>(null);
   const [page, setPage] = useState(() => {
@@ -40,6 +43,9 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
   });
   const [pageLoading, setPageLoading] = useState(true);
   const [plans, setPlans] = useState<any[]>([]);
+  // Latched once the server tells us our token was rejected: the paywall copy must say
+  // "sign in again", not "subscribe", to a reader who may already be paying.
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const currentPageData = paper?.pages?.[page - 1];
   const pageUrl = currentPageData?.image_url ? `${API_BASE_URL}${currentPageData.image_url}` : null;
@@ -127,6 +133,20 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
     const res = await readerApi.getPaper(slug, id, session?.token);
     if (res.ok && res.data) {
       setPaper(res.data);
+      // `signed_in` is the server's verdict on the token we just sent. False while we
+      // still hold a session means that token was rejected (expired, or minted under a
+      // rotated secret) — every premium page came back locked for a reader who may well
+      // be paying. Drop the dead session and ask for a fresh sign-in instead of showing
+      // a paywall that would sell them a second subscription. Checked here rather than in
+      // an effect so the verdict is always paired with the token that produced it.
+      if (session && res.data.signed_in === false) {
+        setSessionExpired(true);
+        onSessionExpired();
+      } else if (res.data.signed_in) {
+        // A real sign-in landed — clear the notice. (The anonymous refetch that follows
+        // signOut reports signed_in: false with no session, and must not clear it.)
+        setSessionExpired(false);
+      }
       // Map clickmasks if returned in pages
       if (res.data.pages) {
         const maskMap: Record<number, any[]> = {};
@@ -157,7 +177,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
 
     const edsRes = await readerApi.getPublicEditions(slug);
     if (edsRes.ok && edsRes.data) setEditions(edsRes.data.items ?? []);
-  }, [slug, id, session]);
+  }, [slug, id, session, onSessionExpired]);
 
   useEffect(() => {
     loadPaper();
@@ -191,6 +211,9 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
       return;
     }
     const { subscription_id, key_id } = orderRes.data;
+    // A failed payment is usually followed by the reader closing the modal, which would
+    // stack a second alert on top of the first — report the specific failure only.
+    let reportedFailure = false;
     const rzp = new (window as any).Razorpay({
       key: key_id,
       subscription_id,
@@ -213,8 +236,24 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
           alert(v.error?.message ?? 'Payment verification failed');
         }
       },
-      prefill: { email: session.reader.email },
+      // `handler` above is the ONLY thing that records the subscription server-side (the
+      // webhook can only match a row that already exists), so a checkout that ends any
+      // other way leaves a possibly-charged reader with no access — and silence would hide
+      // it. Surface both exits so they know to retry or come to us.
+      modal: {
+        ondismiss: () => {
+          if (reportedFailure) return;
+          alert('Checkout was closed before your subscription was confirmed. If you were charged, contact support and we will activate it.');
+        },
+      },
+      // Only prefill what we actually have: phone-only readers have no email, and sending
+      // an empty string just puts a blank invalid field in front of them.
+      prefill: session.reader.email ? { email: session.reader.email } : undefined,
       theme: { color: '#6366f1' },
+    });
+    rzp.on('payment.failed', (resp: any) => {
+      reportedFailure = true;
+      alert(`Payment failed: ${resp?.error?.description ?? 'please try again.'}`);
     });
     rzp.open();
   };
@@ -600,18 +639,29 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
                   <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/15 shadow-sm">
                     <Lock className="h-6 w-6 text-primary" />
                   </div>
-                  <h3 className="font-serif text-2xl font-bold">Page {page} is Premium</h3>
+                  <h3 className="font-serif text-2xl font-bold">
+                    {sessionExpired ? 'Your session expired' : `Page ${page} is Premium`}
+                  </h3>
                   <p className="mt-2 text-sm text-foreground/80 max-w-md font-medium">
-                    {paper.free_page_count > 0
-                      ? `The first ${paper.free_page_count} page${paper.free_page_count > 1 ? 's are' : ' is'} free.`
-                      : 'This paper is premium.'}{' '}
-                    Subscribe to read the full issue.
+                    {sessionExpired ? (
+                      'You were signed out, so premium pages are locked. Sign in again — if your subscription is still active, this page unlocks straight away.'
+                    ) : (
+                      <>
+                        {paper.free_page_count > 0
+                          ? `The first ${paper.free_page_count} page${paper.free_page_count > 1 ? 's are' : ' is'} free.`
+                          : 'This paper is premium.'}{' '}
+                        Subscribe to read the full issue.
+                      </>
+                    )}
                   </p>
-                  {!session && (
+                  {(!session || sessionExpired) && (
                     <Button className="mt-6" size="lg" onClick={onRequireAuth}>
-                      Sign in to continue
+                      {sessionExpired ? 'Sign in again' : 'Sign in to continue'}
                     </Button>
                   )}
+                  {/* Plans stay hidden while a session is known-dead: this reader may already
+                      pay for exactly what these buttons would sell them again. */}
+                  {!sessionExpired && (
                   <div className="mt-6 w-full max-w-md space-y-2 text-left">
                     {tierPlans.map(p => {
                       const discountPct = Math.max(0, Math.min(100, p.offer_pct || 0));
@@ -642,6 +692,7 @@ export function PaperViewer({ slug, basePath = '', session, orgName, logoUrl, on
                       );
                     })}
                   </div>
+                  )}
                 </CardContent>
               </Card>
             ) : pageUrl ? (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Routes, Route, useParams, Navigate, Link, useNavigate } from 'react-router-dom';
 import { readerApi } from '../lib/api';
 import { useReaderSession } from './lib';
@@ -81,6 +81,15 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
   const [logoError, setLogoError] = useState(false);
   const [isSuspended, setIsSuspended] = useState(false);
   const [isNotFound, setIsNotFound] = useState(false);
+
+  // The server rejected our stored reader token: bin it and ask for a fresh sign-in.
+  // useCallback because PaperViewer holds this in a fetch dependency list — an unstable
+  // identity there would refetch the paper on every render of this component.
+  const handleSessionExpired = useCallback(() => {
+    signOut();
+    setAuthMode('login');
+    setAuthOpen(true);
+  }, [signOut]);
 
   useEffect(() => {
     readerApi.getSettings(slug).then(res => {
@@ -182,7 +191,7 @@ function ReaderInner({ slug, basePath }: { slug: string; basePath: string }) {
           <Route path="today" element={<TodayRedirect slug={slug} basePath={basePath} />} />
           <Route path="paper/:id" element={<PaperRedirect slug={slug} basePath={basePath} />} />
           <Route path="account" element={<ReaderAccount slug={slug} basePath={basePath} session={session} orgName={displayName} onRequireAuth={() => openAuth('login')} onSignedOut={() => { signOut(); navigate(basePath || '/', { replace: true }); }} />} />
-          <Route path=":date/:edition/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} />} />
+          <Route path=":date/:edition/:id" element={<PaperViewer slug={slug} basePath={basePath} session={session} orgName={displayName} logoUrl={logoUrl} onRequireAuth={() => openAuth('login')} onSessionExpired={handleSessionExpired} />} />
           <Route path="privacy" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="privacy" />} />
           <Route path="disclaimer" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="disclaimer" />} />
           <Route path="terms" element={<ReaderInfoPage slug={slug} basePath={basePath} orgName={displayName} type="terms" />} />

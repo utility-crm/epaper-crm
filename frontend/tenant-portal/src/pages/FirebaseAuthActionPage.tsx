@@ -66,7 +66,13 @@ export const FirebaseAuthActionPage: React.FC = () => {
           if (res.ok) {
             const data = await res.json() as { ok: boolean; data?: { token: string; reader: any } };
             if (data.ok && data.data?.token) {
-              localStorage.setItem(`epaper:readerToken:${slug}`, data.data.token);
+              // Must be the same shape useReaderSession reads / signIn writes
+              // ({ token, reader }). Storing the bare JWT here left every later
+              // reader load parsing a non-JSON string.
+              localStorage.setItem(
+                `epaper:readerToken:${slug}`,
+                JSON.stringify({ token: data.data.token, reader: data.data.reader })
+              );
             }
           }
         }
