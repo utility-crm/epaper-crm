@@ -7,6 +7,7 @@ import { createRazorpayPlan, createSubscription, cancelSubscription, verifySubsc
 import { hashPassword } from './password';
 import { sendEmail, refundEmailHtml, sendRenewalMail } from './email';
 import { grantsRouter, ensureGrantColumns, may } from './admin-grants';
+import { subscriptionTerm, recoveredSubRow } from './reader-sub-row';
 
 export interface Env {
   TENANT_ENCRYPTION_KEY: string;
@@ -22,8 +23,6 @@ export interface Env {
 }
 
 const app = new Hono<{ Bindings: Env }>();
-
-const INTERVAL_MONTHS: Record<SubscriptionInterval, number> = { monthly: 1, '6month': 6, '12month': 12 };
 
 // How many recurring cycles a subscription runs before Razorpay stops (max ~10 years).
 const TOTAL_COUNT: Record<SubscriptionInterval, number> = { monthly: 120, '6month': 20, '12month': 10 };
@@ -239,20 +238,79 @@ app.post('/api/billing/tenant/:slug/webhook', async (c) => {
 
     // Match the event to a local reader subscription by Razorpay subscription id.
     const subId = event.payload?.subscription?.entity?.id as string | undefined;
-    const row = subId
+    let row = subId
       ? await db.prepare('SELECT id, plan_type FROM reader_subscriptions WHERE razorpay_sub_id = ?').bind(subId).first<{ id: string; plan_type: string }>()
       : null;
+
+    // Recovery: a paid subscription with no local row. /reader/verify is the only other
+    // writer of reader_subscriptions, and it runs from Razorpay Checkout's browser
+    // `handler` callback — which is not guaranteed to run at all. A closed tab, a dropped
+    // connection or a crash after the debit leaves the reader charged with nothing
+    // unlocked, and reader_subscriptions rows are the ONLY thing that unlocks premium
+    // pages. The webhook is the sole server-to-server signal, so it has to be able to
+    // create the row itself instead of just noting that it matched nothing.
+    //
+    // The data is already here: createSubscription() (razorpay.ts) sends
+    // notes: { plan_id, tier_id, reader_id } and Razorpay echoes them back. Only plan_id
+    // and reader_id are used — tier_id and the interval are read off the local `plans` row
+    // because tier_id is what actually unlocks content, and a webhook body is external
+    // input (signature-verified, but not ours) that must not get to name its own tier.
+    if (subId && !row) {
+      try {
+        const notes = event.payload?.subscription?.entity?.notes as Record<string, unknown> | undefined;
+        const notedPlanId = typeof notes?.plan_id === 'string' ? notes.plan_id : null;
+        const plan = notedPlanId
+          ? await db.prepare('SELECT id, tier_id, interval FROM plans WHERE id = ?')
+              .bind(notedPlanId).first<{ id: string; tier_id: string; interval: SubscriptionInterval }>()
+          : null;
+        const recovered = recoveredSubRow({
+          event: event.event, subId, notes, plan,
+          paymentId: event.payload?.payment?.entity?.id ?? null,
+        });
+        // reader_id carries no FK (0001_init), so an id naming nobody would insert an
+        // orphan entitlement that no reader can see and no org can cancel.
+        const reader = recovered
+          ? await db.prepare('SELECT id FROM readers WHERE id = ?').bind(recovered.reader_id).first<{ id: string }>()
+          : null;
+        if (recovered && reader) {
+          // Same INSERT ... ON CONFLICT(razorpay_sub_id) as /reader/verify, so a webhook and
+          // a browser callback racing on one subscription converge instead of erroring.
+          await db.prepare(
+            `INSERT INTO reader_subscriptions
+               (id, reader_id, razorpay_sub_id, plan_type, tier_id, plan_id, status, current_start, current_end, last_payment_id)
+             VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+             ON CONFLICT(razorpay_sub_id) DO UPDATE SET
+               status='active', current_start=excluded.current_start, current_end=excluded.current_end,
+               last_payment_id=excluded.last_payment_id, updated_at=CURRENT_TIMESTAMP`
+          ).bind(crypto.randomUUID(), recovered.reader_id, recovered.razorpay_sub_id, recovered.plan_type,
+                 recovered.tier_id, recovered.plan_id, recovered.current_start, recovered.current_end,
+                 recovered.last_payment_id).run();
+          // Re-read instead of assuming the generated id: on conflict the winning row keeps
+          // its own. row must be set for the event log below (subscription_id is NOT NULL),
+          // and setting it here also lets the switch below run — for a 'charged' event that
+          // re-applies the same term, which is idempotent, not a second cycle.
+          row = await db.prepare('SELECT id, plan_type FROM reader_subscriptions WHERE razorpay_sub_id = ?')
+            .bind(subId).first<{ id: string; plan_type: string }>();
+          console.log(`[billing-tenant] ${slug}: recovered subscription ${subId} for reader ${recovered.reader_id} from ${event.event}`);
+        } else {
+          console.warn(`[billing-tenant] ${slug}: ${event.event} for unknown subscription ${subId} — notes did not resolve to a known reader + plan`);
+        }
+      } catch (e) {
+        // Best-effort: a failed recovery must not turn a delivered webhook into a retry
+        // storm, so fall through to the unmatched 2xx below.
+        console.error(`[billing-tenant] ${slug}: recovery insert failed for ${subId}`, e);
+      }
+    }
 
     if (row) {
       switch (event.event) {
         case 'subscription.charged': {
           // Renewal succeeded — extend access by one interval.
-          const months = INTERVAL_MONTHS[(row.plan_type as SubscriptionInterval)] ?? 1;
-          const end = new Date(); end.setMonth(end.getMonth() + months);
+          const end = subscriptionTerm(row.plan_type as SubscriptionInterval).end;
           const paymentId = event.payload?.payment?.entity?.id ?? null;
           // renewal_notified_at is per-term: clear it so the next term warns again.
           await db.prepare("UPDATE reader_subscriptions SET status='active', current_end=?, last_payment_id=COALESCE(?, last_payment_id), renewal_notified_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?")
-            .bind(end.toISOString(), paymentId, row.id).run();
+            .bind(end, paymentId, row.id).run();
           break;
         }
         case 'subscription.cancelled':
@@ -265,7 +323,8 @@ app.post('/api/billing/tenant/:slug/webhook', async (c) => {
     }
 
     // Record the event against its subscription (idempotent on razorpay_event_id).
-    // subscription_id is NOT NULL + FK, so only log events we could match to a local sub.
+    // subscription_id is NOT NULL + FK, so only log events we could match to a local sub —
+    // which now includes the row the recovery path above just created.
     if (row) {
       await db.prepare(
         'INSERT OR IGNORE INTO reader_billing_events (id, subscription_id, event_type, razorpay_event_id, amount_paise, payload) VALUES (?, ?, ?, ?, ?, ?)'
@@ -344,9 +403,7 @@ app.post('/api/billing/tenant/:slug/reader/verify', async (c) => {
     const valid = await verifySubscriptionSignature(body.razorpay_payment_id, body.razorpay_subscription_id, body.razorpay_signature, keys.key_secret);
     if (!valid) return c.json(err(ErrorCode.UNAUTHORIZED, 'Payment verification failed'), 401);
 
-    const months = INTERVAL_MONTHS[plan.interval] ?? 1;
-    const now = new Date();
-    const end = new Date(now); end.setMonth(end.getMonth() + months);
+    const term = subscriptionTerm(plan.interval);
 
     const id = crypto.randomUUID();
     await db.prepare(
@@ -357,7 +414,7 @@ app.post('/api/billing/tenant/:slug/reader/verify', async (c) => {
          status='active', current_start=excluded.current_start, current_end=excluded.current_end,
          last_payment_id=excluded.last_payment_id, updated_at=CURRENT_TIMESTAMP`
     ).bind(id, reader.sub, body.razorpay_subscription_id, plan.interval, plan.tier_id, plan.id,
-           now.toISOString(), end.toISOString(), body.razorpay_payment_id).run();
+           term.start, term.end, body.razorpay_payment_id).run();
 
     // Upgrade/downgrade: this new mandate replaces any prior active subscription for the
     // reader. Cancel the old mandate(s) at Razorpay immediately so they stop auto-debiting —
@@ -367,7 +424,7 @@ app.post('/api/billing/tenant/:slug/reader/verify', async (c) => {
     ).bind(reader.sub, body.razorpay_subscription_id).all<{ id: string; razorpay_sub_id: string | null }>();
     for (const s of stale.results ?? []) await cancelSubscriptionRow(db, s, true, keys);
 
-    return c.json(ok({ subscription_id: id, tier_id: plan.tier_id, current_end: end.toISOString() }));
+    return c.json(ok({ subscription_id: id, tier_id: plan.tier_id, current_end: term.end }));
   } catch (e) {
     return c.json(err(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Verify failed'), 500);
   }

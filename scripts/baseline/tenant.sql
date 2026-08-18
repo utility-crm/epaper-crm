@@ -59,3 +59,12 @@ INSERT OR IGNORE INTO _migrations (name) SELECT '0012_auth_tokens.sql'
 
 INSERT OR IGNORE INTO _migrations (name) SELECT '0012_signup_throttle.sql'
   WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='signup_throttle');
+
+-- 0014 is the one migration whose column predates its own migration file: reader
+-- refunds shipped with last_payment_id ALTERed in at runtime by ensureBillingColumns()
+-- in workers/billing-tenant. So EVERY tenant that has served a billing request already
+-- has the column with nothing in the ledger — without this guard, 0014's plain ALTER
+-- (SQLite has no ADD COLUMN IF NOT EXISTS) aborts migrate-all-tenants.sh on the first
+-- live tenant it reaches.
+INSERT OR IGNORE INTO _migrations (name) SELECT '0014_reader_sub_last_payment.sql'
+  WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='reader_subscriptions' AND sql LIKE '%last_payment_id%');
