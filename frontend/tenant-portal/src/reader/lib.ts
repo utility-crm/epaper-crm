@@ -9,8 +9,19 @@ export interface ReaderSession {
 export function useReaderSession(slug: string) {
   const key = `epaper:readerToken:${slug}`;
   const [session, setSession] = useState<ReaderSession | null>(() => {
+    // Read defensively: this runs during render, so a corrupt entry (or a bare JWT
+    // string written by an older client) would throw and take the whole reader app
+    // down. Anything that isn't the shape signIn writes is dropped, not trusted.
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.token === 'string' && parsed.reader && typeof parsed.reader === 'object') {
+        return parsed as ReaderSession;
+      }
+    } catch {}
+    localStorage.removeItem(key);
+    return null;
   });
 
   const signIn = useCallback((s: ReaderSession) => {

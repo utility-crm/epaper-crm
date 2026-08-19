@@ -151,9 +151,25 @@ readerAuthRouter.post('/:slug/verify-firebase', async (c) => {
       readerEmail = reader.email || email || '';
       // Backfill the missing identifier from the token too (e.g. an email-only row
       // logging in with a phone token gains its phone_number), and bind the uid.
+      //
+      // email_verified is write-once-UP, never cleared. A phone/OTP token carries no
+      // email claim at all, so binding the token's flag directly (it is always 0 for
+      // OTP) silently un-verified any reader who had verified their email and later
+      // signed in with a phone — losing a gate they had already passed. Raise it only
+      // when the token proves THIS row's address: linkEmail is non-null only for a
+      // Firebase-verified email, and the CASE sees the pre-UPDATE `email`, so a NULL
+      // one means we are backfilling linkEmail itself (verified by definition). A
+      // verified token for a DIFFERENT address must not mark the stored one verified.
       await db.prepare(
-        'UPDATE readers SET firebase_uid = ?, email = COALESCE(email, ?), phone_number = COALESCE(phone_number, ?), email_verified = ?, auth_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-      ).bind(uid, linkEmail, phone, emailVerified, provider, readerId).run();
+        `UPDATE readers SET
+           firebase_uid = ?1,
+           email = COALESCE(email, ?2),
+           phone_number = COALESCE(phone_number, ?3),
+           email_verified = CASE WHEN ?2 IS NOT NULL AND (email IS NULL OR email = ?2) THEN 1 ELSE email_verified END,
+           auth_provider = ?4,
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?5`
+      ).bind(uid, linkEmail, phone, provider, readerId).run();
     } else {
       readerId = crypto.randomUUID();
       await db.prepare(
