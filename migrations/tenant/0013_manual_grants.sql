@@ -26,8 +26,10 @@ ALTER TABLE reader_subscriptions ADD COLUMN renewal_notified_at DATETIME;
 -- The expiry sweep and the renewal sweep both scan (status, current_end).
 CREATE INDEX IF NOT EXISTS idx_reader_subs_status_end ON reader_subscriptions(status, current_end);
 
--- ABAC: JSON array of permission strings, e.g. '["manage_users","grant_subs"]'.
--- NULL means "fall back to role" — an owner keeps everything, which is how every
--- existing row behaves. Only staff who need narrower rights get an explicit array.
--- Pending owners (control DB, pre-activation) have no column and are always owners.
-ALTER TABLE org_users ADD COLUMN permissions TEXT;
+-- org_users.permissions was originally the fifth ALTER in this file; it now lives in
+-- 0015_org_users_permissions.sql. ensureGrantColumns() in workers/billing-tenant patches
+-- the four reader_subscriptions columns above in at runtime, so tenants exist that have
+-- them with no ledger row for this file — which makes the plain ALTERs above abort the
+-- migration run. This file therefore has to be baselined as already-applied on those
+-- tenants (scripts/baseline/tenant.sql), and no runtime patch adds permissions, so it
+-- could not stay here and be skipped along with them.
