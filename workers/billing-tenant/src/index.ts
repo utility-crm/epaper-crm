@@ -236,6 +236,21 @@ app.post('/api/billing/tenant/:slug/webhook', async (c) => {
     const event = JSON.parse(payloadStr);
     await ensureBillingColumns(db);
 
+    // Razorpay's per-event idempotency key is the x-razorpay-event-id HEADER. The webhook
+    // body has NO top-level `id` and `account_id` is constant per merchant, so the old
+    // `event.id || event.account_id || randomUUID()` resolved to account_id in practice —
+    // one value for every event this merchant ever sends, which the UNIQUE razorpay_event_id
+    // then made collide, so INSERT OR IGNORE silently dropped every event after the first.
+    // (billing-platform hit the same trap; see the matching comment there.)
+    //
+    // Required, never defaulted: this id now gates the state change below, and a random
+    // fallback would quietly re-apply a replayed charge on every redelivery.
+    const eventId = c.req.header('x-razorpay-event-id');
+    if (!eventId) {
+      console.error(`[billing-tenant] ${slug}: webhook with no x-razorpay-event-id — cannot deduplicate, refusing`);
+      return c.json(err(ErrorCode.BAD_REQUEST, 'Missing x-razorpay-event-id'), 400);
+    }
+
     // Match the event to a local reader subscription by Razorpay subscription id.
     const subId = event.payload?.subscription?.entity?.id as string | undefined;
     let row = subId
@@ -288,7 +303,8 @@ app.post('/api/billing/tenant/:slug/webhook', async (c) => {
           // Re-read instead of assuming the generated id: on conflict the winning row keeps
           // its own. row must be set for the event log below (subscription_id is NOT NULL),
           // and setting it here also lets the switch below run — for a 'charged' event that
-          // re-applies the same term, which is idempotent, not a second cycle.
+          // writes the same term this insert just wrote, once; a redelivery of the same event
+          // is stopped by the event-id guard there, not by this branch.
           row = await db.prepare('SELECT id, plan_type FROM reader_subscriptions WHERE razorpay_sub_id = ?')
             .bind(subId).first<{ id: string; plan_type: string }>();
           console.log(`[billing-tenant] ${slug}: recovered subscription ${subId} for reader ${recovered.reader_id} from ${event.event}`);
@@ -302,33 +318,51 @@ app.post('/api/billing/tenant/:slug/webhook', async (c) => {
       }
     }
 
+    // Apply this event's effect exactly once. Razorpay redelivers webhooks (and they can be
+    // replayed by hand), and mutating before logging meant every redelivery of one
+    // subscription.charged reset current_end to now + interval — quietly extending access.
+    //
+    // The mutation and the event log go in ONE db.batch(), which D1 runs as a single
+    // transaction, sequentially. The mutation is guarded on the event id not being logged yet
+    // and runs FIRST, so it still sees the pre-insert state. First delivery: guard passes, row
+    // mutates, event logs. Redelivery: guard fails, mutation no-ops, insert is ignored, still a
+    // 2xx. A crash mid-batch rolls BOTH back so the retry re-applies — whereas logging first
+    // and mutating second would record the event and lose the state change for good.
     if (row) {
+      const notLogged = 'NOT EXISTS (SELECT 1 FROM reader_billing_events WHERE razorpay_event_id = ?)';
+      let stateChange: D1PreparedStatement | null = null;
       switch (event.event) {
         case 'subscription.charged': {
           // Renewal succeeded — extend access by one interval.
           const end = subscriptionTerm(row.plan_type as SubscriptionInterval).end;
           const paymentId = event.payload?.payment?.entity?.id ?? null;
           // renewal_notified_at is per-term: clear it so the next term warns again.
-          await db.prepare("UPDATE reader_subscriptions SET status='active', current_end=?, last_payment_id=COALESCE(?, last_payment_id), renewal_notified_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?")
-            .bind(end, paymentId, row.id).run();
+          stateChange = db.prepare(
+            `UPDATE reader_subscriptions
+                SET status='active', current_end=?, last_payment_id=COALESCE(?, last_payment_id),
+                    renewal_notified_at=NULL, updated_at=CURRENT_TIMESTAMP
+              WHERE id=? AND ${notLogged}`
+          ).bind(end, paymentId, row.id, eventId);
           break;
         }
         case 'subscription.cancelled':
         case 'subscription.completed':
         case 'subscription.halted':
-          await db.prepare("UPDATE reader_subscriptions SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?")
-            .bind(row.id).run();
+          stateChange = db.prepare(
+            `UPDATE reader_subscriptions
+                SET status='cancelled', cancelled_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+              WHERE id=? AND ${notLogged}`
+          ).bind(row.id, eventId);
           break;
       }
-    }
 
-    // Record the event against its subscription (idempotent on razorpay_event_id).
-    // subscription_id is NOT NULL + FK, so only log events we could match to a local sub —
-    // which now includes the row the recovery path above just created.
-    if (row) {
-      await db.prepare(
+      // subscription_id is NOT NULL + FK, so only an event matched to a local sub can be
+      // logged — which now includes the row the recovery path above just created.
+      const logEvent = db.prepare(
         'INSERT OR IGNORE INTO reader_billing_events (id, subscription_id, event_type, razorpay_event_id, amount_paise, payload) VALUES (?, ?, ?, ?, ?, ?)'
-      ).bind(crypto.randomUUID(), row.id, event.event, event.id || event.account_id || crypto.randomUUID(), event.payload?.payment?.entity?.amount || 0, payloadStr).run();
+      ).bind(crypto.randomUUID(), row.id, event.event, eventId, event.payload?.payment?.entity?.amount || 0, payloadStr);
+
+      await db.batch(stateChange ? [stateChange, logEvent] : [logEvent]);
     }
 
     return c.json(ok({ processed: true, matched: !!row }));
