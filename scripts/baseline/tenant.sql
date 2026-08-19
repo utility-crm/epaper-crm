@@ -60,11 +60,24 @@ INSERT OR IGNORE INTO _migrations (name) SELECT '0012_auth_tokens.sql'
 INSERT OR IGNORE INTO _migrations (name) SELECT '0012_signup_throttle.sql'
   WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='signup_throttle');
 
--- 0014 is the one migration whose column predates its own migration file: reader
--- refunds shipped with last_payment_id ALTERed in at runtime by ensureBillingColumns()
--- in workers/billing-tenant. So EVERY tenant that has served a billing request already
--- has the column with nothing in the ledger — without this guard, 0014's plain ALTER
--- (SQLite has no ADD COLUMN IF NOT EXISTS) aborts migrate-all-tenants.sh on the first
--- live tenant it reaches.
+-- 0013 and 0014 are the migrations whose columns predate their own migration files:
+-- workers/billing-tenant ALTERs them in at runtime and swallows the duplicate-column error
+-- (ensureGrantColumns() in admin-grants.ts for 0013's four reader_subscriptions columns,
+-- ensureBillingColumns() in index.ts for 0014's last_payment_id). Any tenant that has served
+-- a billing request already has the columns with nothing in the ledger, so the plain ALTERs
+-- (SQLite has no ADD COLUMN IF NOT EXISTS) abort the apply loop on the first such tenant.
+--
+-- 0013's guard reads grant_type alone because ensureGrantColumns() adds all four of its
+-- reader_subscriptions columns in one call — grant_type present means the rest are too. It
+-- deliberately does not check org_users.permissions: no runtime patch adds that column, so
+-- it moved to 0015 rather than being skipped along with this file.
+INSERT OR IGNORE INTO _migrations (name) SELECT '0013_manual_grants.sql'
+  WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='reader_subscriptions' AND sql LIKE '%grant_type%');
+
 INSERT OR IGNORE INTO _migrations (name) SELECT '0014_reader_sub_last_payment.sql'
   WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='reader_subscriptions' AND sql LIKE '%last_payment_id%');
+
+-- Tenants that applied 0013 while it still carried the org_users ALTER already have the
+-- column; 0015 must not re-add it for them.
+INSERT OR IGNORE INTO _migrations (name) SELECT '0015_org_users_permissions.sql'
+  WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='org_users' AND sql LIKE '%permissions%');
