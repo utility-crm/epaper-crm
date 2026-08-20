@@ -114,13 +114,22 @@ VITE_FIREBASE_APP_ID=1:1234567890:web:abcdef...
 Set `FIREBASE_PROJECT_ID` inside your Cloudflare Workers environment using `wrangler`:
 ```bash
 # Set for Admin Worker
-npx wrangler secret put FIREBASE_PROJECT_ID --name epaper-worker-admin
+npx wrangler secret put FIREBASE_PROJECT_ID --name epaper-admin
 # (Enter your Firebase Project ID, e.g., your-project-id)
 
 # Set for Content Worker
-npx wrangler secret put FIREBASE_PROJECT_ID --name epaper-worker-content
+npx wrangler secret put FIREBASE_PROJECT_ID --name epaper-content
 # (Enter your Firebase Project ID, e.g., your-project-id)
 ```
+
+> **`--name` must match the deployed worker name exactly.** The real names are the
+> `"name"` field of each `workers/*/wrangler.jsonc` — `epaper-admin`, `epaper-auth`,
+> `epaper-content`, `epaper-gateway`, `epaper-provision`, `epaper-support`,
+> `epaper-billing-platform`, `epaper-billing-tenant`. A typo does **not** error:
+> `wrangler secret put` creates the secret on a brand-new empty worker and reports
+> success, while the real worker still has no key. That is how reader verification
+> mail silently failed — the key sat on a phantom `epaper-worker-content`.
+> Verify with `cd workers/<dir> && npx wrangler secret list` after setting.
 Or define it inside `wrangler.toml` under `[vars]`:
 ```toml
 [vars]
@@ -131,15 +140,15 @@ FIREBASE_PROJECT_ID = "your-project-id"
 Verification / reset mail is sent by the workers via Resend (see §3). Both workers need:
 ```bash
 # Resend API key — secret, never committed. Rotate here, nowhere else.
-npx wrangler secret put RESEND_API_KEY --name epaper-worker-auth
-npx wrangler secret put RESEND_API_KEY --name epaper-worker-content
+npx wrangler secret put RESEND_API_KEY --name epaper-auth
+npx wrangler secret put RESEND_API_KEY --name epaper-content
 ```
 Plus non-secret vars in each worker's `wrangler.jsonc`:
 ```jsonc
 {
   "vars": {
     "AUTH_MAIL_DOMAIN": "e-auth.epaperspace.com",       // verified sending domain (rotatable)
-    "AUTH_LINK_BASE": "https://portal.epaperspace.com",  // auth worker: publisher link host
+    "AUTH_LINK_BASE": "https://epaperspace.com",  // auth worker: publisher link host (served at apex by tenant-portal SPA)
     "PUBLIC_APP_BASE": "https://epaperspace.com"         // content worker: fallback reader link host
   }
 }

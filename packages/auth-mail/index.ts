@@ -147,7 +147,18 @@ export async function sendAuthMail(env: AuthMailEnv, input: AuthMailInput): Prom
     subject: isVerify ? `Verify your email for ${input.brandName}` : `Reset your ${input.brandName} password`,
     html: authMailHtml(input),
     ...(input.replyTo ? { reply_to: input.replyTo } : {}),
-    tags: [{ name: 'kind', value: input.purpose }],
+    // lane + slug are the exact tag names the Resend webhook copies into email_events
+    // (workers/billing-platform/src/index.ts), so verification and reset mail land in the
+    // same CRM delivery view as platform mail. Without them both columns were written
+    // null and an auth send was unverifiable: the endpoints answer 200 whether or not
+    // Resend accepted, by design, so a dead sender looked identical to a working one.
+    // Resend only accepts [A-Za-z0-9_-] in a tag value; slug is already DNS-safe, but
+    // re-filter so a hand-edited one can never fail the whole send.
+    tags: [
+      { name: 'kind', value: input.purpose },
+      { name: 'lane', value: isVerify ? 'auth_verify' : 'auth_reset' },
+      { name: 'slug', value: input.slug.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 48) || 'unknown' },
+    ],
   };
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
