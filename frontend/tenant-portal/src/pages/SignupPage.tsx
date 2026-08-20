@@ -121,7 +121,7 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
         
         <div className="relative z-10 max-w-lg">
           <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mb-10 shadow-xl overflow-hidden p-2">
-            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
+            <img src="/logo.svg" alt="Logo" className="w-full h-full object-contain" />
           </div>
           
           <h1 className="text-5xl font-extrabold leading-tight tracking-tight mb-6 text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-400">
@@ -169,7 +169,7 @@ export function SignupPage({ onSignup }: { onSignup: (token: string, slug: strin
           
           <div className="text-center mb-6">
             <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 border border-slate-100 shadow-sm p-2">
-              <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
+              <img src="/logo.svg" alt="Logo" className="w-full h-full object-contain" />
             </div>
             <h1 className="text-3xl font-extrabold text-slate-900 mb-2" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>Create an account</h1>
             <p className="text-slate-500 text-sm">Sign up to provision your organisation workspace.</p>

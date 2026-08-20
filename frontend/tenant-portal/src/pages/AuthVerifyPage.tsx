@@ -53,7 +53,7 @@ export function AuthVerifyPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-8" style={{ fontFamily: "'Inter', sans-serif" }}>
       <div className="w-full max-w-[420px] text-center">
         <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 border border-slate-100 shadow-sm p-2">
-          <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
+          <img src="/logo.svg" alt="Logo" className="w-full h-full object-contain" />
         </div>
 
         {state === 'working' && (
