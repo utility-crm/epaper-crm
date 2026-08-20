@@ -17,6 +17,13 @@ type OwnerRow = { email_verified: number; auth_provider: string; password_hash: 
 // attacker must not be able to use them to discover which emails have accounts.
 const GENERIC_SEND = 'If that address has an account, an email is on its way.';
 
+// Reset answers with a slightly different generic: some accounts have no password at
+// all (Google/Firebase), and those are exactly the ones that should sign in with their
+// provider button instead of waiting for a reset mail. Still reveals nothing — every
+// caller gets the same sentence, whether we mailed, skipped a mail, or found nothing.
+const RESET_GENERIC_SEND =
+  'If that address has an account, a reset link is on its way. Accounts that sign in with Google can use the Google button on the login page.';
+
 function linkBase(env: Env): string {
   return env.AUTH_LINK_BASE || 'https://epaperspace.com';
 }
@@ -208,15 +215,22 @@ verifyEmailRouter.post('/password-reset/request', async (c) => {
     if (tenant) {
       const owner = await readOwner(c.env, tenant, email);
       // No password stored means a Firebase-only identity: there is nothing to reset,
-      // and mailing a reset link would be misleading.
+      // and mailing a reset link would be misleading. The reply below tells every caller
+      // generically that such accounts sign in with Google instead, so this case is no
+      // longer indistinguishable from "we mailed you" — without naming this address.
       if (owner?.password_hash) {
-        await mailToken(c.env, tenant, email, 'password_reset')
-          .catch((e) => console.error('auth-mail: reset send failed:', e));
+        // Mailed in the background, matching the reader lane: an awaited send makes the
+        // response measurably slower when an account exists, which is a timing oracle
+        // that undoes the generic body above.
+        c.executionCtx?.waitUntil(
+          mailToken(c.env, tenant, email, 'password_reset')
+            .catch((e) => console.error('auth-mail: reset send failed:', e)),
+        );
       }
     }
   }
 
-  return c.json(ok({ message: 'If that address has an account, a reset link is on its way.' }));
+  return c.json(ok({ message: RESET_GENERIC_SEND }));
 });
 
 verifyEmailRouter.post('/password-reset/confirm', async (c) => {
