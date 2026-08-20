@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { portalApi } from '../lib/api';
 import { useCurrencyConverter } from '../lib/useCurrencyConverter';
+import { BrandLockup, PublisherCarousel, TestimonialsSection, FaqSection } from './LandingSections';
 import './LandingPage.css';
 
 interface PageMetaProps {
@@ -50,10 +51,15 @@ const PageLayout: React.FC<{
   subtitle: string;
   currentPage: string;
   meta: PageMetaProps;
+  /** Sections rendered full-width between the page content and the CTA banner. */
+  extraSections?: React.ReactNode;
+  /** Second hero-CTA button; defaults to "View Pricing". */
+  ctaSecondary?: { label: string; to: string };
   children: React.ReactNode;
-}> = ({ title, subtitle, currentPage, meta, children }) => {
+}> = ({ title, subtitle, currentPage, meta, extraSections, ctaSecondary, children }) => {
   useSEOMeta(meta);
   const currentYear = new Date().getFullYear();
+  const secondary = ctaSecondary ?? { label: 'View Pricing', to: '/pricing' };
 
   return (
     <div className="landing">
@@ -61,14 +67,13 @@ const PageLayout: React.FC<{
       <header className="landing-nav sticky-header">
         <div className="landing-container landing-nav__inner">
           <Link to="/" className="landing-nav__brand" aria-label="ePaperSpace Home">
-            <img src="/logo.png" alt="ePaperSpace Logo" className="brand-icon-img" style={{ height: '32px', width: 'auto', marginRight: '8px' }} />
-            ePaper<span>Space</span>
+            <BrandLockup />
           </Link>
 
           <nav className="landing-nav__menu" aria-label="Main Navigation">
             <Link to="/" className="landing-nav__link">Home</Link>
             <Link to="/about" className="landing-nav__link">About</Link>
-            <Link to="/services" className="landing-nav__link">Services & Editor</Link>
+            <Link to="/services" className="landing-nav__link">Services</Link>
             <Link to="/pricing" className="landing-nav__link">Pricing</Link>
             <Link to="/contact" className="landing-nav__link">Contact</Link>
           </nav>
@@ -96,6 +101,8 @@ const PageLayout: React.FC<{
         </div>
       </main>
 
+      {extraSections}
+
       {/* CTA Section */}
       <section className="landing-cta-banner">
         <div className="landing-container landing-cta-banner__inner">
@@ -105,8 +112,8 @@ const PageLayout: React.FC<{
             <Link to="/signup" className="landing-btn landing-btn--primary landing-btn--lg">
               Start for Free
             </Link>
-            <Link to="/contact" className="landing-btn landing-btn--secondary landing-btn--lg">
-              Get Custom Quotes
+            <Link to={secondary.to} className="landing-btn landing-btn--outline landing-btn--lg">
+              {secondary.label}
             </Link>
           </div>
         </div>
@@ -118,9 +125,8 @@ const PageLayout: React.FC<{
           <div className="landing-footer__grid">
             {/* Brand & Social Media */}
             <div className="landing-footer__col">
-              <Link to="/" className="landing-footer__brand" style={{ display: 'flex', alignItems: 'center' }}>
-                <img src="/logo.png" alt="ePaperSpace Logo" className="brand-icon-img" style={{ height: '32px', width: 'auto', marginRight: '8px' }} />
-                ePaper<span>Space</span>
+              <Link to="/" className="landing-footer__brand">
+                <BrandLockup />
               </Link>
               <p className="landing-footer__desc">
                 The comprehensive digital newspaper publishing solution combining an interactive Article Clickmask Editor with a robust White-Label SaaS Platform.
@@ -273,6 +279,14 @@ export const PricingInfoPage: React.FC = () => {
         description: 'Transparent pricing plans including full access to the ePaper Clickmask Editor Studio, Custom Domain Platform, Paywall, and Unlimited Readers.',
         path: '/pricing',
       }}
+      ctaSecondary={{ label: 'Talk to Sales', to: '/contact' }}
+      extraSections={
+        <>
+          <PublisherCarousel />
+          <TestimonialsSection />
+          <FaqSection />
+        </>
+      }
     >
       <div className="landing-legal-doc" style={{ maxWidth: 1200, margin: '0 auto' }}>
         <h2 style={{ textAlign: 'center', marginBottom: 40, borderBottom: 'none', paddingBottom: 0 }}>Choose the Right Edition for Your Readership</h2>
