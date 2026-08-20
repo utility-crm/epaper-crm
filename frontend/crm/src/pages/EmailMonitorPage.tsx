@@ -27,6 +27,12 @@ const EVENT_COLOR: Record<string, string> = {
 const LANE_LABEL: Record<string, string> = {
   reader_refund: 'Reader refund',
   platform_refund: 'Platform refund',
+  // Tagged by packages/auth-mail. These are the only view onto whether a verification
+  // or reset link actually reached anyone: both request endpoints answer 200 whether or
+  // not Resend accepted (deliberately, to prevent account enumeration), so a dead sender
+  // is otherwise indistinguishable from a working one.
+  auth_verify: 'Email verification',
+  auth_reset: 'Password reset',
 };
 
 export function EmailMonitorPage() {
@@ -52,14 +58,15 @@ export function EmailMonitorPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Email Monitoring</h1>
-          <p style={{ color: 'var(--color-text-muted)', marginTop: 4 }}>Resend delivery status for refund notifications (both lanes).</p>
+          <p style={{ color: 'var(--color-text-muted)', marginTop: 4 }}>Resend delivery status for refund, verification and password-reset mail.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <select value={laneFilter} onChange={(e) => setLaneFilter(e.target.value)}
             style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'transparent', color: 'inherit' }}>
             <option value="">All lanes</option>
-            <option value="reader_refund">Reader refund</option>
-            <option value="platform_refund">Platform refund</option>
+            {Object.entries(LANE_LABEL).map(([value, text]) => (
+              <option key={value} value={value}>{text}</option>
+            ))}
           </select>
           <button className="btn-secondary" onClick={load} style={{ fontSize: '0.85rem' }}>Refresh</button>
         </div>
