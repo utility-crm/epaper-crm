@@ -1,0 +1,28 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.kotlin/
+/app/release
+
+# Firebase config carries the Android API key, OAuth client ids and the signing
+# cert hash. Every other Firebase key in this repo comes from an env var or a
+# worker secret, so keep this one out of git too - copy the example and fill it
+# in from the Firebase console.
+google-services.json
+
+# Signing material
+*.jks
+*.keystore
+keystore.properties
