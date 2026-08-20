@@ -157,23 +157,29 @@ readerRouter.post('/:slug/signup', async (c) => {
       return c.json(err(ErrorCode.RATE_LIMITED, 'Too many sign-up attempts. Please try again later.'), 429);
     }
 
-    const existing = await db.prepare('SELECT id FROM readers WHERE email = ?').bind(email).first();
+    // LOWER() on both sides, and store the address lowercased. Addresses are
+    // case-insensitive in practice, so an exact match lets the same human sign up
+    // twice as Foo@Bar.com / foo@bar.com, and makes a later reset request for the
+    // other casing read as "no such account" — which silently swallows the mail.
+    // Same rule the publisher path already applies (workers/auth/src/verify-email.ts).
+    const emailLc = email.trim().toLowerCase();
+    const existing = await db.prepare('SELECT id FROM readers WHERE LOWER(email) = ?').bind(emailLc).first();
     if (existing) return c.json(err(ErrorCode.CONFLICT, 'Email already registered'), 409);
 
     const id = crypto.randomUUID();
     await db.prepare('INSERT INTO readers (id, email, password_hash, name) VALUES (?, ?, ?, ?)')
-      .bind(id, email, await hashPassword(password), name).run();
+      .bind(id, emailLc, await hashPassword(password), name).run();
 
     // Mail the verification link in the background. Signup stays soft: a slow or
     // failing send must not delay the response, and must not land in the catch below
     // where a created account would be reported as "publication not found".
     c.executionCtx?.waitUntil(
-      mailReaderToken(c.env, db, slug, id, email, 'verify_email')
+      mailReaderToken(c.env, db, slug, id, emailLc, 'verify_email')
         .catch((e) => console.error('auth-mail: reader signup verification send failed:', e))
     );
 
-    const token = await signReaderToken(c, id, slug, email);
-    return c.json(ok({ token, reader: { id, email, name }, email_verified: false }), 201);
+    const token = await signReaderToken(c, id, slug, emailLc);
+    return c.json(ok({ token, reader: { id, email: emailLc, name }, email_verified: false }), 201);
   } catch {
     return c.json(err(ErrorCode.SLUG_NOT_FOUND, 'Publication not found'), 404);
   }
@@ -188,8 +194,10 @@ readerRouter.post('/:slug/login', async (c) => {
     if (!(await readerPasswordAuthEnabled(db))) {
       return c.json(err(ErrorCode.FORBIDDEN, 'Email sign-in is not enabled for this publication.'), 403);
     }
-    const reader = await db.prepare('SELECT id, email, password_hash, name FROM readers WHERE email = ?')
-      .bind(email).first<{ id: string; email: string; password_hash: string; name: string }>();
+    // Case-insensitive, matching signup: a reader who typed mixed case at signup (or
+    // whose row predates the lowercase-on-write rule) must still be able to sign in.
+    const reader = await db.prepare('SELECT id, email, password_hash, name FROM readers WHERE LOWER(email) = ?')
+      .bind(email.trim().toLowerCase()).first<{ id: string; email: string; password_hash: string; name: string }>();
     if (!reader || !(await verifyPassword(password, reader.password_hash))) {
       return c.json(err(ErrorCode.UNAUTHORIZED, 'Invalid credentials'), 401);
     }
@@ -230,6 +238,13 @@ async function signReaderToken(c: any, id: string, slug: string, email: string):
 // from Firebase and have no password to reset.
 
 const GENERIC_SEND = 'If that address has an account, an email is on its way.';
+
+// Reset's own generic, mirroring the publisher lane in workers/auth/src/verify-email.ts:
+// Google/phone readers have no password_hash and so are never mailed a reset link, and
+// this sentence is what points them at their provider button instead of an inbox that
+// will stay empty. Identical for every caller, so it still reveals nothing.
+const RESET_GENERIC_SEND =
+  'If that address has an account, a reset link is on its way. Accounts that sign in with Google can use the Google button instead.';
 
 // Where the publication's own front door is. Read from the tenant record rather than
 // the request's Origin/Referer: those are caller-controlled, and trusting them would
@@ -326,22 +341,29 @@ readerRouter.post('/:slug/password-reset/request', async (c) => {
     return c.json(err(ErrorCode.FORBIDDEN, 'Email sign-in is not enabled for this publication.'), 403);
   }
 
-  if (allowSend(`reader-reset:${slug}:${email}`)) {
-    const row = await db.prepare('SELECT id, password_hash FROM readers WHERE email = ?')
-      .bind(email).first<{ id: string; password_hash: string | null }>();
+  // Canonicalize once: the throttle key and the lookup must both be case-insensitive.
+  // A case variant that missed the lookup used to read as "no such account" and swallow
+  // the mail, while also getting its own fresh throttle budget.
+  const emailLc = email.trim().toLowerCase();
+
+  if (allowSend(`reader-reset:${slug}:${emailLc}`)) {
+    const row = await db.prepare('SELECT id, email, password_hash FROM readers WHERE LOWER(email) = ?')
+      .bind(emailLc).first<{ id: string; email: string; password_hash: string | null }>();
     // No stored password means a Google/phone reader: nothing to reset, and a reset
     // link would only confuse them. Mail in the background so response time is identical
     // whether or not an account exists — an awaited send would be a timing oracle.
     if (row?.password_hash) {
+      // Mail the address as stored, not as typed: the stored row is the address the
+      // reader actually confirmed.
       c.executionCtx?.waitUntil(
-        mailReaderToken(c.env, db, slug, row.id, email, 'password_reset')
+        mailReaderToken(c.env, db, slug, row.id, row.email, 'password_reset')
           .catch((e) => console.error('auth-mail: reader password-reset send failed:', e))
       );
     }
   }
 
   // Same answer either way — this endpoint must not reveal who has an account here.
-  return c.json(ok({ message: 'If that address has an account, a reset link is on its way.' }));
+  return c.json(ok({ message: RESET_GENERIC_SEND }));
 });
 
 readerRouter.post('/:slug/password-reset/confirm', async (c) => {
